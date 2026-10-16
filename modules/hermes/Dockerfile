@@ -58,6 +58,8 @@ COPY scripts/ /opt/hermes-defaults/scripts/
 COPY profiles/ /opt/hermes-defaults/profiles/
 COPY plugins/log-issue-triage/ /opt/hermes/plugins/log-issue-triage/
 COPY plugins/learning-commands/ /opt/hermes/plugins/learning-commands/
+# /replay_<id>_<tx|stmt|pf> for email-intake review requests (#783).
+COPY plugins/intake-commands/ /opt/hermes/plugins/intake-commands/
 # Read-only financial email intake, shadow mode (#783).
 COPY plugins/email-intake/ /opt/hermes/plugins/platforms/email_intake/
 # Precompile the source tree's bytecode at build time (upstream #136618): the

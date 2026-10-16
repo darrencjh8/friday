@@ -1,0 +1,5 @@
+name: intake-commands
+version: 1.0.0
+description: "Answers email-intake /replay_<id>_<tx|stmt|pf> commands before the model sees them (#783)."
+kind: backend
+author: friday
