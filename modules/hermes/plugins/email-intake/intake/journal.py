@@ -56,6 +56,20 @@ CREATE TABLE IF NOT EXISTS pending_marks (
     uid INTEGER NOT NULL,
     PRIMARY KEY (folder, uidvalidity, uid)
 );
+CREATE TABLE IF NOT EXISTS notifications (
+    key TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    sent_at REAL
+);
+CREATE TABLE IF NOT EXISTS replays (
+    evidence_hash TEXT PRIMARY KEY,
+    destination TEXT NOT NULL,
+    subtype TEXT NOT NULL,
+    requested_at REAL NOT NULL,
+    done INTEGER NOT NULL DEFAULT 0
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -176,3 +190,42 @@ class Journal:
         self._db.execute("DELETE FROM pending_marks WHERE folder=? AND uidvalidity=? AND uid=?",
                          (folder, uidvalidity, uid))
         self._db.commit()
+
+    def queue_notification(self, key, text):
+        """Queue one message; a key already queued is never queued again."""
+        self._db.execute("INSERT OR IGNORE INTO notifications (key, text, created_at) VALUES (?,?,?)",
+                         (key, text, time.time()))
+        self._db.commit()
+
+    def has_notification(self, key):
+        return self._db.execute("SELECT 1 FROM notifications WHERE key = ?", (key,)).fetchone() is not None
+
+    def unsent_notifications(self, max_attempts):
+        return self._db.execute(
+            "SELECT key, text, attempts FROM notifications WHERE sent_at IS NULL AND attempts < ? "
+            "ORDER BY created_at, key", (max_attempts,)).fetchall()
+
+    def mark_notification_sent(self, key):
+        self._db.execute("UPDATE notifications SET sent_at = ? WHERE key = ?", (time.time(), key))
+        self._db.commit()
+
+    def note_notification_attempt(self, key):
+        self._db.execute("UPDATE notifications SET attempts = attempts + 1 WHERE key = ?", (key,))
+        self._db.commit()
+
+    def request_replay(self, evidence_hash, destination, subtype):
+        self._db.execute("INSERT OR IGNORE INTO replays VALUES (?,?,?,?,0)",
+                         (evidence_hash, destination, subtype, time.time()))
+        self._db.commit()
+
+    def pending_replays(self):
+        return self._db.execute("SELECT evidence_hash, destination, subtype FROM replays WHERE done = 0").fetchall()
+
+    def finish_replay(self, evidence_hash):
+        self._db.execute("UPDATE replays SET done = 1 WHERE evidence_hash = ?", (evidence_hash,))
+        self._db.commit()
+
+    def locations(self, account, evidence_hash):
+        return [(f, v, u, t) for f, v, u, t in self._db.execute(
+            "SELECT folder, uidvalidity, uid, updated_at FROM messages WHERE account = ? AND evidence_hash = ? "
+            "ORDER BY folder, uid", (account, evidence_hash))]

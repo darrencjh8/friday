@@ -223,6 +223,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_email_intake_parity.py -v
             - name: Test Hermes email-intake dispatch (#783, #796)
               run: python -m unittest modules/hermes/tests/test_email_intake_dispatch.py -v
+            - name: Test Hermes email-intake Telegram messages and /replay (#783)
+              run: python -m unittest modules/hermes/tests/test_email_intake_notify.py -v
 
     # The Hermes image is the only artifact the new WebUI ships inside, and every
     # other check in this workflow is text-only: an unreachable pinned commit, a

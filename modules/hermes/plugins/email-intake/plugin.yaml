@@ -8,7 +8,9 @@ description: >
   records the decision. Shadow mode never books, notifies, replies, or changes
   the mailbox; it rehearses each new expense transaction as a signed dry run
   (#796). Live dispatch is built but cannot be selected until the cutover
-  switch also turns the old watcher off. It never starts an agent turn.
+  switch also turns the old watcher off; live sends one Telegram message per
+  email to the home chat (TELEGRAM_BOT_TOKEN, TELEGRAM_HOME_CHANNEL). It never
+  starts an agent turn.
 author: friday
 requires_env:
   - name: EMAIL_INTAKE_MODE

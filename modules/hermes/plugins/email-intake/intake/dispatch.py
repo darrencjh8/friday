@@ -40,11 +40,14 @@ import sqlite3
 import time
 import urllib.request
 
+from . import mail, notify
+
 logger = logging.getLogger(__name__)
 
 EXPENSE = "expense"
 PORTFOLIO = "portfolio"
 ROUTED_STATUSES = ("shadow_actual_budget", "shadow_portfolio", "shadow_both")
+NOTICE_STATUSES = ("shadow_uncertain", "blocked_encrypted", "shadow_notify")
 MAX_ATTEMPTS = 3
 TERMINAL_OK = ("processed", "duplicate", "needs_confirmation", "skipped", "handed_off")
 INBOX = "INBOX"
@@ -250,6 +253,9 @@ class Dispatcher:
                     logger.warning("email-intake dispatch error: %s", type(error).__name__)
                     summary["errors"] = summary.get("errors", 0) + 1
                     self._mailbox.close()  # a dropped connection is reopened for the next email
+            if self._mode == "live":
+                self._replays(since, handoff, summary)
+                self._notices(since, summary)
         finally:
             self._mailbox.close()
         return summary
@@ -280,15 +286,84 @@ class Dispatcher:
         validity, newest, done = handoff
         return any(f == INBOX and v == validity and u <= newest and u in done for f, v, u, _ in locations)
 
-    def _one(self, evidence_hash, decision, locations, since, handoff, summary):
+    def _replays(self, since, handoff, summary):
+        """Uncertain mail the owner chose a destination for with /replay."""
+        for evidence_hash, destination, subtype in self._journal.pending_replays():
+            decision = {"destination": destination, "subtype": subtype}
+            locations = self._journal.locations(self._account, evidence_hash)
+            try:
+                self._one(evidence_hash, decision, locations, since, handoff, summary, owner_choice=True)
+            except Exception as error:  # noqa: BLE001
+                logger.warning("email-intake replay error: %s", type(error).__name__)
+                self._mailbox.close()
+                continue
+            if self._final(evidence_hash, decision):
+                self._journal.finish_replay(evidence_hash)
+
+    def _notices(self, since, summary):
+        """One message for new uncertain, blocked or notify-rule mail; nothing is booked."""
+        for evidence_hash, decision, locations in self._journal.routed(self._account, NOTICE_STATUSES):
+            key = f"{evidence_hash}:notice"
+            if self._journal.has_notification(key) or not any(t >= since for _, _, _, t in locations):
+                continue
+            try:
+                parsed = self._parse(locations)
+            except Exception as error:  # noqa: BLE001
+                logger.warning("email-intake notice error: %s", type(error).__name__)
+                self._mailbox.close()
+                continue
+            if parsed is None:
+                continue
+            destination = (decision or {}).get("destination")
+            if destination == "notify":
+                text = decision.get("message") or ""
+            elif destination == "uncertain":
+                text = notify.review_text(parsed.sender_domain, parsed.subject, evidence_hash)
+            else:
+                text = notify.blocked_text(parsed.sender_domain, parsed.subject)
+            if text:
+                self._journal.queue_notification(key, text)
+                summary["notices"] = summary.get("notices", 0) + 1
+
+    def _parse(self, locations):
+        for folder, validity, uid, _ in locations:
+            raw = self._mailbox.fetch(folder, validity, uid)
+            if raw:
+                return mail.parse(raw)
+        return None
+
+    def _final(self, evidence_hash, decision):
+        for kind, _ in self._legs(decision):
+            row = self._journal.dispatch_state(evidence_hash, kind, self._mode)
+            if row is None or row["status"] == "retry":
+                return False
+        return True
+
+    def _queue_result(self, evidence_hash, decision, raw):
+        key = f"{evidence_hash}:result"
+        if self._journal.has_notification(key) or not self._final(evidence_hash, decision):
+            return
+        records = []
+        for kind, _ in self._legs(decision):
+            row = self._journal.dispatch_state(evidence_hash, kind, self._mode)
+            if row["status"] != "handed_off":
+                records.append({**(row["result"] or {}), "_status": row["status"]})
+        parsed = mail.parse(raw)
+        text = notify.result_text(records, parsed.sender_domain, parsed.subject)
+        if text:
+            self._journal.queue_notification(key, text)
+
+    def _one(self, evidence_hash, decision, locations, since, handoff, summary, owner_choice=False):
         todo = []
         for kind, service in self._legs(decision):
             row = self._journal.dispatch_state(evidence_hash, kind, self._mode)
             if row is None or row["status"] == "retry":
                 todo.append((kind, service, (row or {}).get("attempts", 0)))
-        if not todo or not self._eligible(locations, since, handoff):
+        if not todo:
             return
-        if self._mode == "live" and self._handed_off(locations, handoff):
+        if not owner_choice and not self._eligible(locations, since, handoff):
+            return
+        if self._mode == "live" and not owner_choice and self._handed_off(locations, handoff):
             # The old watcher booked this email before the cutover.
             for kind, _, attempts in todo:
                 self._journal.save_dispatch(evidence_hash, kind, self._mode, request_id(self._mode, kind, evidence_hash),
@@ -307,6 +382,8 @@ class Dispatcher:
         evidence = base64.b64encode(raw).decode()
         for kind, service, attempts in todo:
             self._send(evidence_hash, kind, service, attempts, evidence, summary)
+        if self._mode == "live":
+            self._queue_result(evidence_hash, decision, raw)
         if self._mode == "live" and self._all_done(evidence_hash, decision):
             for folder, validity, uid, _ in locations:
                 if folder == INBOX:
