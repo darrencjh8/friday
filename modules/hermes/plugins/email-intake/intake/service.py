@@ -1,7 +1,10 @@
 """Email-intake runtime pieces that do not depend on the Hermes gateway (issue #783).
 
 Settings come from the environment; intake stays off unless explicitly
-enabled and fully configured, and only shadow mode exists in this iteration.
+enabled and fully configured. Shadow mode also rehearses: each new expense
+transaction is sent to expense-tracker as a signed dry run. Live dispatch is
+built (build_runner, mode "live") but cannot be selected until the cutover
+switch also turns the old watcher off.
 One owner lock per data directory guarantees a single active scanner even if
 the gateway builds a second adapter. The poll loop survives errors.
 """
@@ -14,7 +17,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import jev, senders
+from . import dispatch, jev, senders
 from .journal import Journal
 from .scanner import Scanner
 from .shadow import ShadowRunner
@@ -24,6 +27,9 @@ logger = logging.getLogger(__name__)
 MODES = ("shadow",)
 DEFAULT_INTERVAL = 300
 DEFAULT_SENDERS_FILE = "/opt/data/home/wiki/entities/email-senders.md"
+DEFAULT_EXPENSE_URL = "http://expense-tracker:8080"
+DEFAULT_PORTFOLIO_URL = "http://portfolio-tracker:8081"
+DEFAULT_DEDUP_DB = "/opt/data/expense-tracker-data/dedup.db"
 
 
 @dataclass
@@ -37,6 +43,10 @@ class Settings:
     data_dir: str = "/opt/data/email-intake"
     interval: int = DEFAULT_INTERVAL
     senders_file: str = DEFAULT_SENDERS_FILE
+    webhook_secret: str = field(default="", repr=False)
+    expense_url: str = DEFAULT_EXPENSE_URL
+    portfolio_url: str = DEFAULT_PORTFOLIO_URL
+    dedup_db: str = DEFAULT_DEDUP_DB
 
 
 def load_settings(get):
@@ -62,6 +72,10 @@ def load_settings(get):
         data_dir=(get("EMAIL_INTAKE_DATA_DIR", "") or "/opt/data/email-intake").strip(),
         interval=interval,
         senders_file=(get("EMAIL_INTAKE_SENDERS_FILE", "") or DEFAULT_SENDERS_FILE).strip(),
+        webhook_secret=(get("HERMES_WEBHOOK_SECRET", "") or "").strip(),
+        expense_url=(get("EMAIL_INTAKE_EXPENSE_URL", "") or DEFAULT_EXPENSE_URL).strip().rstrip("/"),
+        portfolio_url=(get("EMAIL_INTAKE_PORTFOLIO_URL", "") or DEFAULT_PORTFOLIO_URL).strip().rstrip("/"),
+        dedup_db=(get("EMAIL_INTAKE_DEDUP_DB", "") or DEFAULT_DEDUP_DB).strip(),
     )
 
 
@@ -109,7 +123,7 @@ def run_loop(run_once, interval, sleep, stop):
     while not stop.is_set():
         try:
             summary = run_once()
-            logger.info("email-intake shadow run: %s", summary)
+            logger.info("email-intake run: %s", summary)
         except Exception as error:  # noqa: BLE001 - counts and error type only, never content
             logger.warning("email-intake run failed: %s", type(error).__name__)
         sleep(interval)
@@ -125,8 +139,28 @@ def run_intake(settings, sleep, stop):
     run_loop(runner.run_once, settings.interval, sleep, stop)
 
 
+class Runner:
+    """Scan and classify, then hand routed mail to the dispatcher (rehearsal or live)."""
+
+    def __init__(self, classifier, dispatcher=None):
+        self._classifier = classifier
+        self._dispatcher = dispatcher
+
+    def run_once(self):
+        if self._dispatcher is not None:
+            # Fix the start time and handoff boundary before this run's mail is recorded.
+            self._dispatcher.prepare()
+        summary = self._classifier.run_once()
+        if self._dispatcher is not None:
+            try:
+                summary["dispatch"] = self._dispatcher.run()
+            except Exception as error:  # noqa: BLE001 - classification already succeeded
+                summary["dispatch"] = {"error": type(error).__name__}
+        return summary
+
+
 def build_runner(settings: Settings):
-    """The shadow runner for these settings, with real IMAP and Jev."""
+    """The runner for these settings, with real IMAP, Jev and trackers."""
     os.makedirs(settings.data_dir, mode=0o700, exist_ok=True)
     journal = Journal(Path(settings.data_dir) / "journal.db")
 
@@ -135,11 +169,26 @@ def build_runner(settings: Settings):
         imap.login(settings.imap_username, settings.imap_password)
         return imap
 
-    scanner = Scanner(connect, journal, account=settings.imap_username.lower(), baseline=True)
-    return ShadowRunner(
+    account = settings.imap_username.lower()
+    scanner = Scanner(connect, journal, account=account, baseline=True)
+    classifier = ShadowRunner(
         scanner=scanner,
         journal=journal,
         classify=lambda text, context="": jev.classify(state_text=text, api_key=settings.jev_api_key, context=context),
         senders=lambda: senders.load(settings.senders_file),
         notify_rules=lambda: senders.load_rules(settings.senders_file),
     )
+    if not settings.webhook_secret:
+        return Runner(classifier)
+    mode = "live" if settings.mode == "live" else "rehearsal"
+    dispatcher = dispatch.Dispatcher(
+        journal=journal,
+        mailbox=dispatch.ImapMailbox(connect),
+        post=dispatch.http_post,
+        secret=settings.webhook_secret,
+        urls={dispatch.EXPENSE: settings.expense_url, dispatch.PORTFOLIO: settings.portfolio_url},
+        account=account,
+        mode=mode,
+        boundary=lambda validity: dispatch.read_handoff_boundary(settings.dedup_db, validity),
+    )
+    return Runner(classifier, dispatcher)
