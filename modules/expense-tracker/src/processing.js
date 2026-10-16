@@ -224,6 +224,11 @@ export class ProcessingService {
     }
 
     const action = outcome?.action || "error";
+    if (action === "llm_unavailable") {
+      // Nothing was booked; like the old watcher, leave it retryable (#694).
+      this._journal.release(requestId);
+      return { request_id: requestId, kind, status: STATUS.FAILED, reason: "error", action, messages };
+    }
     const result = {
       request_id: requestId,
       kind,

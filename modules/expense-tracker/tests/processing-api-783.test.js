@@ -168,6 +168,13 @@ describe("ProcessingService (#783)", () => {
     expect(orchestrator.processEmail).toHaveBeenCalledTimes(2);
   });
 
+  it("an LLM outage is released for retry, as the old watcher retried it", async () => {
+    orchestrator.processEmail.mockResolvedValueOnce({ action: "llm_unavailable", details: "down" });
+    expect(await tx()).toMatchObject({ status: STATUS.FAILED, reason: "error", action: "llm_unavailable" });
+    expect((await tx()).status).toBe(STATUS.PROCESSED);
+    expect(orchestrator.processEmail).toHaveBeenCalledTimes(2);
+  });
+
   it("runs one request at a time", async () => {
     let active = 0;
     let peak = 0;

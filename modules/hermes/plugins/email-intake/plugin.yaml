@@ -3,10 +3,12 @@ label: Email intake
 kind: platform
 version: 1.0.0
 description: >
-  Read-only financial email intake (issue #783). Scans every mailbox folder
-  with EXAMINE and BODY.PEEK, classifies each new email once with Jev System
-  One, and records the decision. Shadow mode only: it never dispatches,
-  notifies, replies, or changes the mailbox, and never starts an agent turn.
+  Financial email intake (issue #783). Scans every mailbox folder with EXAMINE
+  and BODY.PEEK, classifies each new email once with Jev System One, and
+  records the decision. Shadow mode never books, notifies, replies, or changes
+  the mailbox; it rehearses each new expense transaction as a signed dry run
+  (#796). Live dispatch is built but cannot be selected until the cutover
+  switch also turns the old watcher off. It never starts an agent turn.
 author: friday
 requires_env:
   - name: EMAIL_INTAKE_MODE
@@ -28,3 +30,6 @@ optional_env:
   - name: EMAIL_INTAKE_INTERVAL
     description: "Seconds between scans (default 300, minimum 60)"
     password: false
+  - name: HERMES_WEBHOOK_SECRET
+    description: "Signs tracker /process requests; without it there is no rehearsal or dispatch"
+    password: true
