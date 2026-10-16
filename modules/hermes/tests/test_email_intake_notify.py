@@ -53,9 +53,9 @@ class ComposeTest(unittest.TestCase):
                                "Nothing is saved until you choose.")
 
     def test_review_notice_offers_the_three_replays_and_masks_long_numbers(self):
-        text = notify.review_text("bank.example", "Alert for card 4111111111111111", "0123456789abcdef")
+        text = notify.review_text("bank.example", "Alert for card 0000000000000000", "0123456789abcdef")
         self.assertIn("bank.example", text)
-        self.assertNotIn("4111111111111111", text)
+        self.assertNotIn("0000000000000000", text)
         for suffix in ("tx", "stmt", "pf"):
             self.assertIn(f"/replay_0123456789_{suffix}", text)
 
