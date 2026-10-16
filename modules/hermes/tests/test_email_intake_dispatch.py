@@ -9,6 +9,7 @@ import hmac
 import sqlite3
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -29,12 +30,21 @@ URLS = {dispatch.EXPENSE: "http://expense.test", dispatch.PORTFOLIO: "http://por
 class StoringImap(FakeImap):
     """FakeImap that also accepts UID STORE, so live mark-read can be observed."""
 
-    def __init__(self, *a, **kw):
+    def __init__(self, *a, read=(), fail_store=False, **kw):
         super().__init__(*a, **kw)
         self.seen = []
+        self.read = set(read)  # (folder, uid) already read before intake ran
+        self.fail_store = fail_store
 
     def uid(self, command, *args):
+        if command == "SEARCH" and args[-1] in ("SEEN", "ALL"):
+            self.commands.append(("UID", command) + args)
+            uids = [u for u, _ in self.folders[self.selected]
+                    if args[-1] == "ALL" or (self.selected, u) in self.read]
+            return "OK", [" ".join(str(u) for u in uids).encode()]
         if command == "STORE":
+            if self.fail_store:
+                raise OSError("connection dropped")
             self.commands.append(("UID", command) + args)
             self.seen.append((self.selected, int(args[0])))
             return "OK", [b""]
@@ -65,7 +75,7 @@ class Clock:
 
 
 class Harness:
-    def __init__(self, tmp, imap, answers, mode, boundary=None, tracker=None):
+    def __init__(self, tmp, imap, answers, mode, booked=None, tracker=None):
         self.journal = Journal(Path(tmp) / "j.db")
         self.imap = imap
         self.tracker = tracker or FakeTracker()
@@ -77,7 +87,7 @@ class Harness:
         )
         self.dispatcher = dispatch.Dispatcher(
             journal=self.journal, mailbox=dispatch.ImapMailbox(lambda: imap), post=self.tracker, secret=SECRET,
-            urls=URLS, account="acct", mode=mode, boundary=boundary, clock=self.clock,
+            urls=URLS, account="acct", mode=mode, booked=booked, clock=self.clock,
         )
         self.runner = service.Runner(self.classifier, self.dispatcher)
 
@@ -203,8 +213,8 @@ class LiveTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
 
-    def harness(self, imap, answers, boundary=lambda validity: 0, tracker=None):
-        h = Harness(self.tmp.name, imap, answers, "live", boundary=boundary, tracker=tracker)
+    def harness(self, imap, answers, booked=lambda validity: set(), tracker=None):
+        h = Harness(self.tmp.name, imap, answers, "live", booked=booked, tracker=tracker)
         self.addCleanup(h.journal.close)
         return h
 
@@ -251,39 +261,94 @@ class LiveTest(unittest.TestCase):
         h.run()
         self.assertEqual(h.tracker.calls[0][0], "http://expense.test/process/statement")
 
-    def test_mail_the_old_watcher_booked_is_never_sent_or_touched(self):
-        imap = StoringImap({"INBOX": [(5, make_mail(msgid="<old@x>")), (6, make_mail(msgid="<new@x>", body="new"))]})
-        h = self.harness(imap, good_answer(), boundary=lambda validity: 5)
-        self.seed(h, last_uid=4)
-        h.run()
-        self.assertEqual(len(h.tracker.calls), 1)
-        self.assertEqual(imap.seen, [("INBOX", 6)])
-        self.assertIn(("transaction", "handed_off"), [(k, s) for k, s, _, _ in h.rows("live")])
-
-    def test_inbox_mail_recorded_in_shadow_after_the_boundary_is_caught_up(self):
-        raw = make_mail()
-        imap = StoringImap({"INBOX": [(7, raw)], "Archive": [(3, make_mail(msgid="<z@x>", body="z"))]})
+    def shadow_era(self, imap, folders=("INBOX",)):
         shadow = Harness(self.tmp.name, imap, good_answer(), "rehearsal")
-        shadow.journal.checkpoint("INBOX", 1, 0, account="acct")
-        shadow.journal.checkpoint("Archive", 1, 0, account="acct")
-        shadow.classifier.run_once()  # shadow era: both recorded, nothing booked
+        for folder in folders:
+            shadow.journal.checkpoint(folder, 1, 0, account="acct")
+        shadow.classifier.run_once()
         shadow.journal.close()
-        h = self.harness(imap, good_answer(), boundary=lambda validity: 6)
+
+    def test_mail_the_old_watcher_booked_or_read_is_never_sent_or_touched(self):
+        imap = StoringImap({"INBOX": [(5, make_mail(msgid="<a@x>", body="aaa")), (6, make_mail(msgid="<b@x>", body="bbb")),
+                                      (7, make_mail(msgid="<c@x>", body="ccc"))]},
+                           read={("INBOX", 6)})
+        self.shadow_era(imap)
+        # 5 was booked; 6 was read (held by the old watcher, or read by the owner);
+        # 7 is unread and unbooked, e.g. an LLM outage: it is caught up now.
+        h = self.harness(imap, good_answer(), booked=lambda validity: {5})
         h.clock.now = 10 ** 12
         h.run()
-        # INBOX 7 is past the old watcher's last booking: booked now. The Archive email
-        # predates live mode and the old watcher never read it: left to the owner.
         self.assertEqual(len(h.tracker.calls), 1)
-        self.assertEqual(base64.b64decode(h.tracker.calls[0][1]["evidence"]["raw_email_b64"]), raw)
+        self.assertIn(b"ccc", base64.b64decode(h.tracker.calls[0][1]["evidence"]["raw_email_b64"]))
+        self.assertEqual(imap.seen, [("INBOX", 7)])
+        self.assertEqual([s for _, s, _, _ in h.rows("live")], ["processed"])
 
-    def test_no_trusted_boundary_means_nothing_is_dispatched(self):
+    def test_a_new_copy_of_mail_the_old_watcher_booked_is_not_sent(self):
+        raw = make_mail()
+        imap = StoringImap({"INBOX": [(5, raw)], "Archive": []}, read={("INBOX", 5)})
+        self.shadow_era(imap, ("INBOX", "Archive"))
+        h = self.harness(imap, good_answer(), booked=lambda validity: {5})
+        h.clock.now = time.time()  # live begins after the shadow era
+        h.run()
+        imap.folders["Archive"].append((8, raw))  # moved or copied after cutover
+        h.run()
+        self.assertEqual(h.tracker.calls, [])
+
+    def test_an_empty_booked_list_still_protects_read_mail(self):
+        imap = StoringImap({"INBOX": [(5, make_mail())]}, read={("INBOX", 5)})
+        self.shadow_era(imap)
+        h = self.harness(imap, good_answer(), booked=lambda validity: set())
+        h.clock.now = 10 ** 12
+        h.run()
+        self.assertEqual(h.tracker.calls, [])
+
+    def test_shadow_era_mail_outside_inbox_is_left_to_the_owner(self):
+        imap = StoringImap({"INBOX": [], "Archive": [(3, make_mail())]})
+        self.shadow_era(imap, ("INBOX", "Archive"))
+        h = self.harness(imap, good_answer())
+        h.clock.now = 10 ** 12
+        h.run()
+        self.assertEqual(h.tracker.calls, [])
+
+    def test_no_trusted_booked_list_means_nothing_is_dispatched(self):
         imap = StoringImap({"INBOX": [(5, make_mail())]})
-        h = self.harness(imap, good_answer(), boundary=lambda validity: None)
+        h = self.harness(imap, good_answer(), booked=lambda validity: None)
         self.seed(h)
         summary = h.run()
         self.assertEqual(h.tracker.calls, [])
         self.assertEqual(imap.seen, [])
         self.assertEqual(summary["dispatch"]["blocked"], "no_handoff_boundary")
+
+    def test_a_mailbox_error_on_one_email_does_not_stop_the_others(self):
+        imap = StoringImap({"INBOX": [(5, make_mail(msgid="<a@x>", body="aaa")),
+                                      (6, make_mail(msgid="<b@x>", body="bbb"))]})
+        h = self.harness(imap, good_answer())
+        self.seed(h)
+        real = h.dispatcher._mailbox.fetch
+        calls = []
+
+        def flaky(folder, validity, uid):
+            calls.append(uid)
+            if uid == 5 and calls.count(5) == 1:
+                raise OSError("connection dropped")
+            return real(folder, validity, uid)
+
+        h.dispatcher._mailbox.fetch = flaky
+        h.run()
+        self.assertEqual(len(h.tracker.calls), 1)
+        h.run()
+        self.assertEqual(len(h.tracker.calls), 2)
+
+    def test_a_failed_mark_read_is_retried_next_run(self):
+        imap = StoringImap({"INBOX": [(5, make_mail())]}, fail_store=True)
+        h = self.harness(imap, good_answer())
+        self.seed(h)
+        h.run()
+        self.assertEqual(imap.seen, [])
+        imap.fail_store = False
+        h.run()
+        self.assertEqual(imap.seen, [("INBOX", 5)])
+        self.assertEqual(len(h.tracker.calls), 1)
 
     def test_a_released_failure_is_retried_with_the_same_request_then_gives_up_unread(self):
         tracker = FakeTracker({"http://expense.test/process/transaction":
@@ -332,12 +397,12 @@ class BoundaryTest(unittest.TestCase):
         db.commit()
         db.close()
 
-    def test_highest_booked_uid_when_uidvalidity_matches(self):
-        self.assertEqual(dispatch.read_handoff_boundary(self.path, 42), 100)
+    def test_booked_uids_when_uidvalidity_matches(self):
+        self.assertEqual(dispatch.read_booked_uids(self.path, 42), {9, 10, 100})
 
     def test_untrusted_when_uidvalidity_differs_or_db_is_missing(self):
-        self.assertIsNone(dispatch.read_handoff_boundary(self.path, 43))
-        self.assertIsNone(dispatch.read_handoff_boundary(Path(self.tmp.name) / "missing.db", 42))
+        self.assertIsNone(dispatch.read_booked_uids(self.path, 43))
+        self.assertIsNone(dispatch.read_booked_uids(Path(self.tmp.name) / "missing.db", 42))
 
 
 class MailboxTest(unittest.TestCase):

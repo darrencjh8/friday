@@ -16,14 +16,19 @@ Two modes share this code:
 - "rehearsal" (shadow mode): each new expense transaction leg is sent as a
   signed dry run. Nothing is booked, the mailbox is never written, and the
   planned booking is recorded for the cutover comparison.
-- "live": the request books. INBOX mail the old watcher already booked (UID
-  at or below the handoff boundary read from its dedup journal) is never
-  sent. After every leg of an email ends without failing, its INBOX copies
-  are marked read, as the old watcher did. A failed email stays unread.
+- "live": the request books. On its first run it takes a handoff snapshot
+  of INBOX: the UIDs the old watcher booked (its dedup journal) plus every
+  UID already read, and the newest UID. The old watcher only ever handled
+  unread mail and left an email unread when it reached no verdict (an LLM
+  outage, an error), so snapshot mail is never sent, and unread, unbooked
+  INBOX mail recorded during shadow is caught up. After every leg of an email
+  ends without failing, its INBOX copies are marked read, as the old watcher
+  did; a mark that fails is retried on the next run. A failed email stays
+  unread.
 
-Live mode only starts when the handoff boundary is known; otherwise nothing is
-dispatched (fail closed). Results are stored in the intake journal, never the
-email body.
+Live mode only starts when the old watcher's booked list can be trusted (same
+INBOX UIDVALIDITY); otherwise nothing is dispatched (fail closed). Results are
+stored in the intake journal, never the email body.
 """
 
 import base64
@@ -80,8 +85,8 @@ def http_post(url, body, headers, timeout=600):
         return json.loads(resp.read())
 
 
-def read_handoff_boundary(dedup_db, inbox_uidvalidity):
-    """The highest INBOX UID the old watcher booked, or None when it cannot be trusted."""
+def read_booked_uids(dedup_db, inbox_uidvalidity):
+    """The INBOX UIDs the old watcher booked, or None when they cannot be trusted."""
     try:
         db = sqlite3.connect(f"file:{dedup_db}?mode=ro", uri=True)
     except sqlite3.Error:
@@ -90,8 +95,7 @@ def read_handoff_boundary(dedup_db, inbox_uidvalidity):
         row = db.execute("SELECT value FROM mailbox_state WHERE key = 'uidvalidity'").fetchone()
         if not row or str(row[0]).strip() != str(inbox_uidvalidity):
             return None
-        top = db.execute("SELECT MAX(CAST(uid AS INTEGER)) FROM booked_messages").fetchone()
-        return int(top[0] or 0)
+        return {int(r[0]) for r in db.execute("SELECT uid FROM booked_messages")}
     except (sqlite3.Error, TypeError, ValueError):
         return None
     finally:
@@ -129,6 +133,18 @@ class ImapMailbox:
             return None
         return next((item[1] for item in data or [] if isinstance(item, tuple)), None)
 
+    def inbox_snapshot(self, uidvalidity):
+        """(read UIDs, newest UID) in INBOX, or None when it cannot be read as this UIDVALIDITY."""
+        if not self._open(INBOX, uidvalidity, readonly=True):
+            return None
+        found = []
+        for criteria in ("SEEN", "ALL"):
+            status, data = self._imap.uid("SEARCH", None, criteria)
+            if status != "OK":
+                return None
+            found.append({int(t) for t in (data[0] or b"").split()} if data else set())
+        return found[0], max(found[1], default=0)
+
     def mark_seen(self, folder, uidvalidity, uid):
         if folder != INBOX or not self._open(folder, uidvalidity, readonly=False):
             return False
@@ -165,8 +181,8 @@ def _live_record(response):
 
 class Dispatcher:
     def __init__(self, journal, mailbox, post, secret, urls, account, mode,
-                 boundary=None, clock=time.time):
-        """`boundary()` returns the old watcher's handoff UID for INBOX, or None (live only)."""
+                 booked=None, clock=time.time):
+        """`booked(uidvalidity)` returns the INBOX UIDs the old watcher booked, or None (live only)."""
         if mode not in ("rehearsal", "live"):
             raise ValueError(mode)
         self._journal = journal
@@ -176,7 +192,7 @@ class Dispatcher:
         self._urls = urls
         self._account = account
         self._mode = mode
-        self._boundary = boundary
+        self._booked = booked
         self._clock = clock
 
     def _legs(self, decision):
@@ -187,7 +203,7 @@ class Dispatcher:
         return found
 
     def _start(self):
-        """When this mode began, and the INBOX boundary for live; None while it cannot start."""
+        """When this mode began, and the INBOX handoff for live; None while it cannot start."""
         since = self._journal.get_state(f"{self._mode}_since")
         if self._mode == "rehearsal":
             if since is None:
@@ -196,14 +212,21 @@ class Dispatcher:
             return float(since), None
         if since is None:
             inbox_validity, _ = self._journal.folder_state(self._account, INBOX)
-            top = self._boundary(inbox_validity) if (self._boundary and inbox_validity is not None) else None
-            if top is None:
+            if inbox_validity is None or self._booked is None:
                 return None
-            self._journal.set_state("live_inbox_boundary", json.dumps([inbox_validity, top]))
+            booked = self._booked(inbox_validity)
+            snapshot = self._mailbox.inbox_snapshot(inbox_validity) if booked is not None else None
+            self._mailbox.close()
+            if snapshot is None:
+                return None
+            read, newest = snapshot
+            handoff = {"uidvalidity": int(inbox_validity), "newest": int(newest),
+                       "uids": sorted({u for u in booked | read if u <= newest})}
+            self._journal.set_state("live_inbox_handoff", json.dumps(handoff))
             since = self._clock()
             self._journal.set_state("live_since", since)
-        validity, top = json.loads(self._journal.get_state("live_inbox_boundary"))
-        return float(since), (int(validity), int(top))
+        handoff = json.loads(self._journal.get_state("live_inbox_handoff"))
+        return float(since), (handoff["uidvalidity"], handoff["newest"], set(handoff["uids"]))
 
     def prepare(self):
         """Record when this mode began (and, for live, the handoff boundary) if not yet known."""
@@ -216,37 +239,56 @@ class Dispatcher:
             summary["blocked"] = "no_handoff_boundary"
             logger.warning("email-intake live dispatch waits: no trusted handoff boundary")
             return summary
-        since, boundary = started
+        since, handoff = started
         try:
+            if self._mode == "live":
+                self._flush_marks()
             for evidence_hash, decision, locations in self._journal.routed(self._account, ROUTED_STATUSES):
-                self._one(evidence_hash, decision, locations, since, boundary, summary)
+                try:
+                    self._one(evidence_hash, decision, locations, since, handoff, summary)
+                except Exception as error:  # noqa: BLE001 - one email must not stop the others
+                    logger.warning("email-intake dispatch error: %s", type(error).__name__)
+                    summary["errors"] = summary.get("errors", 0) + 1
+                    self._mailbox.close()  # a dropped connection is reopened for the next email
         finally:
             self._mailbox.close()
         return summary
 
-    def _eligible(self, locations, since, boundary):
+    def _flush_marks(self):
+        for folder, validity, uid in self._journal.pending_marks():
+            try:
+                done = self._mailbox.mark_seen(folder, validity, uid)
+            except Exception as error:  # noqa: BLE001
+                logger.warning("email-intake mark-read error: %s", type(error).__name__)
+                self._mailbox.close()
+                continue
+            if done:
+                self._journal.clear_mark(folder, validity, uid)
+
+    def _eligible(self, locations, since, handoff):
         if any(updated >= since for _, _, _, updated in locations):
             return True
-        if boundary is None:
+        if handoff is None:
             return False
-        validity, top = boundary
-        return any(f == INBOX and v == validity and u > top for f, v, u, _ in locations)
+        # Shadow-era INBOX mail the old watcher left unread and unbooked: catch it up.
+        validity, newest, done = handoff
+        return any(f == INBOX and v == validity and (u > newest or u not in done) for f, v, u, _ in locations)
 
-    def _handed_off(self, locations, boundary):
-        if boundary is None:
+    def _handed_off(self, locations, handoff):
+        if handoff is None:
             return False
-        validity, top = boundary
-        return any(f == INBOX and v == validity and u <= top for f, v, u, _ in locations)
+        validity, newest, done = handoff
+        return any(f == INBOX and v == validity and u <= newest and u in done for f, v, u, _ in locations)
 
-    def _one(self, evidence_hash, decision, locations, since, boundary, summary):
+    def _one(self, evidence_hash, decision, locations, since, handoff, summary):
         todo = []
         for kind, service in self._legs(decision):
             row = self._journal.dispatch_state(evidence_hash, kind, self._mode)
             if row is None or row["status"] == "retry":
                 todo.append((kind, service, (row or {}).get("attempts", 0)))
-        if not todo or not self._eligible(locations, since, boundary):
+        if not todo or not self._eligible(locations, since, handoff):
             return
-        if self._mode == "live" and self._handed_off(locations, boundary):
+        if self._mode == "live" and self._handed_off(locations, handoff):
             # The old watcher booked this email before the cutover.
             for kind, _, attempts in todo:
                 self._journal.save_dispatch(evidence_hash, kind, self._mode, request_id(self._mode, kind, evidence_hash),
@@ -268,7 +310,8 @@ class Dispatcher:
         if self._mode == "live" and self._all_done(evidence_hash, decision):
             for folder, validity, uid, _ in locations:
                 if folder == INBOX:
-                    self._mailbox.mark_seen(folder, validity, uid)
+                    self._journal.add_mark(folder, validity, uid)
+            self._flush_marks()
 
     def _send(self, evidence_hash, kind, service, attempts, evidence, summary):
         rid = request_id(self._mode, kind, evidence_hash)
@@ -286,7 +329,7 @@ class Dispatcher:
             response = {"status": "failed", "reason": "bad_response"}
         status = response.get("status", "failed")
         if self._mode == "rehearsal":
-            # A dry run is evidence for the comparison, never retried.
+            # A dry run that answered is evidence for the comparison and is not repeated.
             self._journal.save_dispatch(evidence_hash, kind, self._mode, rid, status, attempts + 1,
                                         _rehearsal_record(response))
             summary["ok" if status == "dry_run" else "failed"] += 1

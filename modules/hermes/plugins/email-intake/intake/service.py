@@ -189,6 +189,6 @@ def build_runner(settings: Settings):
         urls={dispatch.EXPENSE: settings.expense_url, dispatch.PORTFOLIO: settings.portfolio_url},
         account=account,
         mode=mode,
-        boundary=lambda validity: dispatch.read_handoff_boundary(settings.dedup_db, validity),
+        booked=lambda validity: dispatch.read_booked_uids(settings.dedup_db, validity),
     )
     return Runner(classifier, dispatcher)
