@@ -88,6 +88,10 @@ RUN python3 /tmp/patch-webui-api-mode.py /opt/hermes-webui/api/streaming.py \
 COPY webui/s6-rc.d/hermes-webui /etc/s6-overlay/s6-rc.d/hermes-webui
 RUN chmod +x /etc/s6-overlay/s6-rc.d/hermes-webui/run \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/hermes-webui
+# Reminders dashboard (read-only stdlib page over the reminder snapshot).
+COPY webui/s6-rc.d/reminders /etc/s6-overlay/s6-rc.d/reminders
+RUN chmod +x /etc/s6-overlay/s6-rc.d/reminders/run \
+    && touch /etc/s6-overlay/s6-rc.d/user/contents.d/reminders
 # Debian's /etc/profile replaces PATH before it sources /etc/profile.d, so a
 # login shell (`bash -lc`, `sh -lc`) loses the image PATH entry for the
 # persisted volume directory and cannot see gh or ntn. Put it back for them;

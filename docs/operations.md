@@ -75,7 +75,13 @@ none, so `deploy.sh` never touches `tailscale`):
 tailscale serve --bg --https=443 --set-path /router http://127.0.0.1:4100
 tailscale serve --bg --https=8443 http://127.0.0.1:8787
 tailscale serve --bg --https=8642 http://127.0.0.1:8642
+tailscale serve --bg --https=443 --set-path /reminders http://127.0.0.1:8300
 ```
+
+Reminders dashboard: read-only stdlib page over the structured snapshot
+(`wiki-reminder-tasks.py --snapshot-out /opt/data/reminders/reminders.json`,
+written by the daily job). No account data beyond your own task titles;
+tailnet-only. Verify with `tailscale serve status`.
 
 Google Tasks OAuth uses a loopback redirect (`http://localhost:9090/callback`,
 exempt from Google's own-your-domain redirect policy, which rejects
