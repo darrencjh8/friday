@@ -50,6 +50,12 @@ CREATE TABLE IF NOT EXISTS dispatches (
     updated_at REAL NOT NULL,
     PRIMARY KEY (evidence_hash, kind, mode)
 );
+CREATE TABLE IF NOT EXISTS pending_marks (
+    folder TEXT NOT NULL,
+    uidvalidity INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    PRIMARY KEY (folder, uidvalidity, uid)
+);
 CREATE TABLE IF NOT EXISTS state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -157,4 +163,16 @@ class Journal:
             "INSERT OR REPLACE INTO dispatches VALUES (?,?,?,?,?,?,?,?)",
             (evidence_hash, kind, mode, request_id, status, attempts, json.dumps(result), time.time()),
         )
+        self._db.commit()
+
+    def add_mark(self, folder, uidvalidity, uid):
+        self._db.execute("INSERT OR IGNORE INTO pending_marks VALUES (?,?,?)", (folder, uidvalidity, uid))
+        self._db.commit()
+
+    def pending_marks(self):
+        return self._db.execute("SELECT folder, uidvalidity, uid FROM pending_marks").fetchall()
+
+    def clear_mark(self, folder, uidvalidity, uid):
+        self._db.execute("DELETE FROM pending_marks WHERE folder=? AND uidvalidity=? AND uid=?",
+                         (folder, uidvalidity, uid))
         self._db.commit()
