@@ -200,10 +200,15 @@ class Journal:
     def has_notification(self, key):
         return self._db.execute("SELECT 1 FROM notifications WHERE key = ?", (key,)).fetchone() is not None
 
-    def unsent_notifications(self, max_attempts):
+    def unsent_notifications(self):
         return self._db.execute(
-            "SELECT key, text, attempts FROM notifications WHERE sent_at IS NULL AND attempts < ? "
-            "ORDER BY created_at, key", (max_attempts,)).fetchall()
+            "SELECT key, text, attempts FROM notifications WHERE sent_at IS NULL AND text != '' "
+            "ORDER BY created_at, key").fetchall()
+
+    def reject_notification(self, key):
+        """Telegram refused it for good: never retried (sent_at is negative)."""
+        self._db.execute("UPDATE notifications SET sent_at = ? WHERE key = ?", (-time.time(), key))
+        self._db.commit()
 
     def mark_notification_sent(self, key):
         self._db.execute("UPDATE notifications SET sent_at = ? WHERE key = ?", (time.time(), key))

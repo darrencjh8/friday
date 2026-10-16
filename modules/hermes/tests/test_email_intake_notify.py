@@ -31,16 +31,19 @@ CHAT = "4242"
 
 
 class FakeTelegram:
-    def __init__(self, fail=0):
+    def __init__(self, fail=0, reject=()):
         self.sent = []
         self.fail = fail
+        self.reject = set(reject)
 
     def __call__(self, text):
+        if text in self.reject:
+            return notify.REJECTED
         if self.fail:
             self.fail -= 1
-            return False
+            return notify.RETRY
         self.sent.append(text)
-        return True
+        return notify.SENT
 
 
 class ComposeTest(unittest.TestCase):
@@ -125,6 +128,34 @@ class LiveMessagesTest(unittest.TestCase):
         h.outbox.flush()
         self.assertEqual(len(self.telegram.sent), 1)
 
+    def test_a_crash_after_booking_still_marks_read_and_reports_next_run(self):
+        imap = StoringImap({"INBOX": [(5, make_mail())]})
+        h = self.harness(imap, good_answer())
+        real = h.journal.queue_notification
+        calls = []
+
+        def crash_once(key, text):
+            calls.append(key)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real(key, text)
+
+        h.journal.queue_notification = crash_once
+        self.run_all(h)
+        self.assertEqual(imap.seen, [("INBOX", 5)])
+        self.run_all(h)
+        self.assertEqual(len(h.tracker.calls), 1)
+        self.assertEqual(len(self.telegram.sent), 1)
+
+    def test_a_silent_result_is_not_looked_up_again(self):
+        tracker = FakeTracker({"http://expense.test/process/transaction": {"status": "duplicate", "messages": []}})
+        imap = StoringImap({"INBOX": [(5, make_mail())]})
+        h = self.harness(imap, good_answer(), tracker)
+        self.run_all(h)
+        fetches = sum(1 for c in imap.commands if c[:2] == ("UID", "FETCH"))
+        self.run_all(h)
+        self.assertEqual(sum(1 for c in imap.commands if c[:2] == ("UID", "FETCH")), fetches)
+
     def test_replay_books_an_uncertain_email_as_the_owner_chose(self):
         imap = StoringImap({"INBOX": [(5, make_mail())]})
         h = self.harness(imap, good_answer("uncertain"))
@@ -178,6 +209,25 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(telegram.sent, ["first", "second"])
 
 
+class OutboxFailureTest(OutboxTest):
+    def test_a_message_telegram_rejects_is_dropped_and_the_rest_still_go(self):
+        telegram = FakeTelegram(reject={"bad"})
+        outbox = notify.Outbox(self.journal, telegram)
+        self.journal.queue_notification("a", "bad")
+        self.journal.queue_notification("b", "good")
+        outbox.flush()
+        outbox.flush()
+        self.assertEqual(telegram.sent, ["good"])
+
+    def test_a_long_outage_never_throws_a_message_away(self):
+        telegram = FakeTelegram(fail=50)
+        outbox = notify.Outbox(self.journal, telegram)
+        self.journal.queue_notification("a", "first")
+        for _ in range(51):
+            outbox.flush()
+        self.assertEqual(telegram.sent, ["first"])
+
+
 class TelegramSenderTest(unittest.TestCase):
     def test_posts_plain_text_to_the_home_chat(self):
         calls = []
@@ -187,14 +237,22 @@ class TelegramSenderTest(unittest.TestCase):
             return {"ok": True}
 
         sender = notify.TelegramSender("123:tok", CHAT, post=post)
-        self.assertTrue(sender("hello"))
+        self.assertEqual(sender("hello"), notify.SENT)
         self.assertEqual(calls, [("https://api.telegram.org/bot123:tok/sendMessage", {"chat_id": CHAT, "text": "hello"})])
 
     def test_an_error_is_a_false_return_not_an_exception(self):
         def post(url, body, headers):
             raise OSError("down")
 
-        self.assertFalse(notify.TelegramSender("t", CHAT, post=post)("x"))
+        self.assertEqual(notify.TelegramSender("t", CHAT, post=post)("x"), notify.RETRY)
+
+    def test_a_bad_request_is_a_rejection_not_a_retry(self):
+        import urllib.error
+
+        def post(url, body, headers):
+            raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
+
+        self.assertEqual(notify.TelegramSender("t", CHAT, post=post)("x"), notify.REJECTED)
 
 
 def make_event(text, chat_id=CHAT, user_id="4242", platform="telegram"):
