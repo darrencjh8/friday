@@ -6,6 +6,10 @@ would make is compared with the row already in Actual. Nothing is written:
 mail is read with BODY.PEEK, dedup.db and Actual are only read, and a dry run
 is not journaled.
 
+Jev's routing is read from the intake shadow journal when it exists: mail the
+old watcher booked but Jev would not send to the expense tracker is listed
+under jev.missed_bookings, since live intake would never book it.
+
 The summary carries UIDs, sender domains, statuses and field names only, never
 amounts, payees or account names.
 
@@ -114,9 +118,14 @@ def journal_router(db_path, uidvalidity):
     """Jev's routing for an INBOX UID from the intake shadow journal, or None.
 
     Live intake asks Jev first; only mail routed to the expense tracker ever
-    reaches it, so the replay must not judge mail Jev sends elsewhere.
+    reaches it, so the replay must not judge mail Jev sends elsewhere. None
+    when the journal cannot be opened: the replay then runs without routing.
     """
-    db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+    try:
+        db = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        db.execute("SELECT 1 FROM messages LIMIT 1")
+    except sqlite3.Error:
+        return None
 
     def route(uid):
         row = db.execute(
@@ -127,6 +136,8 @@ def journal_router(db_path, uidvalidity):
         if not row or not row[0]:
             return None
         decision = json.loads(row[0])
+        if not isinstance(decision, dict) or not decision.get("destination"):
+            return None  # e.g. blocked_encrypted: Jev never routed it
         return {"destination": decision.get("destination"), "kind": decision.get("kind")}
 
     return route
@@ -138,11 +149,17 @@ def run(uids, *, uidvalidity, fetch_raw, post, fetch_rows, fetch_payees, route=N
     payee_cache = {}
     row_cache = {}
     for uid in uids:
-        jev = route(uid) if route else None
-        if jev and jev.get("destination") not in TO_EXPENSE_TRACKER:
-            results.append({"uid": uid, "sender_domain": "", "status": "jev_routes_elsewhere", "jev": jev})
-            continue
+        try:
+            jev = route(uid) if route else None
+        except Exception:  # noqa: BLE001 — one bad journal row must not stop the replay
+            jev = None
+        if jev is not None and not jev.get("destination"):
+            jev = None
         raw, domain = fetch_raw(uid)
+        if jev and jev.get("destination") not in TO_EXPENSE_TRACKER:
+            # The old watcher booked this, live intake would not: keep the domain for triage.
+            results.append({"uid": uid, "sender_domain": domain, "status": "jev_routes_elsewhere", "jev": jev})
+            continue
         result = {"uid": uid, "sender_domain": domain}
         if route:
             result["jev"] = jev
@@ -193,9 +210,15 @@ def summarize(results):
         if r["status"] not in ("matched", "jev_routes_elsewhere")
     ]
     jev = [r.get("jev") for r in results if "jev" in r]
+    missed = [
+        {"uid": r["uid"], "sender_domain": r.get("sender_domain", ""),
+         "destination": r["jev"].get("destination"), "kind": r["jev"].get("kind")}
+        for r in results if r["status"] == "jev_routes_elsewhere"
+    ]
     return {
         **({"jev": {
-            "routes_elsewhere": sum(1 for r in results if r["status"] == "jev_routes_elsewhere"),
+            "missed_bookings": missed,
+            "routes_elsewhere": len(missed),
             "no_decision": sum(1 for j in jev if j is None),
             "to_expense_tracker": sum(1 for j in jev if j and j.get("destination") in TO_EXPENSE_TRACKER),
         }} if jev else {}),
