@@ -2,8 +2,9 @@
 
 Message identity is (account, folder, UIDVALIDITY, UID); the evidence hash
 links copies of one email across folders so it is classified once. A
-per-folder checkpoint is advanced only after a message is recorded. No email
-body is ever stored here.
+per-folder checkpoint is advanced only after a message is recorded. Dispatch
+results (rehearsal dry runs and live requests) are kept per evidence hash and
+booking leg. No email body is ever stored here.
 """
 
 import json
@@ -37,6 +38,27 @@ CREATE TABLE IF NOT EXISTS decisions (
     version TEXT NOT NULL,
     decision TEXT NOT NULL,
     PRIMARY KEY (evidence_hash, version)
+);
+CREATE TABLE IF NOT EXISTS dispatches (
+    evidence_hash TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    request_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL,
+    result TEXT,
+    updated_at REAL NOT NULL,
+    PRIMARY KEY (evidence_hash, kind, mode)
+);
+CREATE TABLE IF NOT EXISTS pending_marks (
+    folder TEXT NOT NULL,
+    uidvalidity INTEGER NOT NULL,
+    uid INTEGER NOT NULL,
+    PRIMARY KEY (folder, uidvalidity, uid)
+);
+CREATE TABLE IF NOT EXISTS state (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
 );
 """
 
@@ -102,4 +124,55 @@ class Journal:
         self._db.execute(
             "INSERT OR REPLACE INTO decisions VALUES (?,?,?)", (evidence_hash, version, json.dumps(decision))
         )
+        self._db.commit()
+
+    def get_state(self, key):
+        row = self._db.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_state(self, key, value):
+        self._db.execute("INSERT OR REPLACE INTO state VALUES (?,?)", (key, str(value)))
+        self._db.commit()
+
+    def routed(self, account, statuses):
+        """[(evidence_hash, decision, [(folder, uidvalidity, uid, updated_at)])] for mail routed to a tracker."""
+        marks = ",".join("?" * len(statuses))
+        rows = self._db.execute(
+            f"SELECT evidence_hash, folder, uidvalidity, uid, decision, updated_at FROM messages "
+            f"WHERE account = ? AND status IN ({marks}) ORDER BY updated_at, folder, uid",
+            (account, *statuses),
+        ).fetchall()
+        grouped = {}
+        for evidence_hash, folder, uidvalidity, uid, decision, updated_at in rows:
+            entry = grouped.setdefault(evidence_hash, [json.loads(decision) if decision else {}, []])
+            entry[1].append((folder, uidvalidity, uid, updated_at))
+        return [(h, d, locs) for h, (d, locs) in grouped.items()]
+
+    def dispatch_state(self, evidence_hash, kind, mode):
+        row = self._db.execute(
+            "SELECT request_id, status, attempts, result FROM dispatches WHERE evidence_hash=? AND kind=? AND mode=?",
+            (evidence_hash, kind, mode),
+        ).fetchone()
+        if not row:
+            return None
+        return {"request_id": row[0], "status": row[1], "attempts": row[2],
+                "result": json.loads(row[3]) if row[3] else None}
+
+    def save_dispatch(self, evidence_hash, kind, mode, request_id, status, attempts, result):
+        self._db.execute(
+            "INSERT OR REPLACE INTO dispatches VALUES (?,?,?,?,?,?,?,?)",
+            (evidence_hash, kind, mode, request_id, status, attempts, json.dumps(result), time.time()),
+        )
+        self._db.commit()
+
+    def add_mark(self, folder, uidvalidity, uid):
+        self._db.execute("INSERT OR IGNORE INTO pending_marks VALUES (?,?,?)", (folder, uidvalidity, uid))
+        self._db.commit()
+
+    def pending_marks(self):
+        return self._db.execute("SELECT folder, uidvalidity, uid FROM pending_marks").fetchall()
+
+    def clear_mark(self, folder, uidvalidity, uid):
+        self._db.execute("DELETE FROM pending_marks WHERE folder=? AND uidvalidity=? AND uid=?",
+                         (folder, uidvalidity, uid))
         self._db.commit()
