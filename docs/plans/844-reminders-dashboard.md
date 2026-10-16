@@ -4,6 +4,7 @@ q: Where does the snapshot file live? | a: /opt/data/reminders/reminders.json on
 q: Which port and route? | a: Container 0.0.0.0:8300 (compose publishes 127.0.0.1:8300; Docker forwards to the container interface, same rationale as the WebUI), tailnet via `tailscale serve --set-path /reminders` (operator step post-deploy).
 q: Does the seed prompt change risk reverting live behavior? | a: Yes — MANAGED includes prompt, so the seed is updated to the silent/problems-only version with the daily-habits source and --snapshot-out; verified by test-50-seed-defaults.sh.
 q: How are untrusted task titles rendered? | a: DOM textContent only; a test asserts no innerHTML in the server source.
+q: What happens on a corrupt snapshot or a missing habits file? | a: Corrupt snapshot logs to stderr and serves a flagged empty state (problems non-empty; covered by test); a missing daily-habits.md means zero habits, never a problem.
 
 # Plan: reminders snapshot + read-only dashboard (PR #844)
 
@@ -30,7 +31,9 @@ q: How are untrusted task titles rendered? | a: DOM textContent only; a test ass
 
 ## Test command and scope
 - `.venv/bin/python -m unittest discover -s modules/tests -p
-  "test_wiki_reminder*.py"` plus `test_reminders_server`
+  "test_wiki_reminder*.py"` for the helper, and
+  `.venv/bin/python -m unittest modules.tests.test_reminders_server`
+  for the server (health/index/api/empty-state/corrupt/404/no-innerHTML).
 - `bash modules/hermes/tests/test-50-seed-defaults.sh`
 - `bash modules/hermes/tests/test-docker-compose-env.sh`
 - `scripts/check-no-pii.py`
@@ -40,6 +43,9 @@ q: How are untrusted task titles rendered? | a: DOM textContent only; a test ass
 ## Constraints
 - Tailnet-only exposure; loopback-only publishes (port guardrail test).
 - No secrets/tokens in snapshot, logs, or page (PII scan + gitleaks in CI).
+- Corrupt snapshot: stderr log + flagged empty state (problems non-empty),
+  covered by `test_corrupt_snapshot_serves_flagged_empty_state`.
+- Missing daily-habits.md: zero habits for the run, never a problem.
 - Skill safety boundary unchanged: no rm/update/clear from any flow.
 - Live cron prompt is production state edited via Hermes API; seed keeps it
   from reverting on deploy.
