@@ -1,0 +1,53 @@
+name: Hermes stable image update
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  update-digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Pin current stable manifest digest
+        id: digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          token="$(curl -fsSL 'https://auth.docker.io/token?service=registry.docker.io&scope=repository:nousresearch/hermes-agent:pull' | jq -r .token)"
+          digest="$(curl -fsSI \
+            -H "Authorization: Bearer $token" \
+            -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json' \
+            https://registry-1.docker.io/v2/nousresearch/hermes-agent/manifests/stable \
+            | awk 'tolower($1) == "docker-content-digest:" { gsub("\\r", "", $2); print $2 }')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          dockerfile=modules/hermes/Dockerfile
+          grep -Eq '^FROM nousresearch/hermes-agent:stable@sha256:[a-f0-9]{64}$' "$dockerfile"
+          sed -i -E "s|^(FROM nousresearch/hermes-agent:stable@)sha256:[a-f0-9]{64}$|\\1${digest}|" "$dockerfile"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/create-github-app-token@v2
+        id: app-token
+        with:
+          app-id: ${{ vars.GH_APP_ID }}
+          private-key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Open or update digest PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: automation/hermes-stable-digest
+          delete-branch: true
+          commit-message: "chore(hermes): update stable image digest"
+          title: "chore(hermes): update stable image digest"
+          body: |
+            Updates the pinned multi-architecture digest for `nousresearch/hermes-agent:stable` to `${{ steps.digest.outputs.digest }}`.
+
+            This PR is opened by the scheduled registry check. CI validates the image; merge is required before deployment.

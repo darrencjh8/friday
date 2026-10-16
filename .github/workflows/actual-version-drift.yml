@@ -1,0 +1,24 @@
+name: Actual version drift
+
+# Fails when @actual-app/api in modules/actual-api is older (major.minor) than
+# the production sync-server. A newer server migrates budgets past what an older
+# client knows, and every read then fails with "No budget file is open" (#799).
+on:
+    pull_request:
+        paths:
+            - "modules/actual-api/**"
+            - ".github/workflows/actual-version-drift.yml"
+    schedule:
+        - cron: "17 3 * * *"
+    workflow_dispatch:
+
+jobs:
+    drift:
+        runs-on: ubuntu-latest
+        environment: darren-prod
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: node modules/actual-api/scripts/check-server-version.js "${{ vars.ACTUAL_BUDGET_URL }}"

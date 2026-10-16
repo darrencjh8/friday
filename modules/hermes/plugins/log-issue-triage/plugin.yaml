@@ -1,0 +1,12 @@
+name: log-issue-triage
+version: 1.0.0
+description: "Narrow tools for collecting sanitized production logs, isolated reproduction, and verified GitHub issue publication."
+kind: backend
+author: friday
+provides_tools:
+  - triage_collect_snapshot
+  - triage_run_reproducer
+  - triage_search_issues
+  - triage_publish_finding
+  - triage_check_cron_health
+  - triage_publish_cron_failure

@@ -1,0 +1,421 @@
+name: Unit Tests
+
+on:
+    pull_request:
+        branches: [main]
+    workflow_call:
+        # The deploy job checks out `inputs.ref` (default main), so a manual
+        # deploy must tell this workflow which tree it is about to ship; without
+        # it the image smoke would test whatever ref dispatched the run.
+        inputs:
+            ref:
+                description: "Ref the caller will deploy (empty: the event SHA)"
+                required: false
+                type: string
+        secrets:
+            ONEDRIVE_CLIENT_ID:
+            SUBMODULE_PAT:
+            FRIDAY_PAT:
+
+jobs:
+    expense-tracker:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/expense-tracker
+        env:
+            GH_TOKEN: ${{ secrets.FRIDAY_PAT }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+            - run: npm ci
+            - run: npm test
+
+    actual-api:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/actual-api
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: npm ci
+            - run: npm test
+            # jest runs from the source tree, so a file the Dockerfile fails to
+            # copy would only show up as a production crash loop.
+            - run: docker build -t actual-api-smoke .
+            - run: docker run --rm --entrypoint node actual-api-smoke -e "require('./version-check'); require('@actual-app/api')"
+
+    # The full portfolio-tracker suite needs IBKR keys and live services, so it
+    # stays non-gating (see the job below). These renderer tests need neither, and
+    # they are the ones that guard the #627 sync-reporting contract: formatSyncResult
+    # and PpJavaBridge.pull. Running them here means a break in that contract fails
+    # the `test` workflow, which deploy.yml gates on, instead of hiding behind a
+    # continue-on-error job.
+    portfolio-tracker-unit:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/portfolio-tracker
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: npm ci
+            - run: npx vitest run tests/onedrive-legs.test.js tests/mcp-server.test.js tests/java_bridge.test.js tests/leg-coverage.test.js tests/shell-leg-coverage.test.js tests/ci-gating.test.js
+    # The guard test for the job above also runs in the full suite, so deleting the
+    # gating job's test command cannot make the guard disappear with it: the full
+    # job is non-gating, but it still reports, so the next person's CI log shows
+    # the guard failing even when nothing runs it in a blocking position.
+    portfolio-tracker-ci-guard:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/portfolio-tracker
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: npm ci
+            - run: npx vitest run tests/ci-gating.test.js
+
+    portfolio-tracker:
+        runs-on: ubuntu-latest
+        continue-on-error: true # needs IBKR keys + running services, fixing separately
+        defaults:
+            run:
+                working-directory: modules/portfolio-tracker
+        env:
+            ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 22
+            - run: npm ci
+            - run: npm test
+
+    pp-cli:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/portfolio-tracker/pp-cli
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-java@v4
+              with:
+                  java-version: "21"
+                  distribution: temurin
+            - name: Install PP model to local Maven repo
+              run: |
+                  mvn install:install-file -q -Dfile=lib/name.abuchen.portfolio-0.84.1.jar \
+                    -DpomFile=lib/name.abuchen.portfolio-0.84.1.pom \
+                    -DgroupId=name.abuchen.portfolio -DartifactId=name.abuchen.portfolio \
+                    -Dversion=0.84.1 -Dpackaging=jar
+            - name: Run Java tests
+              run: mvn test
+
+    compose-config:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+            - run: python -m pip install PyYAML
+            # PyYAML only proves the file is valid YAML. Compose itself rejects
+            # a further class of edits (unknown keys, wrong types, dangling
+            # service/network references) that would otherwise surface during a
+            # deploy. Driver option values are still only checked at container
+            # create time; this step cannot cover those.
+            - name: Validate compose files with Docker Compose
+              run: |
+                  mapfile -t compose_files < <(git ls-files '*/docker-compose.yml')
+                  if [ "${#compose_files[@]}" -eq 0 ]; then
+                      echo "no compose files found" >&2
+                      exit 1
+                  fi
+                  for compose_file in "${compose_files[@]}"; do
+                      docker compose -f "$compose_file" config -q
+                  done
+            - run: python -m unittest discover -s modules/tests -p 'test_*.py'
+
+    hermes-scripts:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-python@v5
+              with:
+                  python-version: "3.12"
+            # Several tests below parse Hermes YAML. setup-python provisions a
+            # pristine interpreter, so PyYAML must be installed explicitly.
+            - name: Install PyYAML
+              run: python -m pip install --quiet PyYAML
+            - name: Lint bash scripts
+              run: |
+                  sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+                  shellcheck modules/hermes/scripts/*.sh modules/hermes/50-seed-defaults modules/hermes/webui/s6-rc.d/hermes-webui/run
+            - name: Test github-auth.sh
+              run: bash modules/hermes/tests/test-github-auth.sh
+            - name: Test 50-seed-defaults cron jobs
+              run: bash modules/hermes/tests/test-50-seed-defaults.sh
+            - name: Test seeded GitHub App cron block
+              # Dashed filename, so run it as a script rather than via -m unittest.
+              run: python modules/hermes/tests/test-seed-app-cron.py
+            - name: Test memory_triage compact
+              run: python -m unittest modules/hermes/tests/test_memory_triage_compact.py
+            - name: Test memory_triage apply plan freshness
+              run: python -m unittest modules/hermes/tests/test_memory_triage_apply.py
+            - name: Test mnemosyne-vacuum script
+              run: bash modules/hermes/tests/test-mnemosyne-vacuum.sh
+            - name: Test seeded cron job renames
+              run: python -m unittest modules/hermes/tests/test_cron_job_renames.py
+            - name: Test curator merge proposals script
+              run: python -m unittest modules/hermes/tests/test_curator_proposals.py
+            - name: Test lifecycle ledger startup patch
+              run: python -m unittest modules/hermes/tests/test_lifecycle_ledger_patch.py
+            - name: Test stale open webhook session patch
+              run: python -m unittest modules/hermes/tests/test_stale_open_webhook_patch.py
+            - name: Test session count/size cap patch
+              run: python -m unittest modules/hermes/tests/test_session_caps_patch.py
+            - name: Test Slack send fallback patch
+              run: python -m unittest modules/hermes/tests/test_slack_send_fallback_patch.py
+            - name: Test memory backup script
+              run: bash modules/hermes/tests/test-memory-backup.sh
+            - name: Test memory restore script
+              run: bash modules/hermes/tests/test-memory-restore.sh
+            - name: Test seed memory pointer
+              run: bash modules/hermes/tests/test-memory-pointer.sh
+            - name: Test Hermes model routing
+              run: bash modules/hermes/tests/test-model-routing.sh
+            - name: Test Hermes dev-loop review policy
+              run: bash modules/hermes/tests/test-dev-loop-skill.sh
+            - name: Test Codex Router provider config
+              run: bash modules/hermes/tests/test-codex-router-config.sh
+            - name: Test deploy.sh logic
+              run: bash modules/hermes/tests/test-deploy.sh
+            - name: Test codex-router skills sync
+              run: bash modules/hermes/tests/test-codex-router-skills-sync.sh
+            - name: Test codex-router checkout refresh
+              run: bash modules/hermes/tests/test-refresh-codex-router-checkout.sh
+            - name: Test docker-compose hermes env vars
+              run: bash modules/hermes/tests/test-docker-compose-env.sh
+            - name: Test Hermes WebUI container wiring
+              run: bash modules/hermes/tests/test-webui-container.sh
+            - name: Test portfolio-sync output
+              run: bash modules/hermes/tests/test-portfolio-sync-output.sh
+            - name: Test Hermes Slack platform wiring
+              run: python -m unittest modules.hermes.tests.test_slack_platform -v
+            - name: Test Hermes log-issue triage
+              run: python -m unittest discover -s modules/hermes/tests -p 'test_log_issue_triage_*.py' -v
+            - name: Test Hermes learning commands plugin
+              run: python -m unittest modules/hermes/tests/test_learning_commands_plugin.py -v
+            - name: Test Hermes email-intake core (#783)
+              run: python -m unittest modules/hermes/tests/test_email_intake.py -v
+            - name: Test Hermes email-intake parity replay (#796)
+              run: python -m unittest modules/hermes/tests/test_email_intake_parity.py -v
+
+    # The Hermes image is the only artifact the new WebUI ships inside, and every
+    # other check in this workflow is text-only: an unreachable pinned commit, a
+    # wrong launcher path, a wrong COPY destination, or a service that crashes on
+    # boot would all pass them. So build the image and boot it.
+    #
+    # The job runs only when the image's own inputs change, and it fails closed
+    # when it cannot resolve the commit it should compare against, because a gate
+    # that cannot say what it compared must not report success. Writable mounts
+    # stand in for the production volumes: the WebUI runs as the hermes user and
+    # writes its state under /opt/data.
+    hermes-webui-image:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0
+                  # Empty on a pull request, where the default checkout of the
+                  # merge ref is what the resolver compares with the base SHA.
+                  ref: ${{ inputs.ref }}
+            - name: Resolve changed image inputs
+              id: changed
+              run: |
+                  set -euo pipefail
+                  paths='^(modules/hermes/|modules/docker-compose\.yml$|\.github/workflows/test\.yml$)'
+                  run=false
+                  # This workflow triggers on pull_request and workflow_call only
+                  # (deploy.yml calls it for non-push events), so there are exactly
+                  # two ways to name the commit the change is compared against.
+                  if [ "${{ github.event_name }}" = "pull_request" ]; then
+                      base="${{ github.event.pull_request.base.sha }}"
+                      if ! git cat-file -e "${base}^{commit}" 2>/dev/null; then
+                          echo "cannot resolve the pull request base '${base}' in this checkout" >&2
+                          exit 1
+                      fi
+                      if git diff --name-only "$base" HEAD | grep -qE "$paths"; then
+                          run=true
+                      fi
+                  else
+                      # A reusable-workflow call has no pull-request base. It has
+                      # already checked out the ref the deploy job will ship, so
+                      # everything that ref adds on top of its merge base with
+                      # main is the change under test. A ref that main already
+                      # contains ships the tree its own pull request tested. When
+                      # the merge base cannot be computed the smoke runs, because
+                      # the step cannot name what it compared.
+                      head_sha="$(git rev-parse HEAD)"
+                      if ! git cat-file -e "${head_sha}^{commit}" 2>/dev/null; then
+                          echo "cannot resolve the checked out commit '${head_sha}'" >&2
+                          exit 1
+                      fi
+                      if ! merge_base="$(git merge-base origin/main "$head_sha" 2>/dev/null)"; then
+                          run=true
+                      elif [ "$merge_base" = "$head_sha" ]; then
+                          run=false
+                      elif git diff --name-only "$merge_base" "$head_sha" | grep -qE "$paths"; then
+                          run=true
+                      fi
+                  fi
+                  echo "run=$run" >> "$GITHUB_OUTPUT"
+                  echo "image smoke test will $([ "$run" = true ] && echo run || echo 'not run')"
+            - name: Build the Hermes image
+              if: steps.changed.outputs.run == 'true'
+              run: docker build --tag hermes-webui-test modules/hermes
+            - name: Boot the image and probe the WebUI
+              if: steps.changed.outputs.run == 'true'
+              run: |
+                  set -euo pipefail
+                  data="$RUNNER_TEMP/hermes-data"
+                  workspace="$RUNNER_TEMP/hermes-workspace"
+                  mkdir -p "$data" "$workspace"
+                  chmod 777 "$data" "$workspace"
+                  docker run -d --name hermes-webui-test \
+                      -v "$data:/opt/data" \
+                      -v "$workspace:/workspace" \
+                      -p 127.0.0.1:8787:8787 \
+                      -e HERMES_HOME=/opt/data \
+                      -e HERMES_DASHBOARD=0 \
+                      -e HERMES_WRITE_SAFE_ROOT=/opt/data:/workspace:/tmp \
+                      hermes-webui-test gateway run
+
+                  # The supervised service must come up. The gateway itself may
+                  # crash-loop: this container has no provider credentials, and
+                  # the gate is the WebUI, not the gateway.
+                  service_up=false
+                  for _ in $(seq 1 30); do
+                      if docker exec hermes-webui-test \
+                          /command/s6-svstat -o up /run/service/hermes-webui 2>/dev/null | grep -qx true; then
+                          service_up=true
+                          break
+                      fi
+                      sleep 5
+                  done
+                  if [ "$service_up" != true ]; then
+                      echo "hermes-webui s6 service did not come up" >&2
+                      docker exec hermes-webui-test /command/s6-svstat /run/service/hermes-webui >&2 || true
+                      exit 1
+                  fi
+
+                  # /health must answer inside the container and through the
+                  # published port. The in-container probe proves the service
+                  # itself is listening; the published probe is what catches a run
+                  # script that binds the container's own loopback, because Docker
+                  # forwards a published port to the container interface.
+                  #
+                  # s6 reports the service up as soon as its run script starts,
+                  # which is before the WebUI binds the port, so both probes retry
+                  # on a bounded budget instead of racing the listen call.
+                  wait_for_health() {
+                      label="$1"
+                      shift
+                      for _ in $(seq 1 30); do
+                          if "$@" >/dev/null 2>&1; then
+                              echo "$label /health answered"
+                              return 0
+                          fi
+                          sleep 2
+                      done
+                      echo "$label /health never answered" >&2
+                      return 1
+                  }
+                  wait_for_health in-container docker exec hermes-webui-test curl -fsS --max-time 5 http://127.0.0.1:8787/health
+                  wait_for_health published-port curl -fsS --max-time 5 http://127.0.0.1:8787/health
+
+                  # The launcher's declared agent dir and interpreter must resolve
+                  # the real agent class, not just a healthy process.
+                  docker exec hermes-webui-test /opt/hermes/.venv/bin/python3 -c \
+                      "import sys; sys.path.append('/opt/hermes'); from run_agent import AIAgent; print('AIAgent', AIAgent.__module__)"
+                  docker exec hermes-webui-test /opt/hermes/.venv/bin/python3 -c \
+                      "import sys; sys.path.append('/opt/hermes'); import json; from pathlib import Path; from cron.scheduler import _resolve_cron_enabled_toolsets; from hermes_cli.plugins import _ensure_plugins_discovered, get_plugin_manager; _ensure_plugins_discovered(); jobs=json.loads(Path('/opt/data/cron/jobs.json').read_text())['jobs']; job=next(j for j in jobs if j.get('name') == 'ops-log-issues'); tools=_resolve_cron_enabled_toolsets(job, {'mcp_servers': {'unrelated': {'enabled': True}}}); assert tools == ['log_issue_triage'], tools; m=get_plugin_manager(); assert set(m._plugin_tool_names) >= {'triage_collect_snapshot','triage_run_reproducer','triage_search_issues','triage_publish_finding','triage_check_cron_health','triage_publish_cron_failure'}, m._plugin_tool_names; print('log_issue_triage exact tools loaded; MCP excluded')"
+
+                  # Chat path against a stub agent: CI holds no provider
+                  # credentials, so a deterministic stub proves the wiring
+                  # (route -> AIAgent import -> response), not Hermes inference.
+                  #
+                  # The launcher's agent dir cannot shadow the agent the venv
+                  # already resolves, so replace the resolved module in this
+                  # throwaway container and restart the supervised service. That
+                  # also means the smoke exercises the service the deploy runs,
+                  # on the port it publishes, rather than a second process.
+                  agent_module=$(docker exec hermes-webui-test /opt/hermes/.venv/bin/python3 -c \
+                      "import sys; sys.path.append('/opt/hermes'); import run_agent; print(run_agent.__file__)")
+                  echo "agent module: $agent_module"
+                  mkdir -p "$RUNNER_TEMP/fake-agent"
+                  cat > "$RUNNER_TEMP/fake-agent/run_agent.py" <<'PY'
+                  class AIAgent:
+                      """Deterministic stand-in for the Hermes agent."""
+
+                      def __init__(self, **kwargs):
+                          self.kwargs = kwargs
+
+                      def run_conversation(self, **kwargs):
+                          return {"final_response": "pong from the stub agent", "completed": True}
+                  PY
+                  docker cp "$RUNNER_TEMP/fake-agent/run_agent.py" "hermes-webui-test:$agent_module"
+                  docker exec hermes-webui-test /command/s6-svc -r /run/service/hermes-webui
+                  wait_for_health restarted-in-container docker exec hermes-webui-test curl -fsS --max-time 5 http://127.0.0.1:8787/health
+
+                  # No workspace in the body: the service runs with HOME=/opt/data,
+                  # so an explicit /tmp is rejected as untrusted, while an absent
+                  # key falls back to the boot-time default workspace.
+                  session_id=$(curl -fsS -X POST http://127.0.0.1:8787/api/session/new \
+                      -H 'Content-Type: application/json' \
+                      -d '{}' \
+                      | python3 -c 'import json,sys; d=json.load(sys.stdin); print((d.get("session") or {}).get("session_id") or d.get("session_id") or "")')
+                  if [ -z "$session_id" ]; then
+                      echo "no session id from /api/session/new" >&2
+                      exit 1
+                  fi
+                  answer=$(curl -fsS -X POST http://127.0.0.1:8787/api/chat \
+                      -H 'Content-Type: application/json' \
+                      -d "{\"session_id\":\"$session_id\",\"message\":\"ping\"}")
+                  echo "$answer"
+                  echo "$answer" | grep -q 'pong from the stub agent'
+                  echo "chat path answered through the stub agent"
+            - name: Hermes image logs on failure
+              if: failure() && steps.changed.outputs.run == 'true'
+              run: |
+                  docker logs hermes-webui-test 2>&1 | tail -200 || true
+                  docker exec hermes-webui-test /command/s6-svstat /run/service/hermes-webui || true
+                  docker exec hermes-webui-test sh -c 'tail -100 /opt/data/webui/*.log 2>/dev/null' || true
+            - name: Remove the test container
+              if: always() && steps.changed.outputs.run == 'true'
+              run: docker rm -f hermes-webui-test || true
+
+    image-gen:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: "22"
+            - name: Install deps
+              working-directory: modules/image-gen
+              run: npm ci
+            - name: Run tests
+              working-directory: modules/image-gen
+              run: node --test __tests__/server.test.js

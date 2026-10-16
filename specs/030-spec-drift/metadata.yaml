@@ -1,0 +1,25 @@
+feature: spec-drift-audit
+status: docs-fixed (code untouched; see code-notes.md)
+branch: usr/darren/spec-drift-audit
+created: 2026-06-30
+source_of_truth: code
+scope:
+  - all specs (001-023)
+  - design.md (root)
+  - modules/expense-tracker/docs/design.md
+  - modules/hermes/skills/expense-tracker/SKILL.md
+issues_total: 33
+issues_verified: 33
+clusters:
+  portfolio_tracker:
+    issues: [152, 153, 154, 156, 157, 158, 210, 211, 212, 213, 214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 229]
+    canonical_baseline: specs/003-portfolio-tracker/spec.md
+  expense_tracker:
+    issues: [227, 228, 230, 231, 232, 233, 234, 235, 236]
+    canonical_baseline: specs/002-expense-tracking/spec.md
+additional_unreported:
+  - P-N1  # spec.md SSE-wrapper vs Streamable HTTP internal contradiction
+  - P-N2  # MCP tool count 6 doc vs 10 code
+  - E-N1  # design.md Python layout vs JS
+  - E-N2  # spec 002 "16 tools" stale
+verified_at_commit: f22135d

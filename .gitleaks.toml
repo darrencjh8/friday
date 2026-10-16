@@ -1,0 +1,72 @@
+# Default gitleaks config extended with PII rules
+# Docs: https://github.com/gitleaks/gitleaks?tab=readme-ov-file#configuration
+
+title = "gitleaks config"
+
+[allowlist]
+    description = "global allowlist"
+    paths = [
+        '''(^|/)package-lock\.json$''',
+        '''(^|/)pnpm-lock\.yaml$''',
+        '''(^|/)yarn\.lock$''',
+    ]
+
+# ---- Custom PII rules ----
+
+[[rules]]
+    id = "email-address"
+    description = "PII: Email address"
+    regex = '''\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b'''
+    keywords = ["@"]
+    [rules.allowlist]
+        description = "ignore known-safe patterns and test fixtures"
+        regexes = [
+            "@example\\.com",
+            "@test\\.com",
+            # Placeholder SSH login target for the tailnet host, not a mailbox.
+            "@your-host\\.your-tailnet\\.ts\\.net",
+        ]
+        paths = [
+            '''tests/''',
+            '''__tests__/''',
+        ]
+
+[[rules]]
+    id = "private-key-header"
+    description = "PII: Private key header"
+    regex = '''-----BEGIN\s(?:RSA|DSA|EC|OPENSSH|PGP)\sPRIVATE\sKEY-----'''
+    keywords = ["BEGIN", "PRIVATE KEY"]
+    [rules.allowlist]
+        description = "ignore test fixtures"
+        paths = [
+            '''tests/''',
+        ]
+
+[[rules]]
+    id = "openai-api-key"
+    description = "OpenAI API key"
+    regex = '''sk-[A-Za-z0-9]{32,}'''
+    keywords = ["sk-"]
+    [rules.allowlist]
+        description = "ignore placeholder keys"
+        regexes = [
+            "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        ]
+
+[[rules]]
+    id = "slack-webhook"
+    description = "Slack webhook URL"
+    regex = '''https://hooks\.slack\.com/services/[A-Za-z0-9_/]+'''
+    keywords = ["hooks.slack.com"]
+
+[[rules]]
+    id = "generic-api-key-assignment"
+    description = "Generic API key / token assignment in config files"
+    regex = '''(?i)(api[_-]?key|apikey|secret|token|password|passwd)\s*[:=]\s*['"][^'"]{8,}['"]'''
+    keywords = ["api_key", "apikey", "secret", "token", "password", "passwd"]
+    path = '''(?i)(\.env\.example|\.env\.template|\.sample|config\.example|config\.sample)'''
+    [rules.allowlist]
+        description = "ignore placeholder values"
+        regexes = [
+            "(?i)(your|example|sample|test|placeholder|changeme|replace)_?(api[_-]?key|secret|token|password)",
+        ]

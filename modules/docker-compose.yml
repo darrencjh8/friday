@@ -1,0 +1,381 @@
+x-logging: &default-logging
+    driver: json-file
+    options:
+        max-size: "10m"
+        max-file: "3"
+
+# The two codex-router colours are the same service twice: same build context,
+# same image tag, same environment, same state volume. Only one of them serves
+# at a time, through the caddy front below, and deploy.sh rolls them one at a
+# time. Keep them in lockstep through this anchor rather than by copying the
+# block, which would let the pair drift.
+x-codex-router-color: &codex-router-color
+    build:
+        context: ./codex-router
+        dockerfile: Dockerfile
+    labels:
+        org.opencontainers.image.revision: ${CODEX_ROUTER_REVISION:-unknown}
+    image: modules-codex-router:local
+    environment:
+        - CODEX_ROUTER_AUTH_PASSWORD=${CODEX_ROUTER_AUTH_PASSWORD}
+        - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+        # External provider keys: discovery skips a provider whose key is
+        # absent, so an unset value simply leaves those models unpublished.
+        - MODEL_API_KEY=${MODEL_API_KEY:-}
+        - OPENCODE_GO_API_KEY=${OPENCODE_GO_API_KEY:-}
+        - OPENCODE_ZEN_API_KEY=${OPENCODE_ZEN_API_KEY:-}
+        - OPENCODE_API_KEY=${OPENCODE_API_KEY:-}
+        # ClinePass lane: discovery skips it while the key is absent, so an
+        # unset value simply leaves clinepass/* unpublished.
+        - CLINE_API_KEY=${CLINE_API_KEY:-}
+        - CODEX_ROUTER_OPENCODE_ZEN_MODELS=${CODEX_ROUTER_OPENCODE_ZEN_MODELS:-space-bunny-free}
+        # Claude Pro subscription utilization, published every 5 min by the host
+        # helper (modules/fetch-claude-usage.py) as sanitized JSON. The router
+        # only reads this file; it never touches credentials or the network.
+        - CODEX_ROUTER_CLAUDE_USAGE_FILE=/claude-usage/claude-usage.json
+        # Per-hop budget for the auto-thinking pool. The router's own default
+        # is 120, which is short for a reasoning model and sits below the
+        # opencode-free lane's 300s turn deadline, so a lower budget would
+        # always pre-empt the lane. Forwarded from the deploy workflow's
+        # environment; this default applies when it is not set there.
+        - CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS=${CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS:-300}
+    restart: unless-stopped
+    # A colour publishes no port of its own: the front owns 4100, so both
+    # colours can run at once without a bind conflict.
+    mem_limit: 1536m
+    volumes:
+        - codex_router_state:/app/state
+        # Sanitized Claude Pro utilization snapshot, published by the host cron
+        # (modules/fetch-claude-usage.py via deploy.sh). Read-only: the router
+        # renders the admin card from this file and never touches credentials.
+        # A directory bind, not a file bind: the helper publishes via atomic
+        # tmp+rename, and a renamed file orphans a file bind at the old inode
+        # (the container then freezes at the deploy-time snapshot while the
+        # host file stays fresh). Renames inside a bound directory stay
+        # visible. Edit this anchor once: both colours inherit it.
+        - /home/runner/data/codex-router:/claude-usage:ro
+    healthcheck:
+        test:
+            [
+                "CMD-SHELL",
+                "curl -fsS http://127.0.0.1:4100/health/liveliness || exit 1",
+            ]
+        interval: 30s
+        timeout: 10s
+        retries: 3
+        start_period: 60s
+    # The drain budget for a stream in flight. deploy.sh stops the old colour
+    # with `stop -t "$ROUTER_DRAIN_SECONDS"`, whose default is the same 10m;
+    # without it docker's 10s default SIGKILLs a streaming response mid-flight.
+    stop_grace_period: 10m
+    logging: *default-logging
+
+services:
+    expense-tracker:
+        build:
+            context: ../modules/expense-tracker
+            dockerfile: docker/Dockerfile
+        labels:
+            org.opencontainers.image.revision: ${HERMES_SOURCE_REVISION:-unknown}
+        ports:
+            - "127.0.0.1:8080:8080"
+        volumes:
+            - /home/runner/data/expense-tracker/data:/app/data
+            # Learning offers live here, not under data/: hermes mounts the
+            # data tree, and a model that could write an offer could mint one
+            # for the Remember button to confirm (#723).
+            - /home/runner/data/expense-tracker/state:/app/state
+            # The wiki's finance pages are the knowledge authority (#783): mounted
+            # read-only, finance subtree only. Hermes is the only writer.
+            - /home/runner/data/hermes/data/home/wiki/entities/accounts:/wiki/accounts:ro
+        environment:
+            - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+            - JEV_API_KEY=${JEV_API_KEY:-}
+            - WIKI_DIR=/wiki/accounts
+            # Hermes's own bot, send-only here (Hermes polls it). Both set turns on
+            # the tappable /remember_<id> and /forget_<id> commands (#723).
+            - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+            - TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL:-}
+            - LLM_PROVIDER=${LLM_PROVIDER:-litellm}
+            - LLM_BASE_URL=${LLM_BASE_URL:-http://codex-router:4100/v1}
+            - LLM_MODEL=${LLM_MODEL:-auto-thinking}
+            - LLM_API_KEY=${LLM_API_KEY:-}
+            - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
+            - LLM_FALLBACK_MODEL=${LLM_FALLBACK_MODEL:-}
+            - LLM_FINAL_FALLBACK_PROVIDER=${LLM_FINAL_FALLBACK_PROVIDER:-deepseek}
+            - LLM_FINAL_FALLBACK_MODEL=${LLM_FINAL_FALLBACK_MODEL:-deepseek-flash}
+            - ACTUAL_BUDGET_URL=http://actual-api:3000
+            - ACTUAL_BUDGET_PASSWORD=${ACTUAL_BUDGET_PASSWORD}
+            - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
+            - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE}
+            - ACTUAL_PRIMARY_CURRENCY=${ACTUAL_PRIMARY_CURRENCY}
+            - ACTUAL_SECONDARY_CURRENCY=${ACTUAL_SECONDARY_CURRENCY}
+            - NOTIFY_URL=${NOTIFY_URL}
+            - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
+            - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+            - IMAP_HOST=${IMAP_HOST}
+            - IMAP_USERNAME=${IMAP_USERNAME}
+            - IMAP_PASSWORD=${IMAP_PASSWORD}
+            # No IPv6 route in the container; see issue #553.
+            - NODE_OPTIONS=--no-network-family-autoselection
+        restart: unless-stopped
+        # node is PID 1 with no SIGTERM handler; tini forwards the stop signal so
+        # `docker stop` exits cleanly instead of SIGKILLing after the timeout.
+        init: true
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    'node -e ''require("http").get("http://localhost:8080/health",function(r){process.exit(r.statusCode===200?0:1)})''',
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 20s
+        logging: *default-logging
+
+    actual-api:
+        build:
+            context: ../modules/actual-api
+            dockerfile: Dockerfile
+        ports:
+            - "127.0.0.1:3000:3000"
+        environment:
+            - ACTUAL_BUDGET_URL=${ACTUAL_BUDGET_URL}
+            - ACTUAL_BUDGET_PASSWORD=${ACTUAL_BUDGET_PASSWORD}
+            - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
+            - BUDGET_SWITCH_DELAY_MS=5000
+            # Version-mismatch warning to the operator (issue #799).
+            - NOTIFY_URL=${NOTIFY_URL}
+            - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
+            # No IPv6 route in the container; see issue #553.
+            - NODE_OPTIONS=--no-network-family-autoselection
+        restart: unless-stopped
+        init: true
+        logging: *default-logging
+
+    portfolio-tracker:
+        build:
+            context: ../modules/portfolio-tracker
+            dockerfile: docker/Dockerfile
+        labels:
+            org.opencontainers.image.revision: ${HERMES_SOURCE_REVISION:-unknown}
+        ports:
+            - "127.0.0.1:8081:8081"
+        volumes:
+            - /home/runner/data/portfolio-tracker/data:/app/data
+            - onedrive_data:/data/onedrive:rw
+            - /home/runner/data/portfolio-tracker/onedrive_token:/app/config/onedrive:rw
+            - /home/runner/data/portfolio-tracker/google-service-account.json:/app/config/google-service-account.json:ro
+        environment:
+            - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+            - LLM_BASE_URL=${LLM_BASE_URL:-http://codex-router:4100/v1}
+            - LLM_MODEL=${LLM_MODEL:-auto-thinking}
+            - LLM_API_KEY=${LLM_API_KEY:-}
+            - LLM_REASONING_EFFORT=${LLM_REASONING_EFFORT:-low}
+            - ACTUAL_BUDGET_URL=${ACTUAL_BUDGET_URL}
+            - ACTUAL_BUDGET_PASSWORD=${ACTUAL_BUDGET_PASSWORD}
+            - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
+            - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE}
+            - ONEDRIVE_CLIENT_ID=${ONEDRIVE_CLIENT_ID}
+            - IBKR_FLEX_TOKEN=${IBKR_FLEX_TOKEN}
+            - IBKR_FLEX_QUERY_ID=${IBKR_FLEX_QUERY_ID}
+            - IBKR_PP_SGD_ACCOUNT=${IBKR_PP_SGD_ACCOUNT}
+            - IBKR_PP_USD_ACCOUNT=${IBKR_PP_USD_ACCOUNT}
+            - GOOGLE_SERVICE_ACCOUNT_JSON=/app/config/google-service-account.json
+            - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+            - TAXONOMY_SHEET_MAPPING=${TAXONOMY_SHEET_MAPPING}
+            - TAXONOMY_NAMES=${TAXONOMY_NAMES:-Sector,Geography,Asset Class}
+            - PP_XML_PATH=/data/onedrive/Portfolio/Portfolio.portfolio
+            - PP_OFFSET_MAP=${PP_OFFSET_MAP:-}
+            # Signs Hermes email-intake's /process/portfolio requests (#783).
+            - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
+            # No IPv6 route in the container; see issue #553.
+            - NODE_OPTIONS=--no-network-family-autoselection
+        mem_limit: 512m
+        restart: unless-stopped
+        init: true
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    'node -e ''require("http").get("http://localhost:8081/health",function(r){process.exit(r.statusCode===200?0:1)})''',
+                ]
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 30s
+        logging: *default-logging
+
+    # The caddy front. It is the only thing that publishes 4100 and the only
+    # service callers address; the colours behind it are an implementation
+    # detail of the roll. `lb_policy first` plus the fixed upstream order below
+    # means a healthy codex-router-a wins whenever it is available.
+    codex-router:
+        # Pinned, not floating: deploy.sh only runs `compose up -d`, so a
+        # floating tag would keep using whatever caddy image is already local.
+        # 2.11.6 cut every HTTP/1.1 POST with a body off exactly 60s after the
+        # body was read (caddy #8103, fixed in #8107, released in 2.11.7).
+        image: caddy:2.11.7-alpine
+        ports:
+            - "0.0.0.0:4100:4100"
+        # The directory, not the Caddyfile itself: a checkout that replaces the
+        # file's inode would leave a bind-mounted file pointing at the old one,
+        # so `caddy reload` would keep serving the configuration it booted with.
+        volumes:
+            - ./codex-router-front:/etc/caddy:ro
+        # deploy.sh keys the front's lifecycle on this label: the compose service
+        # name is reused by the legacy router container until the cutover
+        # replaces it, so the name cannot identify the front on its own.
+        labels:
+            - modules.role=codex-router-front
+        restart: unless-stopped
+        # The caddy alpine image ships no curl, so the healthcheck uses wget.
+        healthcheck:
+            test:
+                [
+                    "CMD-SHELL",
+                    "wget -q -O /dev/null http://127.0.0.1:4100/health/liveliness || exit 1",
+                ]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 10s
+        mem_limit: 128m
+        logging: *default-logging
+
+    codex-router-a:
+        <<: *codex-router-color
+
+    codex-router-b:
+        <<: *codex-router-color
+
+    hermes:
+        build:
+            context: ../modules/hermes
+            dockerfile: Dockerfile
+        labels:
+            org.opencontainers.image.revision: ${HERMES_SOURCE_REVISION:-unknown}
+        container_name: hermes
+        restart: unless-stopped
+        command: gateway run
+        depends_on:
+            expense-tracker:
+                condition: service_healthy
+            portfolio-tracker:
+                condition: service_healthy
+        ports:
+            # Hermes API server (Conduit). Host loopback only: Tailscale serve
+            # terminates TLS on the tailnet and proxies to 127.0.0.1:8642.
+            - "127.0.0.1:8642:8642"
+            - "9119:9119"
+            - "8644:8644"
+            # Hermes WebUI. Host loopback only: Tailscale serve terminates TLS on
+            # the tailnet and proxies to 127.0.0.1:8787, so nothing binds the LAN.
+            - "127.0.0.1:8787:8787"
+            # Own Google Tasks OAuth callback listener. Host loopback only.
+            # The redirect is loopback (http://localhost:9090/callback), which
+            # is exempt from Google's own-your-domain redirect policy; the
+            # browser device reaches it via `ssh -L 9090:localhost:8299`,
+            # or the code is pasted back with `gtasks login --manual`.
+            - "127.0.0.1:8299:8299"
+        volumes:
+            - /home/runner/data/hermes/data:/opt/data
+            - /home/runner/data/hermes/workspace:/workspace
+            - /home/runner/data/hermes/friday_pat.secret:/run/secrets/friday_pat:ro
+            - /var/run/docker.sock:/var/run/docker.sock
+            - /home/runner/data/expense-tracker/data:/opt/data/expense-tracker-data:ro
+        environment:
+            - HERMES_WRITE_SAFE_ROOT=/opt/data:/workspace:/tmp
+            - GTASKS_CLIENT_ID=${GTASKS_CLIENT_ID:-}
+            - GTASKS_CLIENT_SECRET=${GTASKS_CLIENT_SECRET:-}
+            - GTASKS_REDIRECT_URI=${GTASKS_REDIRECT_URI:-http://localhost:9090/callback}
+            - XDG_CONFIG_HOME=/opt/data/.config
+            # Mnemosyne sleep summarises old working memory with the Hermes auxiliary
+            # model it registers in-process (no new endpoint or key). Its local_llm
+            # module reads these at import, so they must be container env, not config.
+            - MNEMOSYNE_LLM_ENABLED=true
+            - MNEMOSYNE_HOST_LLM_ENABLED=true
+            # The API server defaults to 127.0.0.1 inside the container, which a
+            # published port cannot reach. API_SERVER_KEY stays in /opt/data/.env.
+            - API_SERVER_HOST=0.0.0.0
+            - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+            # In-container Meta-direct callers read MODEL_API_KEY (the env name
+            # the upstream meta-ai provider looks for), so the key has to reach
+            # Hermes and not only codex-router. HOME here is /root and there is
+            # no ~/.env, so a file fallback cannot supply it either.
+            - MODEL_API_KEY=${MODEL_API_KEY:-}
+            # The adjudicator's primary route is TypeSafe's official jev endpoint,
+            # keyed by this. Optional: without it the adjudicator uses auto-thinking.
+            - JEV_API_KEY=${JEV_API_KEY:-}
+            - GEMINI_API_KEY=${GEMINI_API_KEY}
+            - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+            - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
+            - TELEGRAM_HOME_CHANNEL=${TELEGRAM_HOME_CHANNEL}
+            # Slack (Socket Mode — outbound WebSocket, no inbound port required)
+            - SLACK_BOT_TOKEN=${SLACK_BOT_TOKEN}
+            - SLACK_APP_TOKEN=${SLACK_APP_TOKEN}
+            - SLACK_ALLOWED_USERS=${SLACK_ALLOWED_USERS}
+            - SLACK_HOME_CHANNEL=${SLACK_HOME_CHANNEL}
+            - SLACK_HOME_CHANNEL_NAME=${SLACK_HOME_CHANNEL_NAME}
+            - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
+            - MEMORY_REPO_URL=${MEMORY_REPO_URL}
+            - GH_APP_ID=${GH_APP_ID}
+            - GH_APP_INSTALLATION_ID=${GH_APP_INSTALLATION_ID}
+            - GH_APP_PRIVATE_KEY=${GH_APP_PRIVATE_KEY}
+            # github-auth.sh pins HOME=/opt/data/home, so gh's own config lives
+            # at /opt/data/home/.config/gh. Without this, a shell that keeps the
+            # container's default HOME reads an empty /opt/data/.config/gh and
+            # reports "not logged into any GitHub hosts" while the App is fine.
+            - GH_CONFIG_DIR=/opt/data/home/.config/gh
+            - IDENTITY_NAME=${IDENTITY_NAME}
+            - IDENTITY_EMOJI=${IDENTITY_EMOJI}
+            - IDENTITY_VIBE=${IDENTITY_VIBE}
+            - SOUL_VOICE_TONE=${SOUL_VOICE_TONE}
+            - SOUL_VOICE_STYLE=${SOUL_VOICE_STYLE}
+            - SOUL_VOICE_RULES=${SOUL_VOICE_RULES}
+            - SOUL_DELEGATION=${SOUL_DELEGATION}
+            - HERMES_DASHBOARD=1
+            # Dashboard on 9119, LAN-only (no Tailscale serve); basic auth required.
+            - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
+            - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
+            # WebUI CSP frame-ancestors allowlist for Tailscale-serve framing.
+            # Empty default preserves upstream locked-down behaviour locally.
+            - HERMES_WEBUI_CSP_FRAME_EXTRA=${HERMES_WEBUI_CSP_FRAME_EXTRA:-}
+            - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
+            - NOTION_API_KEY=${NOTION_API_KEY}
+            # Basic-auth password for the host's `opencode serve`, reachable from
+            # this container at the Docker gateway. Optional.
+            - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD:-}
+            # Bitwarden Secrets Manager machine-account token and project id
+            # (statement passwords, issue #783). Optional.
+            - BWS_ACCESS_TOKEN=${BWS_ACCESS_TOKEN:-}
+            - BWS_PROJECT=${BWS_PROJECT:-}
+            # Email intake (#783): read-only mailbox scan + Jev classification.
+            # shadow records decisions only; set the Actions variable to "off"
+            # to disable.
+            - IMAP_HOST=${IMAP_HOST}
+            - IMAP_USERNAME=${IMAP_USERNAME}
+            - IMAP_PASSWORD=${IMAP_PASSWORD}
+            - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
+            - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
+            - EXPENSE_TRACKER_DATA=/opt/data/expense-tracker-data
+            # Cap glibc malloc arenas. The WebUI runs ~37 threads; uncapped,
+            # glibc keeps up to 8 arenas per core and memory freed in one is
+            # not reused by another, so RSS climbs and stays high. 2 is enough
+            # under the GIL.
+            - MALLOC_ARENA_MAX=2
+        mem_limit: 3g
+        networks:
+            - default
+            - hermes_shared
+        shm_size: 1g
+        logging: *default-logging
+
+volumes:
+    codex_router_state:
+    onedrive_data:
+
+networks:
+    hermes_shared:
+        external: true

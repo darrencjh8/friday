@@ -1,0 +1,5 @@
+name: learning-commands
+version: 1.0.0
+description: "Answers expense-tracker /remember_<id> and /forget_<id> commands before the model sees them (#723)."
+kind: backend
+author: friday

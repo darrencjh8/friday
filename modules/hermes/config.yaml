@@ -1,0 +1,354 @@
+providers:
+    codex-router:
+        name: Model Router
+        api: http://codex-router:4100/v1
+        api_key: local
+        transport: codex_responses
+        default_model: auto-thinking
+
+model:
+    provider: custom:codex-router
+    default: auto-thinking
+
+compression:
+    enabled: true
+    threshold: 0.90
+    threshold_tokens: 300000
+    tail_mode: lean
+    protect_last_n: 20
+    in_place: true
+    idle_compact_after_seconds: 3600
+    proactive_prune_tokens: 48000
+
+agent:
+    reasoning_effort: none
+    # Prompt/cost trim: headless server, text-plus-finance use. Re-enable per
+    # platform with `hermes tools enable` if a task needs one back.
+    disabled_toolsets:
+        - computer_use
+        - image_gen
+        - tts
+        - browser
+
+display:
+    show_reasoning: false
+
+plugins:
+    enabled:
+        - disk-cleanup
+
+fallback_providers:
+    - provider: deepseek
+      model: deepseek-flash
+
+delegation:
+    max_spawn_depth: 1
+    max_iterations: 100
+    provider: custom:codex-router
+    model: auto-thinking
+
+approvals:
+    mode: smart
+    timeout: 60
+    cron_mode: allow
+
+memory:
+    memory_enabled: true
+    user_profile_enabled: true
+    write_approval: true
+    # Headroom for the always-on core, not a target size. Durable facts that do not
+    # fit the core belong in /opt/data/memories/topics/*.md, which the triage judge
+    # and the troubleshooting skill reference describe. This limit exists so a batch
+    # of adds and removes from different sessions can still land (the cap is checked
+    # against the final state of a batch).
+    memory_char_limit: 2800
+    # Mnemosyne provider (seed-owned): single writer, no merge carry needed.
+    # The merge writes baked bytes verbatim, so this survives every reboot.
+    # Without the plugin installed discovery finds no instance and Hermes
+    # falls back to built-in, so fresh hosts are unaffected. Pinned to the
+    # working pair 0.7.1 + 3.15.1 (0.7.3/0.7.4 constructor raises under turn
+    # scope); the seed enforces the pin into lazy-packages.
+    provider: mnemosyne
+    mnemosyne:
+        auto_sleep: true
+        sleep_threshold: 20
+        # Keep webhook push alerts and cron reply echoes out of working memory:
+        # they arrive as user turns but are machine text, not facts about Darren.
+        ignore_patterns:
+            - "System push alert"
+            - '\[Replying to: "Cronjob'
+
+sessions:
+    # Keep ended sessions searchable for 30 days. auto_prune removes ended sessions
+    # older than retention_days, while auto_archive hides inactive sessions earlier
+    # without deleting their transcript.
+    auto_prune: true
+    retention_days: 30
+    # Build-time patch (patches/patch-session-caps.py): after the age prune, also delete the
+    # least recently active ended sessions while there are more than max_sessions sessions or
+    # state.db uses more than max_db_mb. Whichever cap is tighter wins; 0 disables a cap.
+    max_sessions: 1000
+    max_db_mb: 512
+    auto_archive: true
+    auto_archive_days: 14
+
+skills:
+    guard_agent_created: true
+
+terminal:
+    backend: local
+    persistent_shell: true
+    cwd: /workspace
+
+web:
+    search_backend: brave-free
+    extract_backend: firecrawl
+
+auxiliary:
+    # The auto pool is the shared workhorse for slots that need no reasoning;
+    # the judges (approval, review, curator) keep the auto-thinking pool so
+    # their verdicts track the main agent.
+    vision:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    web_extract:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    compression:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    approval:
+        provider: custom:codex-router
+        model: auto-thinking
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    kanban_decomposer:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    triage_specifier:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    profile_describer:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    # Newer upstream slots (absent from older baked configs): pinned explicitly
+    # so the boot merge seeds them instead of leaving them on the main model.
+    skills_hub:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    mcp:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    title_generation:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    review:
+        provider: custom:codex-router
+        model: auto-thinking
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    voice_chat:
+        provider: custom:codex-router
+        model: auto
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+    curator:
+        provider: custom:codex-router
+        model: auto-thinking
+        fallback_chain:
+            - provider: deepseek
+              model: deepseek-flash
+
+kanban:
+    dispatch_in_gateway: false
+    dispatch_interval_seconds: 60
+    auto_decompose: false
+    auto_decompose_per_tick: 3
+    auto_promote_children: true
+    failure_limit: 2
+    max_in_progress: 4
+    max_in_progress_per_profile: 2
+    orchestrator_profile: code-reviewer
+    default_assignee: code-reviewer
+
+# Statement passwords (issue #783) live in Bitwarden Secrets Manager. The token
+# reaches the profile .env through 50-seed-defaults; the boot placeholder pass
+# resolves the project id, because Hermes reads this block raw. A missing token
+# or project only logs a warning, it never blocks startup. override_existing is
+# off so the project can never replace a deployed credential of the same name.
+secrets:
+  bitwarden:
+    enabled: true
+    access_token_env: BWS_ACCESS_TOKEN
+    project_id: "${BWS_PROJECT}"
+    server_url: "https://vault.bitwarden.com"
+    override_existing: false
+
+timezone: Asia/Singapore
+
+mcp_servers:
+    expense-tracker:
+        url: http://expense-tracker:8080/mcp
+        tools:
+            exclude: []
+        supports_parallel_tool_calls: false
+    portfolio-tracker:
+        url: http://portfolio-tracker:8081/mcp
+        tools:
+            exclude: []
+        supports_parallel_tool_calls: false
+    # Two entries over the same stdio server, because `include` cannot be
+    # conditioned on approval and `trust: untrusted` gates every tool without a
+    # readOnlyHint. Search and query are POSTs, so one entry would either expose
+    # writes ungated or demand approval for every read.
+    notion:
+        command: notion-mcp-server
+        env:
+            NOTION_TOKEN: ${NOTION_API_KEY}
+        supports_parallel_tool_calls: false
+        tools:
+            include:
+                - API-get-self
+                - API-post-search
+                - API-query-data-source
+                - API-retrieve-a-data-source
+                - API-retrieve-a-database
+                - API-retrieve-a-page
+                - API-retrieve-a-page-property
+                - API-retrieve-page-markdown
+                - API-get-block-children
+                - API-list-data-source-templates
+            resources: false
+            prompts: false
+    notion-write:
+        command: notion-mcp-server
+        env:
+            NOTION_TOKEN: ${NOTION_API_KEY}
+        supports_parallel_tool_calls: false
+        trust: untrusted
+        tools:
+            include:
+                - API-post-page
+                - API-patch-page
+                - API-update-page-markdown
+                - API-create-a-comment
+            resources: false
+            prompts: false
+platforms:
+    webhook:
+        enabled: true
+        extra:
+            port: 8644
+            secret: ${HERMES_WEBHOOK_SECRET}
+            routes:
+                notify:
+                    secret: ${HERMES_WEBHOOK_SECRET}
+                    prompt: |
+                        ⚠️ System push alert from a monitoring service or module.
+                        You are relaying an automated notification — do NOT call any tools or skills.
+                        Relay this to the user conversationally with personalization.
+                        Do NOT acknowledge receipt, say "noted", "got it", or treat this as
+                        a user command — this is an automated push from the system.
+                        For single transaction notifications (one item), relay concisely as-is —
+                        do NOT wrap in a table. Only use tables when relaying multi-item data.
+                        Message: {message}
+                    deliver: telegram
+                    deliver_extra:
+                        chat_id: "${TELEGRAM_HOME_CHANNEL}"
+
+    # Keep this block AFTER `webhook`. The webhook route nests three levels deep
+    # and modules/expense-tracker/__tests__/hermes-webhook.test.js parses this
+    # file with a single-level-depth YAML reader; a nested mapping placed before
+    # `webhook` desynchronises it and platform detection fails.
+    slack:
+        # Enabled: the Slack app exists and both tokens live in the
+        # `darren-prod` environment scope, so deploy.sh validates them on every
+        # deploy. See SLACK.md.
+        enabled: true
+        # "first" threads the first chunk of a multi-part reply to the user's
+        # message; later chunks follow in that same thread.
+        reply_to_mode: "first"
+        extra:
+            # Answer every message in every channel the bot is invited to,
+            # with no @mention required. Pair with SLACK_ALLOWED_USERS so only
+            # allowlisted humans can reach the agent. Set a
+            # `require_mention_channels` list to re-gate noisy channels.
+            require_mention: false
+            reply_in_thread: true
+            # Render replies as Slack Block Kit (headers, dividers, tables). A
+            # plain-text fallback is always sent alongside for accessibility.
+            rich_blocks: true
+            # Keep channels clean: linked pages and media do not auto-preview.
+            unfurl_links: false
+            unfurl_media: false
+            # Ignore other Slack bots; Hermes only answers allowlisted humans.
+            allow_bots: "none"
+
+    # Telegram stays enabled by TELEGRAM_BOT_TOKEN (no `enabled:` key here, so
+    # the env decides). Rich Messages (Bot API sendRichMessage) render real
+    # Markdown tables, which the memory digests use; without them Hermes
+    # rewrites tables into bullet groups.
+    telegram:
+        extra:
+            rich_messages: true
+
+quick_commands:
+    portfolio-sync:
+        type: exec
+        command: >-
+            curl -s -X POST http://portfolio-tracker:8081/tools/pp-sync-all
+            -H "Content-Type: application/json" -d '{}' --max-time 60
+    portfolio-status:
+        type: exec
+        command: >-
+            curl -s -X POST http://portfolio-tracker:8081/tools/pp-status -H "Content-Type: application/json" -d '{}'
+
+tts:
+    provider: openai
+    openai:
+        voice: echo
+        base_url: http://127.0.0.1:8880/v1
+        api_key: not-needed
+    # piper rides along verbatim from live: the merge is top-level
+    # baked-wins, so a block that omits it wipes the live key on next
+    # boot. No speed override (1.1 broke output 2026-10-15, reverted to
+    # provider default) and no cloud-provider stanza (removed).
+    piper:
+        voice: en_US-amy-medium
+
+stt:
+    enabled: true
+    provider: openai
+    openai:
+        base_url: http://127.0.0.1:8000/v1
+        model: turbo

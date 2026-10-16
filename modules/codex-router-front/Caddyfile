@@ -1,0 +1,25 @@
+# The codex-router front. Both colours answer on 4100 inside the compose
+# network; only this proxy is published, and deploy.sh rolls the colours behind
+# it one at a time.
+#
+# `lb_policy first` picks the first healthy upstream in the order written here,
+# so codex-router-a wins whenever it is healthy and a roll to `b` is a no-op for
+# the front until `a` stops.
+:4100 {
+	reverse_proxy codex-router-a:4100 codex-router-b:4100 {
+		lb_policy first
+		# A dial failure is retried for this long before the request fails:
+		# caddy buffers the body, so a POST that lands on the colour being
+		# stopped moves to the other colour instead of erroring.
+		lb_try_duration 30s
+		lb_try_interval 250ms
+		health_uri /health/liveliness
+		health_interval 10s
+		health_timeout 5s
+		# How long an upstream stays out of rotation after a failed check.
+		fail_duration 30s
+		# Stream server-sent events as they are produced instead of buffering
+		# them, which would stall an in-flight response until the body ends.
+		flush_interval -1
+	}
+}

@@ -1,0 +1,42 @@
+{
+ "forbidden": [
+  {
+   "hash": "10f438b6f6175e909fec57ae5fa8746247484570942053158915adf0683a6af8",
+   "kind": "email",
+   "label": "own personal email",
+   "len": 22,
+   "shape": []
+  },
+  {
+   "hash": "4ad97db2bda01bcd75754794e0eecd2bfb438e8d2d9f3b58085a7be94ee1e5fc",
+   "kind": "digits",
+   "label": "own real transfer reference",
+   "len": 16,
+   "shape": []
+  },
+  {
+   "hash": "77ae16f4dd880d06d6eeea527bd64d6c9f7e4272dafc3ff640be1b4e8bdcdd79",
+   "kind": "email",
+   "label": "own employer email",
+   "len": 16,
+   "shape": []
+  },
+  {
+   "hash": "858277465e0c2edc3b3bec5887e7f10b80ae3450ced816eafa517e45a6b35c08",
+   "kind": "email",
+   "label": "own personal email",
+   "len": 24,
+   "shape": []
+  },
+  {
+   "hash": "c426ba47f3fe90761296194ba9293e54d792a3b9e67d7554652eed5c4f526d01",
+   "kind": "email",
+   "label": "own employer email",
+   "len": 16,
+   "shape": []
+  }
+ ],
+ "kdf": "pbkdf2-sha256-200000",
+ "salt": "darren-openclaw-pii-v1",
+ "version": 2
+}

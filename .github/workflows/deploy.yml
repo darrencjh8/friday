@@ -1,0 +1,279 @@
+name: Deploy to Production
+
+on:
+    push:
+        branches: [main]
+        paths-ignore:
+            - ".gitmodules"
+
+    workflow_dispatch:
+        inputs:
+            ref:
+                description: "Branch, tag, or commit SHA (default: main)"
+                type: string
+                default: "main"
+            environment:
+                description: "Deployment environment"
+                type: environment
+                default: "darren-prod"
+            force_all:
+                description: "Force deploy all components (ignore changed-files detection)"
+                type: boolean
+                default: false
+            components:
+                description: "Specific component(s) to deploy (overrides detection)"
+                type: choice
+                default: ""
+                options:
+                    - ""
+                    - all
+                    - hermes
+                    - portfolio-tracker
+                    - expense-tracker
+                    - actual-api
+                    - codex-router
+
+concurrency:
+    group: production-deploy
+    cancel-in-progress: false
+
+jobs:
+    test:
+        if: github.event_name != 'push'
+        uses: ./.github/workflows/test.yml
+        with:
+            # The deploy job checks this same ref out below, so the reusable
+            # workflow's image smoke has to test that tree and not the ref that
+            # happened to dispatch the run.
+            ref: ${{ github.event.inputs.ref || github.sha }}
+        secrets:
+            ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+            SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
+            FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
+
+    deploy:
+        if: always() && needs.test.result != 'failure'
+        needs: test
+        runs-on: self-hosted
+        permissions:
+            contents: read
+            actions: write
+        environment:
+            name: ${{ github.event.inputs.environment || 'darren-prod' }}
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  ref: ${{ github.event.inputs.ref || '' }}
+                  fetch-depth: 2
+                  clean: false
+                  token: ${{ secrets.SUBMODULE_PAT }}
+
+            - uses: actions/checkout@v4
+              with:
+                  repository: darrencjh8/codex-router
+                  ref: main
+                  token: ${{ secrets.SUBMODULE_PAT }}
+                  path: modules/codex-router
+
+            - name: Detect changed modules
+              id: changes
+              env:
+                  FORCE_ALL: ${{ inputs.force_all || 'false' }}
+                  DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
+              run: |
+
+                  # Workflow dispatch with explicit components: use them directly
+                  if [ -n "${DEPLOY_COMPONENTS_OVERRIDE:-}" ]; then
+                      echo "components=${DEPLOY_COMPONENTS_OVERRIDE}" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  # Workflow dispatch with force_all: deploy everything
+                  if [ "${FORCE_ALL:-false}" = "true" ]; then
+                      echo "components=all" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+                  COMPONENTS=""
+                  echo "$CHANGED" | grep -q "^modules/hermes/"          && COMPONENTS="$COMPONENTS hermes"
+                  echo "$CHANGED" | grep -q "^modules/expense-tracker/" && COMPONENTS="$COMPONENTS expense-tracker"
+                  echo "$CHANGED" | grep -q "^modules/portfolio-tracker/" && COMPONENTS="$COMPONENTS portfolio-tracker"
+                  echo "$CHANGED" | grep -q "^modules/actual-api/"     && COMPONENTS="$COMPONENTS actual-api"
+                  # The front's Caddyfile decides what 4100 serves, so a change to
+                  # it must reach the host through a router deployment.
+                  echo "$CHANGED" | grep -q "^modules/codex-router-front/" && COMPONENTS="$COMPONENTS codex-router"
+                  echo "$CHANGED" | grep -q "^gateway/"                && COMPONENTS="$COMPONENTS hermes"
+                  # A change to the helper, its cron wiring, or the compose mount
+                  # must reach the host through a router deployment.
+                  echo "$CHANGED" | grep -q "^modules/fetch-claude-usage.py" && COMPONENTS="$COMPONENTS codex-router"
+                  echo "$CHANGED" | grep -q "^\.github/"               && COMPONENTS="$COMPONENTS hermes"
+                  echo "$CHANGED" | grep -qE "^(\.github/workflows/deploy\.yml|modules/(docker-compose\.yml|deploy\.sh))$" && COMPONENTS="$COMPONENTS codex-router"
+                  if [ -z "$COMPONENTS" ] || echo "$CHANGED" | grep -qE "^(Dockerfile|deploy\.sh|modules/(docker-compose\.yml|deploy\.sh)$)"; then
+                      COMPONENTS="all"
+                  fi
+                  echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
+
+            - name: Build images
+              env:
+                  DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
+              run: |
+                  mkdir -p /home/runner/data/{expense-tracker/data,expense-tracker/state,portfolio-tracker/data,hermes/{data,workspace},codex-router}
+                  if [ "${DEPLOY_COMPONENTS}" = "all" ]; then
+                      bash ./modules/build.sh
+                  else
+                      ARGS=""
+                      for c in ${DEPLOY_COMPONENTS}; do ARGS="$ARGS --component $c"; done
+                      bash ./modules/build.sh $ARGS
+                  fi
+
+            - name: Deploy services
+              env:
+                  GITHUB_ACTIONS: true
+                  HERMES_WORKSPACE: /home/darren/workspace/hermes
+                  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+                  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+                  TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+                  SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+                  HERMES_WEBHOOK_SECRET: ${{ secrets.HERMES_WEBHOOK_SECRET }}
+                  GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+                  ACTUAL_BUDGET_PASSWORD: ${{ secrets.ACTUAL_BUDGET_PASSWORD }}
+                  IMAP_USERNAME: ${{ secrets.IMAP_USERNAME }}
+                  IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+                  ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+                  IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
+                  GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+                  GTASKS_CLIENT_ID: ${{ secrets.GTASKS_CLIENT_ID }}
+                  GTASKS_CLIENT_SECRET: ${{ secrets.GTASKS_CLIENT_SECRET }}
+                  BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+                  CODEX_ROUTER_AUTH_PASSWORD: ${{ secrets.CODEX_ROUTER_AUTH_PASSWORD }}
+                  # GitHub secret MUSE_API_KEY maps to the runtime MODEL_API_KEY
+                  # name the upstream meta-ai provider reads.
+                  MODEL_API_KEY: ${{ secrets.MUSE_API_KEY }}
+                  HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_USERNAME }}
+                  HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD }}
+                  OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+                  OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+                  OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+                  CLINE_API_KEY: ${{ secrets.CLINE_API_KEY }}
+                  CODEX_ROUTER_OPENCODE_ZEN_MODELS: ${{ vars.CODEX_ROUTER_OPENCODE_ZEN_MODELS || 'space-bunny-free' }}
+                  # Per-hop budget for the auto-thinking pool. The router's own
+                  # default is 120, which is short for a reasoning model, and it is
+                  # below the opencode-free lane's own 300s turn deadline, so a hop
+                  # budget under 300 always pre-empts the lane. Not a secret: it is
+                  # a duration, and a repository variable overrides it.
+                  CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS: ${{ vars.CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS || '300' }}
+                  LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'litellm' }}
+                  LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'http://codex-router:4100/v1' }}
+                  LLM_MODEL: ${{ vars.LLM_MODEL || 'auto-thinking' }}
+                  LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+                  LLM_REASONING_EFFORT: ${{ vars.LLM_REASONING_EFFORT || 'low' }}
+                  LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL || '' }}
+                  LLM_FINAL_FALLBACK_PROVIDER: ${{ vars.LLM_FINAL_FALLBACK_PROVIDER || 'deepseek' }}
+                  LLM_FINAL_FALLBACK_MODEL: ${{ vars.LLM_FINAL_FALLBACK_MODEL || 'deepseek-flash' }}
+                  FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+                  NOTION_API_KEY: ${{ secrets.NOTION_API_TOKEN }}
+                  OPENCODE_SERVER_PASSWORD: ${{ secrets.OPENCODE_SERVER_PASSWORD }}
+                  BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+                  BWS_PROJECT: ${{ vars.BWS_PROJECT }}
+                  EMAIL_INTAKE_MODE: ${{ vars.EMAIL_INTAKE_MODE }}
+                  POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+                  JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+                  TELEGRAM_ALLOWED_USERS: ${{ vars.TELEGRAM_ALLOWED_USERS }}
+                  TELEGRAM_HOME_CHANNEL: ${{ vars.TELEGRAM_HOME_CHANNEL }}
+                  SLACK_ALLOWED_USERS: ${{ vars.SLACK_ALLOWED_USERS }}
+                  SLACK_HOME_CHANNEL: ${{ vars.SLACK_HOME_CHANNEL }}
+                  SLACK_HOME_CHANNEL_NAME: ${{ vars.SLACK_HOME_CHANNEL_NAME }}
+                  MEMORY_REPO_URL: ${{ vars.MEMORY_REPO_URL }}
+                  GH_APP_ID: ${{ vars.GH_APP_ID }}
+                  GH_APP_INSTALLATION_ID: ${{ vars.GH_APP_INSTALLATION_ID }}
+                  IDENTITY_NAME: ${{ vars.IDENTITY_NAME }}
+                  IDENTITY_EMOJI: ${{ vars.IDENTITY_EMOJI }}
+                  IDENTITY_VIBE: ${{ vars.IDENTITY_VIBE }}
+                  SOUL_VOICE_TONE: ${{ vars.SOUL_VOICE_TONE }}
+                  SOUL_VOICE_STYLE: ${{ vars.SOUL_VOICE_STYLE }}
+                  SOUL_VOICE_RULES: ${{ vars.SOUL_VOICE_RULES }}
+                  SOUL_DELEGATION: ${{ vars.SOUL_DELEGATION }}
+                  ACTUAL_BUDGET_URL: ${{ vars.ACTUAL_BUDGET_URL }}
+                  ACTUAL_PRIMARY_BUDGET_FILE: ${{ vars.ACTUAL_PRIMARY_BUDGET_FILE }}
+                  ACTUAL_SECONDARY_BUDGET_FILE: ${{ vars.ACTUAL_SECONDARY_BUDGET_FILE }}
+                  ACTUAL_PRIMARY_CURRENCY: ${{ vars.ACTUAL_PRIMARY_CURRENCY }}
+                  ACTUAL_SECONDARY_CURRENCY: ${{ vars.ACTUAL_SECONDARY_CURRENCY }}
+                  NOTIFY_URL: ${{ vars.NOTIFY_URL }}
+                  IMAP_HOST: ${{ vars.IMAP_HOST }}
+                  IBKR_FLEX_QUERY_ID: ${{ vars.IBKR_FLEX_QUERY_ID }}
+                  IBKR_PP_SGD_ACCOUNT: ${{ vars.IBKR_PP_SGD_ACCOUNT }}
+                  IBKR_PP_USD_ACCOUNT: ${{ vars.IBKR_PP_USD_ACCOUNT }}
+                  GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
+                  TAXONOMY_SHEET_MAPPING: ${{ vars.TAXONOMY_SHEET_MAPPING }}
+                  TAXONOMY_NAMES: ${{ vars.TAXONOMY_NAMES }}
+                  PP_OFFSET_MAP: ${{ vars.PP_OFFSET_MAP }}
+                  # WebUI CSP frame-ancestors extra (Tailscale-serve URL). Repo
+                  # variable so framing can be allowed without a code change.
+                  HERMES_WEBUI_CSP_FRAME_EXTRA: ${{ vars.HERMES_WEBUI_CSP_FRAME_EXTRA }}
+                  SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
+                  FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
+                  DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
+                  FORCE_ALL: ${{ inputs.force_all || 'false' }}
+                  DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
+              run: |
+                  if [ "${DEPLOY_COMPONENTS}" = "all" ]; then
+                      bash ./modules/deploy.sh --component all --non-interactive --skip-build
+                  else
+                      ARGS=""
+                      for c in ${DEPLOY_COMPONENTS}; do ARGS="$ARGS --component $c"; done
+                      bash ./modules/deploy.sh $ARGS --non-interactive --skip-build
+                  fi
+
+            - name: Ensure Hermes container tooling
+              if: >-
+                  always() &&
+                  (steps.changes.outputs.components == 'all' || contains(format(' {0} ', steps.changes.outputs.components), ' hermes '))
+              env:
+                  # Authenticates the release lookup below; unauthenticated
+                  # api.github.com calls are limited to 60 per hour per IP and a
+                  # rate limit here would fail the deploy.
+                  GH_TOKEN: ${{ secrets.FRIDAY_PAT }}
+              run: |
+                  # gh and ntn are installed into the container's persisted
+                  # /opt/data volume, which is already on the image PATH, rather
+                  # than baked into an image layer. Rebuilding the image or
+                  # recreating the container therefore reuses them instead of
+                  # reinstalling. Each install is skipped when the tool exists.
+                  if ! docker exec hermes sh -c 'command -v gh' >/dev/null 2>&1; then
+                      gh_version=$(curl -fsSL -H "Authorization: Bearer ${GH_TOKEN}" \
+                          https://api.github.com/repos/cli/cli/releases/latest \
+                          | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+                      gh_arch=$(docker exec hermes dpkg --print-architecture)
+                      docker exec hermes sh -c "
+                          mkdir -p /opt/data/.local/bin &&
+                          curl -fsSL https://github.com/cli/cli/releases/download/v${gh_version}/gh_${gh_version}_linux_${gh_arch}.tar.gz | tar -xz -C /tmp &&
+                          install -m 0755 /tmp/gh_${gh_version}_linux_${gh_arch}/bin/gh /opt/data/.local/bin/gh &&
+                          rm -rf /tmp/gh_${gh_version}_linux_${gh_arch}"
+                  fi
+                  if ! docker exec hermes sh -c 'command -v ntn' >/dev/null 2>&1; then
+                      docker exec hermes npm install --global --prefix /opt/data/.local ntn
+                  fi
+                  # Gated on the installed version rather than on binary presence, so a
+                  # later bump of the pin replaces the volume copy instead of no-opping.
+                  # The match is anchored: the pin is a prefix of a longer version.
+                  if ! docker exec hermes npm ls --global --prefix /opt/data/.local --depth=0 @notionhq/notion-mcp-server 2>/dev/null | grep -qE '@notionhq/notion-mcp-server@2\.5\.2([[:space:]]|$)'; then
+                      docker exec hermes npm install --global --prefix /opt/data/.local @notionhq/notion-mcp-server@2.5.2
+                  fi
+                  docker exec hermes sh -c 'gh --version && ntn --version && command -v notion-mcp-server'
+
+            - name: Record deployed Codex Router revision
+              if: >-
+                  success() &&
+                  (steps.changes.outputs.components == 'all' || contains(format(' {0} ', steps.changes.outputs.components), ' codex-router '))
+              run: |
+                  mkdir -p /tmp/router-sha
+                  git -C modules/codex-router rev-parse HEAD > /tmp/router-sha/codex-router-sha.txt
+
+            - uses: actions/upload-artifact@v4
+              if: >-
+                  success() &&
+                  (steps.changes.outputs.components == 'all' || contains(format(' {0} ', steps.changes.outputs.components), ' codex-router '))
+              with:
+                  name: codex-router-sha
+                  path: /tmp/router-sha/codex-router-sha.txt
+                  if-no-files-found: error

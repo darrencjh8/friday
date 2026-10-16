@@ -1,0 +1,77 @@
+name: Recover Codex Router ChatGPT Auth
+run-name: Recover Codex Router ${{ inputs.account }} auth
+
+on:
+    workflow_dispatch:
+        inputs:
+            account:
+                description: "Router account slot to authorize"
+                required: true
+                type: choice
+                options:
+                    - acct1
+                    - acct2
+                    - acct3
+
+permissions:
+    contents: read
+
+# Shares the production deploy's group on purpose. Both jobs run on the same
+# self-hosted host, check out into the same workspace directory, and touch the
+# same containers: this one execs into the running codex-router container that a
+# deploy restarts and health-checks. Separate groups let the two interleave.
+concurrency:
+    group: production-deploy
+    cancel-in-progress: false
+
+jobs:
+    recover:
+        runs-on: self-hosted
+        environment: darren-prod
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@v4
+              with:
+                  clean: false
+                  persist-credentials: false
+
+            - name: Validate account slot
+              env:
+                  ACCOUNT: ${{ inputs.account }}
+              run: |
+                  case "$ACCOUNT" in
+                      acct1|acct2|acct3) ;;
+                      *) echo "Invalid account slot" >&2; exit 1 ;;
+                  esac
+
+            - name: Run interactive device login
+              env:
+                  ACCOUNT: ${{ inputs.account }}
+              run: |
+                  container_id=""
+                  # The router runs as two colour containers behind the caddy
+                  # front, so the front is not a target and either colour is.
+                  # Prefer codex-router-a to match the front's upstream order,
+                  # and fall back to whichever colour is actually running.
+                  for service in codex-router-a codex-router-b; do
+                      container_id="$(docker ps \
+                          --filter "label=com.docker.compose.project=modules" \
+                          --filter "label=com.docker.compose.service=$service" \
+                          --filter status=running \
+                          --format '{{.ID}}' | head -n 1)"
+                      if [ -n "$container_id" ]; then
+                          echo "Using the running $service container"
+                          break
+                      fi
+                  done
+                  if [ -z "$container_id" ]; then
+                      echo "No running codex-router colour container" >&2
+                      exit 1
+                  fi
+                  docker exec -i "$container_id" python -u - "$ACCOUNT" \
+                      < modules/codex-router-auth-recovery.py
+
+            - name: Verify safe Router status
+              run: |
+                  curl --fail --silent --show-error \
+                      http://127.0.0.1:4100/v1/codex-router/status

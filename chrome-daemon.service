@@ -1,0 +1,26 @@
+[Unit]
+Description=Chrome Daemon (CDP :9222)
+After=network.target
+
+[Service]
+Type=simple
+User=$USER
+Environment=DISPLAY=:99
+Environment=HOME=~
+ExecStartPre=/bin/sleep 2
+ExecStartPre=-/usr/bin/pkill -f "Xvfb :99"
+ExecStartPre=/bin/sh -c "/usr/bin/Xvfb :99 -screen 0 1920x1080x24 &"
+ExecStart=~/chromium/chrome \
+  --disable-dev-shm-usage \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chrome-daemon \
+  --disable-gpu \
+  --disable-software-rasterizer \
+  --renderer-process-limit=1 \
+  about:blank
+Restart=on-failure
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
