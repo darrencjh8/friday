@@ -46,6 +46,10 @@ q: What happens on a corrupt snapshot or a missing habits file? | a: Corrupt sna
 - Corrupt snapshot: stderr log + flagged empty state (problems non-empty),
   covered by `test_corrupt_snapshot_serves_flagged_empty_state`.
 - Missing daily-habits.md: zero habits for the run, never a problem.
+  Locked by a seed-suite assertion that the prompt carries the fallback
+  language (`test-50-seed-defaults.sh`: `habits_fallback`); the helper
+  itself never reads the file (candidates arrive on stdin), so there is
+  no helper unit to pin — the prompt text is the contract.
 - Skill safety boundary unchanged: no rm/update/clear from any flow.
 - Live cron prompt is production state edited via Hermes API; seed keeps it
   from reverting on deploy.
