@@ -316,7 +316,7 @@ class Dispatcher:
                 continue
             destination = (decision or {}).get("destination")
             if destination == "notify":
-                text = decision.get("message") or ""
+                text = (decision.get("message") or "")[:notify.TELEGRAM_LIMIT]
             elif destination == "uncertain":
                 text = notify.review_text(parsed.sender_domain, parsed.subject, evidence_hash)
             else:
@@ -350,8 +350,8 @@ class Dispatcher:
                 records.append({**(row["result"] or {}), "_status": row["status"]})
         parsed = mail.parse(raw)
         text = notify.result_text(records, parsed.sender_domain, parsed.subject)
-        if text:
-            self._journal.queue_notification(key, text)
+        # A silent outcome is recorded too, so it is never looked up again.
+        self._journal.queue_notification(key, text or "")
 
     def _one(self, evidence_hash, decision, locations, since, handoff, summary, owner_choice=False):
         todo = []
@@ -360,6 +360,8 @@ class Dispatcher:
             if row is None or row["status"] == "retry":
                 todo.append((kind, service, (row or {}).get("attempts", 0)))
         if not todo:
+            if self._mode == "live":
+                self._catch_up(evidence_hash, decision, locations)
             return
         if not owner_choice and not self._eligible(locations, since, handoff):
             return
@@ -383,12 +385,31 @@ class Dispatcher:
         for kind, service, attempts in todo:
             self._send(evidence_hash, kind, service, attempts, evidence, summary)
         if self._mode == "live":
-            self._queue_result(evidence_hash, decision, raw)
-        if self._mode == "live" and self._all_done(evidence_hash, decision):
+            self._finish(evidence_hash, decision, locations, raw)
+
+    def _finish(self, evidence_hash, decision, locations, raw):
+        """Mark INBOX read, then queue the result: a crash between the two is caught up next run."""
+        if self._all_done(evidence_hash, decision):
             for folder, validity, uid, _ in locations:
                 if folder == INBOX:
                     self._journal.add_mark(folder, validity, uid)
             self._flush_marks()
+        self._queue_result(evidence_hash, decision, raw)
+
+    def _catch_up(self, evidence_hash, decision, locations):
+        """An email whose legs all ended but whose result was never queued (a crash): finish it now."""
+        if self._journal.has_notification(f"{evidence_hash}:result") or not self._final(evidence_hash, decision):
+            return
+        if all(self._journal.dispatch_state(evidence_hash, kind, self._mode)["status"] == "handed_off"
+               for kind, _ in self._legs(decision)):
+            return
+        raw = None
+        for folder, validity, uid, _ in locations:
+            raw = self._mailbox.fetch(folder, validity, uid)
+            if raw:
+                break
+        if raw:
+            self._finish(evidence_hash, decision, locations, raw)
 
     def _send(self, evidence_hash, kind, service, attempts, evidence, summary):
         rid = request_id(self._mode, kind, evidence_hash)

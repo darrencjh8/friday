@@ -12,12 +12,13 @@ conflict with it. Plain text, never parse_mode.
 """
 
 import logging
+import urllib.error
 
 from . import redact
 
 logger = logging.getLogger(__name__)
 
-MAX_SEND_ATTEMPTS = 10
+SENT, RETRY, REJECTED = "sent", "retry", "rejected"
 REPLAY_ID_LENGTH = 10
 TELEGRAM_LIMIT = 4000
 
@@ -72,12 +73,18 @@ class TelegramSender:
         self._post = post
 
     def __call__(self, text):
+        """SENT; REJECTED when Telegram refuses this message for good; RETRY otherwise."""
         try:
             response = self._post(self._url, {"chat_id": self._chat_id, "text": text}, {})
+        except urllib.error.HTTPError as error:
+            if error.code in (400, 403):
+                return REJECTED
+            logger.warning("email-intake telegram send failed: HTTP %s", error.code)
+            return RETRY
         except Exception as error:  # noqa: BLE001 - retried on the next flush
             logger.warning("email-intake telegram send failed: %s", type(error).__name__)
-            return False
-        return bool(isinstance(response, dict) and response.get("ok"))
+            return RETRY
+        return SENT if isinstance(response, dict) and response.get("ok") else RETRY
 
 
 class Outbox:
@@ -88,11 +95,16 @@ class Outbox:
         self._send = send
 
     def flush(self):
+        """An outage keeps every message for later, in order; a rejected message is dropped and logged."""
         sent = 0
-        for key, text, attempts in self._journal.unsent_notifications(MAX_SEND_ATTEMPTS):
-            if self._send(text):
+        for key, text, _attempts in self._journal.unsent_notifications():
+            outcome = self._send(text)
+            if outcome == SENT:
                 self._journal.mark_notification_sent(key)
                 sent += 1
+            elif outcome == REJECTED:
+                logger.warning("email-intake telegram rejected a message; dropped")
+                self._journal.reject_notification(key)
             else:
                 self._journal.note_notification_attempt(key)
                 break  # keep order: try the rest next run
