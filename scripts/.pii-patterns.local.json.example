@@ -1,0 +1,78 @@
+{
+  "_comment": [
+    "Copy to scripts/.pii-patterns.local.json and fill in real values.",
+    "That file is git-ignored ON PURPOSE: it holds real personal data, so it must",
+    "never be committed to a public repository. The gate and the remapper read it",
+    "at runtime, which is what lets the tools themselves ship with no PII in them.",
+    "CI needs no secret: it uses the committed scripts/pii-patterns.hashed.json",
+    "(regenerate with scripts/hash-pii-patterns.py). Short values stay local-only.",
+    "This example is PLACEHOLDERS ONLY. The values below are the SHAPE the loader",
+    "expects, with lengths preserved so a placeholder can never be mistaken for a",
+    "real value and a real value can never be pasted in by accident."
+  ],
+
+  "_forbidden_comment": "values that must never appear again; a 3-6 digit value is flagged only in an account context",
+  "forbidden": {
+    "OWN NAME UPPER": "own legal name (upper)",
+    "Own Name Title": "own legal name (title case)",
+    "OWNPWD": "own statement-password mnemonic",
+    "0000": "own card suffix",
+    "1111": "own bank account suffix",
+    "2222": "own bank account suffix",
+    "3333": "own card suffix (masked)",
+    "4444": "own OCBC account suffix (masked)",
+    "5555": "own SC account suffix",
+    "6666": "own Citi card suffix",
+    "7777": "own Visa card suffix",
+    "8888": "own account suffix",
+    "9999": "own Trust card suffix",
+    "000000": "own Trust card suffix",
+    "0000000": "own POSB account number",
+    "1111111": "own OCBC account number",
+    "22222222": "own OCBC Visa account number",
+    "333333333": "own Trust account number",
+    "0000000000000000": "own real transfer reference (16 digits, flagged anywhere)",
+    "THIRD PARTY NAME": "third-party name",
+    "own-name-at-employer-DOT-invalid": "own employer email",
+    "own-name-at-personal-DOT-invalid": "own personal email"
+  },
+
+  "_remap_comment": "real -> synthetic. Same digit count as the real value, all targets distinct, last-4 pairing preserved. Fill the keys with the real values; the values below are placeholders of the right shape.",
+  "remap": {
+    "0000": "0000",
+    "1111": "1111",
+    "3333": "3333",
+    "4444": "4444",
+    "5555": "5555",
+    "6666": "6666",
+    "7777": "7777",
+    "8888": "8888",
+    "9999": "9999",
+    "000000": "000000",
+    "1111111": "1111111",
+    "22222222": "22222222",
+    "333333333": "333333333",
+    "0000000000000000": "0000000000000000"
+  },
+
+  "_pairs_comment": "long/short values the parsers match by their shared last 4. Each target's last 4 must equal the short partner's target.",
+  "pairs": [
+    ["000000", "0000"],
+    ["1111111", "1111"],
+    ["22222222", "7777"],
+    ["333333333", "9999"]
+  ],
+
+  "_embedded_comment": "whole references that embed a mapped value as their middle segment. Replaced before bare tokens, because the bare pass rejects a value sitting between digits. The synthetic must sit inside the synthetic host.",
+  "embedded": [
+    ["HOSTREFERENCE0123456789", "HOSTREFERENCE9876543210"]
+  ],
+
+  "_port_comment": "values that are infrastructure in specific files: a port that is also an account suffix",
+  "port_allowlist": {
+    "4444": [
+      "path/to/skill/SKILL.md",
+      "path/to/script.cjs"
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Hermes WebUI: the browser UI for the agent, run inside this container so it
+# shares /opt/hermes, the agent venv, and HERMES_HOME with the gateway instead
+# of holding a second copy of the agent source.
+#
+# HERMES_WEBUI_HOST is 0.0.0.0 on purpose. Compose publishes 127.0.0.1:8787 on
+# the host, and Docker forwards a published port to the container's interface
+# address rather than the container's own loopback, so a 127.0.0.1 bind here
+# would be unreachable through the published port while in-container health
+# checks still passed. The host side stays loopback-only, so the wildcard bind
+# adds no exposure.
+#
+# Every discovery variable is set explicitly: the launcher's defaults point at
+# ~/.hermes paths and at 127.0.0.1, neither of which exists or is reachable
+# here.
+#
+# HERMES_WEBUI_FOREGROUND=1 stops bootstrap.py from double-forking. s6 sets
+# none of the supervisor variables bootstrap.py auto-detects (INVOCATION_ID,
+# JOURNAL_STREAM, NOTIFY_SOCKET, XPC_SERVICE_NAME, SUPERVISOR_ENABLED), so
+# without this the launcher forks, the longrun's child exits, and s6
+# crash-loops the service.
+#
+# PYTHONUNBUFFERED keeps the launcher's startup lines in `docker logs` as they
+# happen. Python block-buffers stdout on a pipe, so without this the service
+# looks silent for its whole startup, which is exactly when the log is needed.
+
+export HOME=/opt/data
+export PYTHONUNBUFFERED=1
+export PYTHONPATH="/opt/hermes-webui-deps${PYTHONPATH:+:$PYTHONPATH}"
+
+export HERMES_WEBUI_AGENT_DIR=/opt/hermes
+export HERMES_WEBUI_PYTHON=/opt/hermes/.venv/bin/python3
+export HERMES_WEBUI_HOST=0.0.0.0
+export HERMES_WEBUI_PORT=8787
+export HERMES_WEBUI_STATE_DIR=/opt/data/webui
+export HERMES_WEBUI_DEFAULT_WORKSPACE=/workspace
+export HERMES_WEBUI_SERVER_CWD=/workspace
+export HERMES_WEBUI_FOREGROUND=1
+# CSP frame-ancestors extra allowlist (e.g. Tailscale-serve URL). Empty default
+# keeps upstream locked-down behaviour; with-contenv already imports the
+# container env, this documents the passthrough for bootstrap.py.
+export HERMES_WEBUI_CSP_FRAME_EXTRA="${HERMES_WEBUI_CSP_FRAME_EXTRA:-}"
+
+exec s6-setuidgid hermes "$HERMES_WEBUI_PYTHON" /opt/hermes-webui/bootstrap.py --foreground

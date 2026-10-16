@@ -1,0 +1,2 @@
+description: Performs adversarial, evidence-based code review. Reports concrete correctness, security, and reliability findings with trigger scenarios for Critical and High severity.
+description_auto: false

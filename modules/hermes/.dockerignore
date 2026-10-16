@@ -1,0 +1,8 @@
+.env
+.cache/
+.git/
+.gitignore
+Dockerfile
+SOUL.md
+*.pyc
+__pycache__/

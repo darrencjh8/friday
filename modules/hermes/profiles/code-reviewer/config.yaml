@@ -1,0 +1,70 @@
+# Model ownership (#608): this profile's model governs only the tasks Hermes
+# dispatches to the code-reviewer profile itself (kanban.default_assignee in
+# ../../config.yaml). A dev-loop review round never runs under this profile: on
+# Hermes it runs as a hermes-subagent through delegate_task, and a delegated child
+# takes delegation.provider / delegation.model from the main config.yaml, never
+# from a profile. So the per-round reservation in codex-router's
+# dev-loop/policy.json and this pin do not compete for the same run.
+
+providers:
+    codex-router:
+        name: Model Router
+        api: http://codex-router:4100/v1
+        api_key: local
+        transport: codex_responses
+        default_model: auto-thinking
+
+model:
+    provider: custom:codex-router
+    default: auto-thinking
+
+# Reviews run the auto-thinking pool. The fallback is the direct deepseek route:
+# the terminal rung when the pool itself is unavailable.
+fallback_providers:
+    - provider: deepseek
+      model: deepseek-flash
+
+agent:
+    reasoning_effort: high
+
+display:
+    show_reasoning: false
+
+approvals:
+    mode: smart
+    timeout: 60
+
+memory:
+    memory_enabled: false
+    user_profile_enabled: false
+    write_approval: true
+
+terminal:
+    backend: local
+    persistent_shell: true
+    cwd: /workspace
+
+web:
+    search_backend: brave-free
+    extract_backend: firecrawl
+
+timezone: Asia/Kuala_Lumpur
+
+# Email intake (#783) is env-enabled in every profile scope under the
+# multiplexer, so this profile would build a second adapter that loses the
+# owner lock and reports down. Pin it off: the default profile runs it.
+platforms:
+    email_intake:
+        enabled: false
+
+mcp_servers:
+    expense-tracker:
+        url: http://expense-tracker:8080/mcp
+        tools:
+            exclude: []
+        supports_parallel_tool_calls: false
+    portfolio-tracker:
+        url: http://portfolio-tracker:8081/mcp
+        tools:
+            exclude: []
+        supports_parallel_tool_calls: false

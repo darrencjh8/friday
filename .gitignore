@@ -1,0 +1,90 @@
+# Agent state
+.agents/dev-loop-state.md
+
+# Python virtualenv (repo root; CLAUDE.md rule: all Python runs in .venv)
+.venv/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Database
+*.sqlite
+*.sqlite3
+*.db
+data/
+
+# Python
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+.trae/
+.codex/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules
+
+# Personal metadata (Actual Budget IDs, encryption keys)
+**/metadata.json
+
+# Java / Maven
+target/
+*.class
+*.jar
+!.mvn/
+
+# Temp
+*.deb
+/tmp/
+
+# Portfolio tracker
+modules/portfolio-tracker/test-portfolio.xml
+modules/portfolio-tracker/pp-cli/target/
+modules/portfolio-tracker/data/
+*.portfolio
+*portfolio*.xml
+dependency-reduced-pom.xml
+
+# OneDrive sync auth tokens (secrets)
+modules/onedrive-sync/config/onedrive/
+modules/onedrive-sync/config/onedrive-state/
+
+# Test artifacts (SQLite memory dumps)
+:memory:
+
+# Google Cloud service account keys
+**/google-service-account.json
+
+# Kilo local config
+.kilo/
+
+# Secret scanning
+.trufflehog.yaml
+
+# dev-loop state file
+.agents/dev-loop-state.md
+
+# dev-loop state
+.agents/dev-loop-state*
+
+# dev-loop review artifacts (packs and reviewer output)
+.agents/dev-loop/
+
+# Real PII pattern file for scripts/check-no-pii.py and scripts/redact-pii.py.
+# It holds actual personal data by design, so it must never be committed to a
+# public repository. Copy scripts/.pii-patterns.local.json.example to this path.
+scripts/.pii-patterns.local.json

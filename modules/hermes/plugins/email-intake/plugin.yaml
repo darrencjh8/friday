@@ -1,0 +1,30 @@
+name: email-intake-platform
+label: Email intake
+kind: platform
+version: 1.0.0
+description: >
+  Read-only financial email intake (issue #783). Scans every mailbox folder
+  with EXAMINE and BODY.PEEK, classifies each new email once with Jev System
+  One, and records the decision. Shadow mode only: it never dispatches,
+  notifies, replies, or changes the mailbox, and never starts an agent turn.
+author: friday
+requires_env:
+  - name: EMAIL_INTAKE_MODE
+    description: "Set to 'shadow' to enable (no other mode exists yet)"
+    password: false
+  - name: IMAP_HOST
+    description: "IMAP host"
+    password: false
+  - name: IMAP_USERNAME
+    description: "IMAP username"
+    password: false
+  - name: IMAP_PASSWORD
+    description: "IMAP password"
+    password: true
+  - name: JEV_API_KEY
+    description: "TypeSafe System One API key"
+    password: true
+optional_env:
+  - name: EMAIL_INTAKE_INTERVAL
+    description: "Seconds between scans (default 300, minimum 60)"
+    password: false
