@@ -8,5 +8,9 @@ export HOME=/opt/data
 export PYTHONUNBUFFERED=1
 export REMINDERS_PORT=8300
 export REMINDERS_SNAPSHOT=/opt/data/reminders/reminders.json
+# Explicit exports (not with-contenv forwarding) so the edit token and
+# habits path survive s6-setuidgid; empty token disables editing.
+export REMINDERS_EDIT_TOKEN=${REMINDERS_EDIT_TOKEN:-}
+export REMINDERS_HABITS=${REMINDERS_HABITS:-/opt/data/home/wiki/entities/accounts/daily-habits.md}
 mkdir -p /opt/data/reminders
 exec s6-setuidgid hermes python3 /opt/hermes-defaults/scripts/reminders-server.py

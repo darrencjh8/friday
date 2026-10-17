@@ -144,6 +144,7 @@ jobs:
                   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
                   GTASKS_CLIENT_ID: ${{ secrets.GTASKS_CLIENT_ID }}
                   GTASKS_CLIENT_SECRET: ${{ secrets.GTASKS_CLIENT_SECRET }}
+                  REMINDERS_EDIT_TOKEN: ${{ secrets.REMINDERS_EDIT_TOKEN }}
                   BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
                   CODEX_ROUTER_AUTH_PASSWORD: ${{ secrets.CODEX_ROUTER_AUTH_PASSWORD }}
                   # GitHub secret MUSE_API_KEY maps to the runtime MODEL_API_KEY

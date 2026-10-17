@@ -294,6 +294,7 @@ services:
         environment:
             - HERMES_WRITE_SAFE_ROOT=/opt/data:/workspace:/tmp
             - GTASKS_CLIENT_ID=${GTASKS_CLIENT_ID:-}
+            - REMINDERS_EDIT_TOKEN=${REMINDERS_EDIT_TOKEN:-}
             - GTASKS_CLIENT_SECRET=${GTASKS_CLIENT_SECRET:-}
             - GTASKS_REDIRECT_URI=${GTASKS_REDIRECT_URI:-http://localhost:9090/callback}
             - XDG_CONFIG_HOME=/opt/data/.config
