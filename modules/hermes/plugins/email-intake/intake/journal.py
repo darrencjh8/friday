@@ -144,6 +144,10 @@ class Journal:
         row = self._db.execute("SELECT value FROM state WHERE key = ?", (key,)).fetchone()
         return row[0] if row else None
 
+    def clear_state(self, *keys):
+        self._db.executemany("DELETE FROM state WHERE key = ?", [(k,) for k in keys])
+        self._db.commit()
+
     def set_state(self, key, value):
         self._db.execute("INSERT OR REPLACE INTO state VALUES (?,?)", (key, str(value)))
         self._db.commit()

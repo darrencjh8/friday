@@ -7,14 +7,14 @@ description: >
   and BODY.PEEK, classifies each new email once with Jev System One, and
   records the decision. Shadow mode never books, notifies, replies, or changes
   the mailbox; it rehearses each new expense transaction as a signed dry run
-  (#796). Live dispatch is built but cannot be selected until the cutover
-  switch also turns the old watcher off; live sends one Telegram message per
-  email to the home chat (TELEGRAM_BOT_TOKEN, TELEGRAM_HOME_CHANNEL). It never
-  starts an agent turn.
+  (#796). Live books mail once expense-tracker reports its IDLE watcher off
+  (the same EMAIL_INTAKE_MODE=live turns it off), marks it read and sends one
+  Telegram message per email to the home chat (TELEGRAM_BOT_TOKEN,
+  TELEGRAM_HOME_CHANNEL). It never starts an agent turn.
 author: friday
 requires_env:
   - name: EMAIL_INTAKE_MODE
-    description: "Set to 'shadow' to enable (no other mode exists yet)"
+    description: "'shadow' to classify and rehearse, 'live' to book (the cutover switch)"
     password: false
   - name: IMAP_HOST
     description: "IMAP host"
