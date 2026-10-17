@@ -1525,7 +1525,7 @@ esac
 # An install created under the old 09:00 default moves to 08:00 once (#579).
 # Only the exact legacy value is rewritten; a custom time is kept (above).
 echo ""
-echo "=== memory-compact weekly cron seeding ==="
+echo "=== memory-compact daily cron seeding ==="
 
 # Weekly compaction keeps MEMORY.md under its cap by moving detail to topic
 # files. It lives in its own block (memory-approve-queue stays the last PYEOF block).
@@ -1554,8 +1554,8 @@ if len(jobs) != 2 or len(mc) != 1:
 j = mc[0]
 prompt = j.get("prompt") or ""
 checks = {
-    "weekly": j.get("schedule", {}).get("expr") == "30 7 * * 0",
-    "display": j.get("schedule_display") == "30 7 * * 0",
+    "daily": j.get("schedule", {}).get("expr") == "30 7 * * *",
+    "display": j.get("schedule_display") == "30 7 * * *",
     "enabled": j.get("enabled") is True,
     "deliver": j.get("deliver") == "telegram",
     "skills": j.get("skills") == ["hermes-troubleshooting"],
@@ -1564,7 +1564,7 @@ checks = {
     "rollback": "memory-triage.sh restore" in prompt,
     "topics": "memories/topics" in prompt,
     "cap_from_config": "2800" in prompt,
-    "fresh_plan": "rm -f /opt/data/tmp/compact-plan.json" in prompt,
+    "fresh_plan": "rm -f /opt/data/tmp/compact-plan-memory.json /opt/data/tmp/compact-plan-user.json" in prompt,
     "digest": "🗜 *Memory compaction" in prompt,
     "triage_untouched": next(x for x in jobs if x["name"] == "memory-approve-queue")["prompt"] == "x",
 }
@@ -1573,7 +1573,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$mc_fields" in
-    pass) ok "memory-compact: weekly Sun 07:30 · telegram · compact cmd, dry-run, rollback; idempotent" ;;
+    pass) ok "memory-compact: daily 07:30 · telegram · compact cmd, dry-run, rollback; idempotent" ;;
     *) nope "memory-compact fields" "$mc_fields" ;;
 esac
 
@@ -1869,7 +1869,7 @@ tmp = sys.argv[2]
 blocks = re.findall(r"<<'PYEOF'[^\n]*\n(.*?)\nPYEOF", content, re.DOTALL)
 cases = [
     ("wiki-finance-refresh", "0 9 * * 1", "every monday 9am", "0 4 * * 1", "every monday 4am"),
-    ("memory-compact", "30 8 * * 0", "30 8 * * 0", "30 7 * * 0", "30 7 * * 0"),
+    ("memory-compact", "30 8 * * 0", "30 8 * * 0", "30 7 * * *", "30 7 * * *"),
     ("wiki-due-reminders", "0 8 * * *", "every day 8am", "15 8 * * *", "every day 8:15am"),
     ("memory-approve-queue", "0 9 * * *", "0 9 * * *", "0 8 * * *", "0 8 * * *"),
 ]
