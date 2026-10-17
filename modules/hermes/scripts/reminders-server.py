@@ -26,19 +26,31 @@ HABITS = os.environ.get(
     "/opt/data/home/wiki/entities/accounts/daily-habits.md")
 EDIT_TOKEN = os.environ.get("REMINDERS_EDIT_TOKEN", "")
 MAX_BODY = 16384
-SECTION_HEADING = "## Daily candidates"
+SECTIONS = {"daily": "## Daily candidates",
+            "weekly": "## Weekly candidates",
+            "monthly": "## Monthly candidate"}
+PREFIXES = {"daily": "habit-", "weekly": "weekly-", "monthly": "monthly-"}
 TITLE_MAX = 120
 NOTE_MAX = 500
+WHEN_MAX = 120
+# Beyond | ` CR LF: every char str.splitlines() would break a written row on.
+BAD_CHARS = ("|", "`", "\r", "\n", "\x0b", "\x0c", "\x1c", "\x1d",
+            "\x1e", "\x85", "\u2028", "\u2029")
 
 PAGE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Reminders</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%B0%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;--line:#e2e7f0;
 --ok:#0a7d43;--warn:#8a5a00;--err:#b00020}
 @media (prefers-color-scheme:dark){:root{--bg:#0f131a;--card:#171c26;--ink:#e8ecf4;
 --muted:#9aa5b8;--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b}}
+body.light{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;
+--line:#e2e7f0;--ok:#0a7d43;--warn:#8a5a00;--err:#b00020}
+body.dark{--bg:#0f131a;--card:#171c26;--ink:#e8ecf4;--muted:#9aa5b8;
+--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
 font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
@@ -58,18 +70,37 @@ border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .note{white-space:pre-wrap;color:var(--muted);font-size:13px}
 </style></head>
 <body><main>
+<div style="display:flex;justify-content:space-between;align-items:center">
 <h1>Reminders</h1>
+<select id="theme" style="padding:4px 8px">
+<option value="auto">Auto</option><option value="light">Light</option>
+<option value="dark">Dark</option>
+</select>
+</div>
 <div class="card">
-<h3 style="margin-top:0">Daily habits <span style="color:var(--muted);
+<h3 style="margin-top:0">Habits <span style="color:var(--muted);
 font-weight:400;font-size:13px">live from the wiki — edits apply from the
 next 08:15 run</span></h3>
-<table><tbody id="habit-rows"></tbody></table>
-<p id="habit-empty" class="note" hidden>No daily habits configured.</p>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+<h4 style="margin:10px 0 4px">Daily</h4>
+<table><tbody id="habit-rows-daily"></tbody></table>
+<p id="habit-empty-daily" class="note" hidden>No daily habits.</p>
+<h4 style="margin:14px 0 4px">Weekly</h4>
+<table><tbody id="habit-rows-weekly"></tbody></table>
+<p id="habit-empty-weekly" class="note" hidden>No weekly habits.</p>
+<h4 style="margin:14px 0 4px">Monthly</h4>
+<table><tbody id="habit-rows-monthly"></tbody></table>
+<p id="habit-empty-monthly" class="note" hidden>No monthly habits.</p>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+<select id="h-section" style="padding:6px 8px">
+<option value="daily">Daily</option><option value="weekly">Weekly</option>
+<option value="monthly">Monthly</option>
+</select>
 <input id="h-title" placeholder="New habit" maxlength="120"
- style="flex:1;min-width:140px;padding:6px 8px">
+ style="flex:1;min-width:120px;padding:6px 8px">
+<input id="h-when" placeholder="When (e.g. Sunday)" maxlength="120" hidden
+ style="flex:1;min-width:120px;padding:6px 8px">
 <input id="h-note" placeholder="Note (optional)" maxlength="500"
- style="flex:2;min-width:160px;padding:6px 8px">
+ style="flex:2;min-width:140px;padding:6px 8px">
 <button id="h-add" style="padding:6px 14px">Add</button>
 </div>
 <details style="margin-top:10px"><summary class="note">Edit token</summary>
@@ -94,50 +125,76 @@ not contain | or backticks.</p>
 <div id="notes"></div>
 </div>
 <script>
+// Served under a path prefix (tailscale --set-path /reminders): derive the
+// API base from the mount path so fetches never escape it.
+const BASE = location.pathname.replace(/\/+$/, "");
+function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k) || ""; }
+                   catch (e) { return ""; } }
 const tokenBox = document.getElementById("h-token");
-tokenBox.value = localStorage.getItem("reminders-edit-token") || "";
+tokenBox.value = load("reminders-edit-token");
 tokenBox.addEventListener("change", () => {
-  localStorage.setItem("reminders-edit-token", tokenBox.value);
+  store("reminders-edit-token", tokenBox.value);
+});
+const themeSel = document.getElementById("theme");
+function applyTheme(v) { document.body.className = v === "auto" ? "" : v; }
+themeSel.value = load("reminders-theme") || "auto";
+applyTheme(themeSel.value);
+themeSel.addEventListener("change", () => {
+  store("reminders-theme", themeSel.value);
+  applyTheme(themeSel.value);
 });
 function habitMsg(text) {
   document.getElementById("habit-msg").textContent = text;
 }
 async function loadHabits() {
-  const rows = document.getElementById("habit-rows");
-  rows.textContent = "";
   let data;
   try {
-    const r = await fetch("/api/habits", {cache: "no-store"});
+    const r = await fetch(BASE + "/api/habits", {cache: "no-store"});
     if (!r.ok) throw new Error("http " + r.status);
     data = await r.json();
   } catch (e) {
-    habitMsg("Habits unavailable — the wiki section could not be read.");
+    habitMsg("Habits unavailable — the wiki could not be read.");
     return;
   }
-  document.getElementById("habit-empty").hidden = data.habits.length > 0;
-  for (const h of data.habits) {
-    const tr = document.createElement("tr");
-    const tdTitle = document.createElement("td");
-    tdTitle.textContent = h.title;
-    const tdNote = document.createElement("td");
-    tdNote.className = "note";
-    tdNote.textContent = h.note || "";
-    const tdBtn = document.createElement("td");
-    tdBtn.style.textAlign = "right";
-    const btn = document.createElement("button");
-    btn.textContent = "Remove";
-    btn.addEventListener("click", () => editHabits({action: "remove",
-                                                    key: h.key}));
-    tdBtn.appendChild(btn);
-    tr.append(tdTitle, tdNote, tdBtn);
-    rows.appendChild(tr);
+  for (const section of ["daily", "weekly", "monthly"]) {
+    const rows = document.getElementById("habit-rows-" + section);
+    rows.textContent = "";
+    const list = data[section] || [];
+    document.getElementById("habit-empty-" + section).hidden =
+      list.length > 0;
+    for (const h of list) {
+      const tr = document.createElement("tr");
+      const tdTitle = document.createElement("td");
+      tdTitle.textContent = h.title;
+      const cells = [tdTitle];
+      if (section !== "daily") {
+        const tdWhen = document.createElement("td");
+        tdWhen.textContent = h.when || "";
+        cells.push(tdWhen);
+      }
+      const tdNote = document.createElement("td");
+      tdNote.className = "note";
+      tdNote.textContent = h.note || "";
+      cells.push(tdNote);
+      const tdBtn = document.createElement("td");
+      tdBtn.style.textAlign = "right";
+      const btn = document.createElement("button");
+      btn.textContent = "Remove";
+      btn.addEventListener("click", () => editHabits(
+        {action: "remove", section: section, key: h.key}));
+      tdBtn.appendChild(btn);
+      cells.push(tdBtn);
+      tr.append(...cells);
+      rows.appendChild(tr);
+    }
   }
 }
 async function editHabits(payload) {
   habitMsg("");
   let r;
   try {
-    r = await fetch("/api/habits", {
+    r = await fetch(BASE + "/api/habits", {
       method: "POST",
       headers: {"Content-Type": "application/json",
                 "Authorization": "Bearer " + tokenBox.value},
@@ -157,19 +214,30 @@ async function editHabits(payload) {
   }
   loadHabits();
 }
+const whenBox = document.getElementById("h-when");
+const sectionSel = document.getElementById("h-section");
+sectionSel.addEventListener("change", () => {
+  whenBox.hidden = sectionSel.value === "daily";
+});
 document.getElementById("h-add").addEventListener("click", () => {
   const title = document.getElementById("h-title").value.trim();
-  const note = document.getElementById("h-note").value.trim();
   if (!title) { habitMsg("Title required."); return; }
+  const payload = {action: "add", section: sectionSel.value, title: title,
+                   note: document.getElementById("h-note").value.trim()};
+  if (sectionSel.value !== "daily") {
+    payload.when = whenBox.value.trim();
+    if (!payload.when) { habitMsg("When required."); return; }
+  }
   document.getElementById("h-title").value = "";
   document.getElementById("h-note").value = "";
-  editHabits({action: "add", title: title, note: note});
+  whenBox.value = "";
+  editHabits(payload);
 });
 async function load() {
   const meta = document.getElementById("meta");
   let snap;
   try {
-    const r = await fetch("/api/reminders", {cache: "no-store"});
+    const r = await fetch(BASE + "/api/reminders", {cache: "no-store"});
     if (!r.ok) throw new Error("http " + r.status);
     snap = await r.json();
   } catch (e) {
@@ -279,15 +347,15 @@ def _row_key(cells):
     return None
 
 
-def _table_rows(lines):
-    """Line indexes of the Daily candidates table (header first).
+def _table_rows(lines, heading):
+    """Line indexes of one section's table (header first).
 
     Raises SectionMissing when the heading or table is absent, so a
     write never guesses where rows live.
     """
     head = None
     for i, line in enumerate(lines):
-        if line.strip() == SECTION_HEADING:
+        if line.strip() == heading:
             head = i
             break
     if head is None:
@@ -324,61 +392,84 @@ def read_habits():
     except FileNotFoundError:
         # Same rule as the seed prompt: no file means zero habits,
         # never a problem.
-        return []
-    rows = _table_rows(lines)
-    habits = []
-    for idx in rows[2:]:
-        cells = _row_cells(lines[idx])
-        key = _row_key(cells) if cells else None
-        if key is None:
-            continue  # malformed row: skipped here, preserved on write
-        habits.append({"key": key, "title": cells[1],
-                       "note": cells[4] if len(cells) > 4 else ""})
-    return habits
+        return {name: [] for name in SECTIONS}
+    result = {}
+    for name, heading in SECTIONS.items():
+        try:
+            rows = _table_rows(lines, heading)
+        except SectionMissing:
+            result[name] = []  # absent section reads empty; writes 500
+            continue
+        habits = []
+        for idx in rows[2:]:
+            cells = _row_cells(lines[idx])
+            key = _row_key(cells) if cells else None
+            if key is None:
+                continue  # malformed row: skipped here, preserved on write
+            habits.append({"key": key, "title": cells[1],
+                           "when": cells[2] if len(cells) > 2 else "",
+                           "note": cells[4] if len(cells) > 4 else ""})
+        result[name] = habits
+    return result
 
 
 def _validate_text(value, field, limit):
     if not isinstance(value, str):
         raise ValueError(field + " must be a string")
-    if any(ch in value for ch in ("|", "`", "\r", "\n")):
-        raise ValueError(field + " may not contain |, backtick, or newline")
+    if any(ch in value for ch in BAD_CHARS):
+        raise ValueError(field + " may not contain |, backtick, or"
+                         " line-break characters")
     if len(value) > limit:
         raise ValueError(field + " too long (max %d)" % limit)
     return value.strip()
 
 
-def derive_key(title):
+def derive_key(section, title):
     slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
-    key = "habit-" + slug
+    key = PREFIXES[section] + slug
     if not slug:
         raise ValueError("title must contain a letter or digit")
     return key
 
 
-def add_habit(title, note):
+def _check_section(section):
+    if section not in SECTIONS:
+        raise ValueError("unknown section")
+
+
+def add_habit(section, title, note, when):
+    _check_section(section)
     title = _validate_text(title, "title", TITLE_MAX)
     note = _validate_text(note, "note", NOTE_MAX)
     if not title:
         raise ValueError("title required")
-    key = derive_key(title)
+    if section == "daily":
+        when = "today"
+    else:
+        when = _validate_text(when, "when", WHEN_MAX)
+        if not when:
+            raise ValueError("when required")
+    key = derive_key(section, title)
     try:
         lines = _read_lines()
     except FileNotFoundError:
         raise SectionMissing()
-    rows = _table_rows(lines)
+    rows = _table_rows(lines, SECTIONS[section])
     existing = {_row_key(_row_cells(lines[idx]) or []) for idx in rows[2:]}
     if key in existing:
         raise ValueError("habit already exists")
     lines.insert(rows[-1] + 1,
-                 "| `%s` | %s | today | daily | %s |" % (key, title, note))
+                 "| `%s` | %s | %s | %s | %s |"
+                 % (key, title, when, section, note))
     _write_lines(lines)
 
 
-def remove_habit(key):
+def remove_habit(section, key):
+    _check_section(section)
     if not isinstance(key, str) or not key:
         raise ValueError("key required")
     lines = _read_lines()
-    rows = _table_rows(lines)
+    rows = _table_rows(lines, SECTIONS[section])
     for idx in rows[2:]:
         if _row_key(_row_cells(lines[idx]) or []) == key:
             del lines[idx]
@@ -395,6 +486,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(encoded)))
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(encoded)
 
@@ -408,19 +500,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif path == "/api/habits":
             try:
                 habits = read_habits()
-            except SectionMissing:
-                sys.stderr.write("reminders 500 /api/habits:"
-                                 " section missing\n")
-                self._send(500, '{"error":"habits section not found"}',
-                           "application/json")
-                return
             except OSError:
                 sys.stderr.write("reminders 500 /api/habits: read error\n")
                 self._send(500, '{"error":"habits unreadable"}',
                            "application/json")
                 return
-            self._send(200, json.dumps({"habits": habits}),
-                       "application/json")
+            self._send(200, json.dumps(habits), "application/json")
         elif path == "/health":
             self._send(200, '{"ok":true}', "application/json")
         else:
@@ -442,13 +527,20 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(401, '{"error":"token required"}',
                        "application/json")
             return
-        if not hmac.compare_digest(header[7:], EDIT_TOKEN):
+        token = header[7:]
+        if not token.isascii() or not hmac.compare_digest(token,
+                                                          EDIT_TOKEN):
             sys.stderr.write("reminders 403 /api/habits: bad token\n")
             self._send(403, '{"error":"wrong token"}',
                        "application/json")
             return
-        length = int(self.headers.get("Content-Length") or 0)
-        if length > MAX_BODY:
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send(400, '{"error":"bad Content-Length"}',
+                       "application/json")
+            return
+        if length < 0 or length > MAX_BODY:
             self._send(413, '{"error":"body too large"}',
                        "application/json")
             return
@@ -463,10 +555,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                        "application/json")
             return
         try:
+            section = payload.get("section", "daily")
             if payload.get("action") == "add":
-                add_habit(payload.get("title"), payload.get("note", ""))
+                add_habit(section, payload.get("title"),
+                          payload.get("note", ""), payload.get("when", ""))
             elif payload.get("action") == "remove":
-                remove_habit(payload.get("key"))
+                remove_habit(section, payload.get("key"))
             else:
                 self._send(400, '{"error":"unknown action"}',
                            "application/json")
@@ -490,7 +584,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._send(500, '{"error":"habits write failed"}',
                        "application/json")
             return
-        self._send(200, json.dumps({"habits": read_habits()}),
+        self._send(200, json.dumps(read_habits()),
                    "application/json")
 
     def log_message(self, *args):
