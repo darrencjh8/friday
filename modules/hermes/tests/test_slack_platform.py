@@ -167,18 +167,19 @@ class HermesSlackComposeTests(unittest.TestCase):
     def test_hermes_publishes_only_its_gateway_ports(self) -> None:
         """Socket Mode is outbound-only, so no additional inbound port may appear.
 
-        The Hermes WebUI on 8787 was the first addition, and the Google Tasks
-        OAuth callback on 8299 is the second. Both are published on host
-        loopback only, so neither adds a LAN-reachable port: Tailscale serve
-        terminates tailnet TLS and proxies to 127.0.0.1.
+        The Hermes WebUI on 8787 was the first addition, the Google Tasks
+        OAuth callback on 8299 the second, and the reminders dashboard on
+        8300 the third. All three are published on host loopback only, so
+        none adds a LAN-reachable port: Tailscale serve terminates tailnet
+        TLS and proxies to 127.0.0.1.
         """
         compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
         ports = compose["services"]["hermes"].get("ports") or []
 
         self.assertEqual(
-            {"8642", "9119", "8644", "8787", "8299"},
+            {"8642", "9119", "8644", "8787", "8299", "8300"},
             {str(p).rsplit(":", 1)[-1] for p in ports},
-            "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, and the Tasks callback",
+            "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, the Tasks callback, and reminders",
         )
         self.assertIn(
             "127.0.0.1:8787:8787",
@@ -189,6 +190,11 @@ class HermesSlackComposeTests(unittest.TestCase):
             "127.0.0.1:8299:8299",
             [str(p) for p in ports],
             "the Tasks callback must stay on host loopback; Tailscale serves it",
+        )
+        self.assertIn(
+            "127.0.0.1:8300:8300",
+            [str(p) for p in ports],
+            "reminders must stay on host loopback; Tailscale serves it",
         )
 
     def test_api_server_is_reachable_through_a_loopback_only_publish(self) -> None:
