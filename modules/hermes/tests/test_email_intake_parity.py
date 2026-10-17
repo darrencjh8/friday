@@ -191,6 +191,33 @@ class RunTest(unittest.TestCase):
         self.assertEqual(r["jev"], None)
         self.assertEqual(len(posted), 1)
 
+    def test_an_email_jev_routes_elsewhere_keeps_its_sender_domain_for_triage(self):
+        deps, _ = self.make()
+        deps["route"] = lambda uid: {"destination": "neither", "kind": "marketing"}
+        self.assertEqual(parity.run([10], **deps)[0]["sender_domain"], "bank.example")
+
+    def test_a_decision_without_a_destination_is_replayed_like_no_decision(self):
+        # e.g. blocked_encrypted is journaled as {"version": ...}: Jev never routed it.
+        deps, posted = self.make()
+        deps["route"] = lambda uid: {"destination": None, "kind": None}
+        r = parity.run([10], **deps)[0]
+        self.assertEqual(r["status"], "matched")
+        self.assertIsNone(r["jev"])
+        self.assertEqual(len(posted), 1)
+
+    def test_a_routing_error_on_one_email_does_not_stop_the_replay(self):
+        deps, posted = self.make()
+
+        def route(uid):
+            if uid == 10:
+                raise ValueError("bad row")
+            return None
+
+        deps["route"] = route
+        results = parity.run([10, 12], **deps)
+        self.assertEqual([r["status"] for r in results], ["matched", "matched"])
+        self.assertIsNone(results[0]["jev"])
+
     def test_a_failed_dry_run_is_recorded_not_raised(self):
         deps, _ = self.make()
         deps["post"] = lambda body: {"status": "failed", "reason": "error"}
@@ -226,8 +253,25 @@ class RouteTest(unittest.TestCase):
             {"uid": 2, "status": "matched", "jev": None, "fields": {f: True for f in parity.FIELDS}},
         ]
         s = parity.summarize(results)
-        self.assertEqual(s["jev"], {"routes_elsewhere": 1, "no_decision": 1, "to_expense_tracker": 0})
+        self.assertEqual({k: v for k, v in s["jev"].items() if k != "missed_bookings"},
+                         {"routes_elsewhere": 1, "no_decision": 1, "to_expense_tracker": 0})
         self.assertEqual(s["problems"], [])
+
+
+    def test_summary_lists_booked_mail_jev_would_not_book(self):
+        results = [
+            {"uid": 1, "sender_domain": "bank.example", "status": "jev_routes_elsewhere",
+             "jev": {"destination": "neither", "kind": "marketing"}},
+            {"uid": 2, "sender_domain": "", "status": "matched", "jev": None, "fields": {f: True for f in parity.FIELDS}},
+        ]
+        s = parity.summarize(results)
+        self.assertEqual(s["jev"]["missed_bookings"],
+                         [{"uid": 1, "sender_domain": "bank.example", "destination": "neither", "kind": "marketing"}])
+        self.assertEqual(s["problems"], [])
+
+    def test_a_missing_journal_means_no_routing_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(parity.journal_router(str(Path(d) / "absent.db"), "77"))
 
 
 class SummaryTest(unittest.TestCase):
