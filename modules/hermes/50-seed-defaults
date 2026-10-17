@@ -935,7 +935,7 @@ with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=Fa
 os.replace(temp_path, jobs_path)
 PYEOF
 
-# Seed memory-compact cron job (idempotent, weekly). memory-approve-queue only adds;
+# Seed memory-compact cron job (idempotent, daily). memory-approve-queue only adds;
 # this job keeps MEMORY.md/USER.md under their caps by merging duplicates and
 # moving detail into the uncapped topic files, through `memory-triage.sh
 # compact`, which snapshots first and refuses any plan that grows the store.
@@ -960,19 +960,19 @@ CONTEXT: /opt/data/memories/MEMORY.md (cap __MEM_CAP__ chars) and USER.md (cap _
 SAFETY: never edit the memory files by hand. All changes go through `memory-triage.sh compact`, which locks, snapshots the live files first (rollback: bash /opt/data/scripts/memory-triage.sh restore --from <dir>), allows only replace/remove, refuses any plan that grows the store, and logs to /opt/data/logs/memory-triage-audit.jsonl.
 
 STEPS
-1. Start clean: rm -f /opt/data/tmp/compact-plan.json  (a leftover plan from last week would block write_file).
+1. Start clean: rm -f /opt/data/tmp/compact-plan-memory.json /opt/data/tmp/compact-plan-user.json  (a leftover plan from an earlier run would block write_file).
 2. Read /opt/data/memories/MEMORY.md, USER.md, and the list of files in /opt/data/memories/topics/ (read INDEX.md if present).
 3. If both stores are under 80% of their caps, change nothing and reply exactly [SILENT] so no message is sent.
-4. Otherwise pick the target store that is fullest and plan, in this order:
+4. Otherwise handle EVERY store at or above 80% of its cap, highest usage first, running steps 4-7 once per store with its own plan file /opt/data/tmp/compact-plan-<store>.json (<store> is memory or user; the compact command takes one target per plan). For each such store plan, in this order:
    - merge entries that state the same fact into one shorter entry (replace one, remove the others);
    - move detail (ids, hostnames, long lists, history) into the matching topic file: a topic_appends line with aliases on the label, then replace the entry with a short pointer or remove it;
    - remove entries that are stale, superseded, or one-off dated state.
    Keep user preferences, corrections and standing rules in the store. Never drop a fact without either keeping it, merging it, or filing it. Aim to bring the store to about 70% of its cap. Use the exact current entry text as old_text.
-5. Write the plan to /opt/data/tmp/compact-plan.json:
-   {"target": "memory", "operations": [{"action": "replace", "old_text": "...", "content": "..."}, {"action": "remove", "old_text": "..."}], "topic_appends": [{"file": "infra.md", "line": "..."}]}
-6. Validate: bash /opt/data/scripts/memory-triage.sh compact --plan /opt/data/tmp/compact-plan.json --dry-run
+5. Write that store's plan to /opt/data/tmp/compact-plan-<store>.json:
+   {"target": "<store>", "operations": [{"action": "replace", "old_text": "...", "content": "..."}, {"action": "remove", "old_text": "..."}], "topic_appends": [{"file": "infra.md", "line": "..."}]}
+6. Validate: bash /opt/data/scripts/memory-triage.sh compact --plan /opt/data/tmp/compact-plan-<store>.json --dry-run
    Fix the plan if it is refused. If the write or validation fails, stop and report it.
-7. Apply: bash /opt/data/scripts/memory-triage.sh compact --plan /opt/data/tmp/compact-plan.json
+7. Apply: bash /opt/data/scripts/memory-triage.sh compact --plan /opt/data/tmp/compact-plan-<store>.json
    Read the report: ok, chars_before, chars_after, topic_lines_added, snapshot.
 8. Reply for Telegram as Markdown (Telegram renders tables). No code blocks, no raw JSON:
 
@@ -981,6 +981,7 @@ STEPS
 | Store | Before | After | Cap |
 |---|---|---|---|
 | <store> | <before> | <after> | <cap> |
+(one row per compacted store)
 
 | Change | Count |
 |---|---|
@@ -989,7 +990,7 @@ STEPS
 | Removed | <n> |
 
 Moved to: <topic file names>
-Snapshot <name>
+Snapshot <names>
 
    If nothing was needed, reply exactly [SILENT] so no message is sent.
    If anything failed, say so plainly with the error."""
@@ -1013,8 +1014,8 @@ MANAGED = {
     "skill": "hermes-troubleshooting",
 }
 DEFAULTS = {
-    "schedule": {"kind": "cron", "expr": "30 7 * * 0", "display": "30 7 * * 0"},
-    "schedule_display": "30 7 * * 0",
+    "schedule": {"kind": "cron", "expr": "30 7 * * *", "display": "30 7 * * *"},
+    "schedule_display": "30 7 * * *",
     "enabled": True,
     "deliver": "telegram",
 }
@@ -1038,11 +1039,12 @@ else:
     changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
     for key in changed:
         existing[key] = MANAGED[key]
-    # One-time move off the previous default (compact must free room before Sunday's 08:00 memory-approve-queue). Only the exact legacy
-    # value is rewritten, so a dashboard-chosen time is never reverted.
-    LEGACY_SCHEDULE = "30 8 * * 0"
+    # One-time move off the previous weekly defaults to daily 07:30, before the 08:00
+    # memory-approve-queue. Only the exact legacy values are rewritten, so a
+    # dashboard-chosen time is never reverted.
+    LEGACY_SCHEDULES = {"30 8 * * 0", "30 7 * * 0"}
     schedule = existing.get("schedule")
-    if isinstance(schedule, dict) and schedule.get("expr") == LEGACY_SCHEDULE:
+    if isinstance(schedule, dict) and schedule.get("expr") in LEGACY_SCHEDULES:
         existing["schedule"] = dict(DEFAULTS["schedule"])
         existing["schedule_display"] = DEFAULTS["schedule_display"]
         # Drop the instant computed from the old expr so the scheduler recomputes it;
@@ -1127,8 +1129,8 @@ STEPS
 |---|---|---|---|
 
 Held records younger than 7 days go on one line: "⏸ Held: <ids>: <reason in under 12 words>".
-Add "⚠️ store nearly full" under the store table when either store is above 95%. Last line: snapshot <name>.
-When there is nothing for Darren to act on: nothing applied, discarded, filed or failed, no held record aged 7 days or more, and no store above 95%, reply exactly [SILENT] so no message is sent. This covers an empty queue and a run that only re-held the same young records.
+Add "⚠️ store nearly full" under the store table when either store is above 95% (information only: the daily memory-compact job frees room, so a full store alone is not a reason to send). Last line: snapshot <name>.
+When there is nothing for Darren to act on: nothing applied, discarded, filed or failed, and no held record aged 7 days or more: reply exactly [SILENT] so no message is sent. This covers an empty queue and a run that only re-held the same young records.
 
 Do not stop until the apply step has actually run and been verified. If a step fails, say so plainly rather than reporting success."""
 
