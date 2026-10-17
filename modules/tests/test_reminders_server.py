@@ -32,6 +32,16 @@ title: Daily habits
 | `monthly-clean-room` | Clean room | 1st of each month | monthly | Subtasks |
 """
 
+FULL_DOC = HABITS_DOC.replace(
+    "## Monthly candidate",
+    """## Weekly candidates
+
+| Candidate key | Title | Recurrence | type | Note |
+|---|---|---|---|---|
+| `weekly-laundry` | Do laundry | Sunday | weekly | |
+
+## Monthly candidate""")
+
 
 def load_server(snapshot_path, port=0):
     spec = importlib.util.spec_from_file_location("reminders_server", SERVER)
@@ -179,23 +189,38 @@ class HabitsEditTests(unittest.TestCase):
         base, _, _ = self.serve()
         status, body = self.get(base, "/api/habits")
         self.assertEqual(status, 200)
-        keys = [h["key"] for h in body["habits"]]
+        keys = [h["key"] for h in body["daily"]]
         self.assertEqual(keys, ["habit-water", "habit-make-bed"])
-        self.assertEqual(body["habits"][0]["title"], "Drink water")
+        self.assertEqual(body["daily"][0]["title"], "Drink water")
+        self.assertEqual([h["key"] for h in body["monthly"]],
+                         ["monthly-clean-room"])
+        self.assertEqual(body["monthly"][0]["when"], "1st of each month")
+        self.assertEqual(body["weekly"], [])
 
     def test_get_habits_missing_file_is_empty(self):
         base, _, _ = self.serve(doc=None)
         status, body = self.get(base, "/api/habits")
         self.assertEqual(status, 200)
-        self.assertEqual(body["habits"], [])
+        self.assertEqual(body, {"daily": [], "weekly": [], "monthly": []})
 
-    def test_get_habits_missing_section_500(self):
+    def test_get_habits_missing_sections_read_empty(self):
+        # Absent headings read as empty arrays (writes stay fail-closed).
         base, _, _ = self.serve(doc="# Daily habits\n\nno table here\n")
-        try:
-            self.get(base, "/api/habits")
-            self.fail("expected HTTPError")
-        except urllib.error.HTTPError as exc:
-            self.assertEqual(exc.code, 500)
+        status, body = self.get(base, "/api/habits")
+        self.assertEqual(status, 200)
+        self.assertEqual(body, {"daily": [], "weekly": [], "monthly": []})
+
+    def test_api_base_relative_to_mount(self):
+        # Served under a path prefix (tailscale --set-path /reminders), so
+        # absolute fetch("/api/...") would escape the mount and 404.
+        source = SERVER.read_text()
+        self.assertNotIn('fetch("/', source)
+        self.assertIn("location.pathname", source)
+
+    def test_no_store_header(self):
+        base, _, _ = self.serve()
+        with urllib.request.urlopen(base + "/", timeout=10) as resp:
+            self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
 
     def test_edit_needs_token(self):
         base, _, _ = self.serve()
@@ -246,7 +271,7 @@ class HabitsEditTests(unittest.TestCase):
             base, {"action": "add", "title": "Read 10 pages",
                    "note": "before bed"})
         self.assertEqual(status, 200)
-        keys = [h["key"] for h in body["habits"]]
+        keys = [h["key"] for h in body["daily"]]
         self.assertIn("habit-read-10-pages", keys)
         text = habits.read_text()
         self.assertIn("| `habit-read-10-pages` | Read 10 pages | today |"
@@ -254,6 +279,76 @@ class HabitsEditTests(unittest.TestCase):
         # Monthly section preserved byte-for-byte.
         self.assertIn("| `monthly-clean-room` | Clean room |"
                       " 1st of each month | monthly | Subtasks |", text)
+
+    def test_add_weekly_round_trip(self):
+        base, _, habits = self.serve(doc=FULL_DOC)
+        status, body = self.post(
+            base, {"action": "add", "section": "weekly",
+                   "title": "Water plants", "when": "Sunday",
+                   "note": "balcony too"})
+        self.assertEqual(status, 200)
+        self.assertIn("weekly-water-plants",
+                      [h["key"] for h in body["weekly"]])
+        text = habits.read_text()
+        self.assertIn("| `weekly-water-plants` | Water plants | Sunday |"
+                      " weekly | balcony too |", text)
+        # Other sections untouched.
+        self.assertIn("| `habit-water` | Drink water | today | daily | |",
+                      text)
+        self.assertIn("| `monthly-clean-room` | Clean room |"
+                      " 1st of each month | monthly | Subtasks |", text)
+
+    def test_add_monthly_round_trip(self):
+        base, _, habits = self.serve()
+        status, body = self.post(
+            base, {"action": "add", "section": "monthly",
+                   "title": "Backup photos", "when": "15th of each month"})
+        self.assertEqual(status, 200)
+        self.assertIn("monthly-backup-photos",
+                      [h["key"] for h in body["monthly"]])
+        self.assertIn("| `monthly-backup-photos` | Backup photos |"
+                      " 15th of each month | monthly |  |",
+                      habits.read_text())
+
+    def test_add_weekly_requires_when(self):
+        base, _, habits = self.serve(doc=FULL_DOC)
+        before = habits.read_text()
+        status, _ = self.post(base, {"action": "add", "section": "weekly",
+                                     "title": "Water plants"})
+        self.assertEqual(status, 400)
+        self.assertEqual(habits.read_text(), before)
+
+    def test_unknown_section_400(self):
+        base, _, _ = self.serve()
+        status, _ = self.post(base, {"action": "add", "section": "yearly",
+                                     "title": "x"})
+        self.assertEqual(status, 400)
+        status, _ = self.post(base, {"action": "remove",
+                                     "section": "yearly",
+                                     "key": "habit-water"})
+        self.assertEqual(status, 400)
+
+    def test_remove_weekly_round_trip(self):
+        base, _, habits = self.serve(doc=FULL_DOC)
+        status, body = self.post(base, {"action": "remove",
+                                        "section": "weekly",
+                                        "key": "weekly-laundry"})
+        self.assertEqual(status, 200)
+        self.assertEqual([h["key"] for h in body["weekly"]], [])
+        text = habits.read_text()
+        self.assertNotIn("weekly-laundry", text)
+        self.assertIn("habit-water", text)
+
+    def test_remove_monthly_round_trip(self):
+        base, _, habits = self.serve()
+        status, body = self.post(base, {"action": "remove",
+                                        "section": "monthly",
+                                        "key": "monthly-clean-room"})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["monthly"], [])
+        text = habits.read_text()
+        self.assertNotIn("monthly-clean-room", text)
+        self.assertIn("habit-make-bed", text)
 
     def test_add_rejects_table_delimiters(self):
         base, _, habits = self.serve()
@@ -290,10 +385,11 @@ class HabitsEditTests(unittest.TestCase):
     def test_remove_habit_drops_row(self):
         base, _, habits = self.serve()
         status, body = self.post(base, {"action": "remove",
+                                        "section": "daily",
                                         "key": "habit-water"})
         self.assertEqual(status, 200)
         self.assertNotIn("habit-water",
-                         [h["key"] for h in body["habits"]])
+                         [h["key"] for h in body["daily"]])
         text = habits.read_text()
         self.assertNotIn("habit-water", text)
         self.assertIn("habit-make-bed", text)
@@ -301,9 +397,57 @@ class HabitsEditTests(unittest.TestCase):
     def test_remove_unknown_key_404(self):
         base, _, habits = self.serve()
         before = habits.read_text()
-        status, _ = self.post(base, {"action": "remove", "key": "habit-nope"})
+        status, _ = self.post(base, {"action": "remove", "section": "daily",
+                                     "key": "habit-nope"})
         self.assertEqual(status, 404)
         self.assertEqual(habits.read_text(), before)
+
+    def test_remove_without_section_defaults_daily(self):
+        base, _, habits = self.serve()
+        status, body = self.post(base, {"action": "remove",
+                                        "key": "habit-water"})
+        self.assertEqual(status, 200)
+        self.assertNotIn("habit-water", habits.read_text())
+
+    def test_add_rejects_unicode_line_boundaries(self):
+        # splitlines() splits on these; a written row would break on re-read.
+        base, _, habits = self.serve()
+        before = habits.read_text()
+        for ch in ("\u2028", "\u2029", "\x0b", "\x0c", "\x85"):
+            status, _ = self.post(base, {"action": "add",
+                                         "title": "a" + ch + "b"})
+            self.assertEqual(status, 400, repr(ch))
+        self.assertEqual(habits.read_text(), before)
+
+    def test_non_ascii_token_403_not_crash(self):
+        base, _, _ = self.serve()
+        status, _ = self.post(base, {"action": "add", "title": "x"},
+                              token="toké")
+        self.assertEqual(status, 403)
+
+    def test_bad_content_length(self):
+        # Raw socket: http.client/urllib will not send these values, and
+        # for "-1" the client must half-close so a fixed server can read
+        # to EOF instead of deadlocking (the pre-fix behaviour).
+        import socket
+        base, _, _ = self.serve()
+        port = int(base.rsplit(":", 1)[1])
+        for value, want in (("-1", "413"), ("abc", "400")):
+            sock = socket.create_connection(("127.0.0.1", port), timeout=10)
+            sock.sendall(("POST /api/habits HTTP/1.0\r\n"
+                          "Authorization: Bearer %s\r\n"
+                          "Content-Length: %s\r\n\r\n"
+                          % (self.TOKEN, value)).encode())
+            sock.shutdown(socket.SHUT_WR)
+            reply = b""
+            while True:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                reply += chunk
+            sock.close()
+            status = reply.split(b" ", 2)[1] if reply else b""
+            self.assertEqual(status.decode(), want, value)
 
     def test_malformed_row_preserved_on_write(self):
         doc = HABITS_DOC.replace(

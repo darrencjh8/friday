@@ -113,6 +113,17 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(adds, [])
         self.assertEqual(code, 0)
 
+    def test_weekly_type_accepted(self):
+        module = load_helper()
+        candidates = [
+            {"key": "weekly-laundry", "type": "weekly", "title": "w",
+             "action_date": "2026-10-15"},
+        ]
+        code, calls = self.run_helper(module, candidates, {})
+        adds = [c for c in calls if "add" in c]
+        self.assertEqual(len(adds), 1)
+        self.assertEqual(code, 0)
+
     def test_malformed_types_are_isolated(self):
         module = load_helper()
         candidates = [
