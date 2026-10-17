@@ -5,7 +5,8 @@ Serves the structured snapshot written by wiki-reminder-tasks.py
 --snapshot-out as a tailnet-only page: GET / renders the dashboard,
 GET /api/reminders returns the snapshot JSON, GET /health answers ok.
 GET /api/habits lists the live daily-habits wiki table. POST
-/api/habits ({"action": "add"|"remove"}) rewrites that table atomically
+/api/habits ({"action": "add"|"edit"|"remove"}) rewrites that table
+atomically
 and requires `Authorization: Bearer $REMINDERS_EDIT_TOKEN`; an unset
 token disables editing (403, fail closed). Everything else is 404.
 No secrets, tokens, or task data are logged — only the startup line
@@ -116,7 +117,22 @@ summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 #h-form .f1{flex:1;min-width:120px}
 #h-form .f2{flex:2;min-width:140px}
 .note{white-space:pre-wrap;color:var(--muted);font-size:13px}
-@media (max-width:600px){th,td{padding:4px 4px}.card{padding:16px}}
+@media (max-width:600px){
+th,td{padding:4px 4px}
+.card{padding:16px}
+.topbar{padding:10px 12px}
+body{font:15px/1.45 system-ui,-apple-system,Segoe UI,sans-serif}
+table{font-size:13px}
+h1{font-size:1.35rem}
+.card-title{font-size:1rem}
+.hint,.note{font-size:12.5px}
+.empty{font-size:13.5px}
+.tab{font-size:14px;padding:5px 12px}
+.chip,.pill{font-size:11px}
+.btn-quiet{font-size:12px}
+#h-form .f1,#h-form .f2,#h-form select,#h-form button{flex:1 1 100%}
+table.snapshot th:nth-child(2),table.snapshot td:nth-child(2){display:none}
+}
 </style></head>
 <body><main>
 <div class="topbar"><div class="topbar-in">
@@ -160,19 +176,21 @@ maxlength="120" hidden>
 <input id="h-note" class="field f2" placeholder="Note (optional)"
 maxlength="500">
 <button id="h-add" type="submit" class="btn-primary">Add</button>
+<button id="h-cancel" type="button" class="btn-quiet" hidden>Cancel edit</button>
 </form>
 <details id="h-token-details" style="margin-top:10px"><summary
 class="hint">Edit token</summary>
 <input id="h-token" type="password" placeholder="edit token" class="field"
 style="width:100%;margin-top:6px"></details>
 <p class="hint" style="margin-top:10px">Removing a habit stops future
-tasks; tasks already created in Google Tasks are never deleted — clear
-them there. Titles and notes may not contain | or backticks.</p>
+tasks; Google Tasks created by earlier runs keep their old title and are
+never deleted — clear them there. Titles and notes may not contain |
+or backticks.</p>
 <p id="habit-msg" class="hint"></p>
 </div>
 <div class="card">
 <div class="chips" id="meta"><span class="chip date">loading…</span></div>
-<table>
+<table class="snapshot">
 <thead><tr><th>Reminder</th><th>Type</th><th>Due</th><th>Status</th></tr></thead>
 <tbody id="rows"></tbody>
 </table>
@@ -246,12 +264,18 @@ async function loadHabits() {
       cells.push(tdNote);
       const tdBtn = document.createElement("td");
       tdBtn.style.textAlign = "right";
+      const editBtn = document.createElement("button");
+      editBtn.type = "button";
+      editBtn.className = "btn-quiet";
+      editBtn.textContent = "Edit";
+      editBtn.addEventListener("click", () => startEdit(section, h));
       const btn = document.createElement("button");
       btn.type = "button";
       btn.className = "btn-quiet";
       btn.textContent = "Remove";
       btn.addEventListener("click", () => editHabits(
         {action: "remove", section: section, key: h.key}, btn));
+      tdBtn.appendChild(editBtn);
       tdBtn.appendChild(btn);
       cells.push(tdBtn);
       tr.append(...cells);
@@ -287,7 +311,12 @@ async function editHabits(payload, button) {
       return;
     }
     habitMsg(payload.action === "add" ? "Added"
-                                      : "Removed");
+             : payload.action === "edit" ? "Saved."
+             : "Removed");
+    // State and label clears live here so every successful POST
+    // (add/edit/remove) leaves the form clean; Remove-after-Edit
+    // cannot strand a stale editing key.
+    clearEditUI();
     loadHabits();
   } finally {
     if (button) button.disabled = false;
@@ -296,6 +325,10 @@ async function editHabits(payload, button) {
 const addBtn = document.getElementById("h-add");
 const whenBox = document.getElementById("h-when");
 const sectionSel = document.getElementById("h-section");
+const hForm = document.getElementById("h-form");
+const titleBox = document.getElementById("h-title");
+const noteBox = document.getElementById("h-note");
+const cancelBtn = document.getElementById("h-cancel");
 sectionSel.addEventListener("change", () => switchTab(sectionSel.value));
 // Tab bar: one section visible at a time; two-sided sync with the form
 // select (programmatic .value sets do not fire change, so switchTab
@@ -311,19 +344,53 @@ function switchTab(name) {
 }
 for (const b of tabButtons)
   b.addEventListener("click", () => switchTab(b.dataset.tab));
+// Edit flow: the shared add form doubles as the edit form. Editing
+// state lives on the form dataset; Save posts action "edit" against
+// the row's original key.
+function clearEditUI() {
+  delete hForm.dataset.editingKey;
+  delete hForm.dataset.editingSection;
+  addBtn.textContent = "Add";
+  cancelBtn.hidden = true;
+}
+function startEdit(section, h) {
+  hForm.dataset.editingKey = h.key;
+  hForm.dataset.editingSection = section;
+  switchTab(section);
+  titleBox.value = h.title;
+  whenBox.value = h.when || "";
+  noteBox.value = h.note || "";
+  addBtn.textContent = "Save";
+  cancelBtn.hidden = false;
+  habitMsg("Editing “" + h.title + "”.");
+}
+function resetFormFields() {
+  titleBox.value = "";
+  noteBox.value = "";
+  whenBox.value = "";
+}
+cancelBtn.addEventListener("click", () => {
+  clearEditUI();
+  resetFormFields();
+  habitMsg("Edit cancelled.");
+});
 document.getElementById("h-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
-  const title = document.getElementById("h-title").value.trim();
+  const editing = hForm.dataset.editingKey;
+  const section = editing ? hForm.dataset.editingSection
+                          : sectionSel.value;
+  const title = titleBox.value.trim();
   if (!title) { habitMsg("Title required."); return; }
-  const payload = {action: "add", section: sectionSel.value, title: title,
-                   note: document.getElementById("h-note").value.trim()};
-  if (sectionSel.value !== "daily") {
+  const payload = {action: editing ? "edit" : "add",
+                   section: section,
+                   title: title,
+                   note: noteBox.value.trim()};
+  if (editing) payload.key = editing;
+  if (section !== "daily") {
     payload.when = whenBox.value.trim();
     if (!payload.when) { habitMsg("When required."); return; }
   }
-  document.getElementById("h-title").value = "";
-  document.getElementById("h-note").value = "";
-  whenBox.value = "";
+  if (!editing) resetFormFields();
   addBtn.disabled = true;
   editHabits(payload, addBtn);
 });
@@ -603,6 +670,49 @@ def remove_habit(section, key):
     raise KeyError(key)
 
 
+def edit_habit(section, key, title, note, when):
+    """Rewrite one row in place: position kept, key derived from title.
+
+    The collision check excludes the located row so saving with an
+    unchanged title succeeds (the common edit: fix a note).
+    """
+    _check_section(section)
+    if not isinstance(key, str) or not key:
+        raise ValueError("key required")
+    title = _validate_text(title, "title", TITLE_MAX)
+    note = _validate_text(note, "note", NOTE_MAX)
+    if not title:
+        raise ValueError("title required")
+    if section == "daily":
+        when = "today"
+    else:
+        when = _validate_text(when, "when", WHEN_MAX)
+        if not when:
+            raise ValueError("when required")
+    new_key = derive_key(section, title)
+    lines = _read_lines()
+    rows = _table_rows(lines, SECTIONS[section])
+    for idx in rows[2:]:
+        cells = _row_cells(lines[idx])
+        if not cells or _row_key(cells) != key:
+            continue
+        # An unchanged title keeps the row's original key text verbatim:
+        # seeded rows may carry keys derive_key() would spell (or seal)
+        # differently, and stability matters more than prettiness.
+        if title == cells[1]:
+            new_key = key
+        else:
+            others = {_row_key(_row_cells(lines[j]) or [])
+                      for j in rows[2:] if j != idx}
+            if new_key in others:
+                raise ValueError("habit already exists")
+        lines[idx] = ("| `%s` | %s | %s | %s | %s |"
+                      % (new_key, title, when, section, note))
+        _write_lines(lines)
+        return
+    raise KeyError(key)
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     server_version = "reminders/1"
 
@@ -686,6 +796,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                           payload.get("note", ""), payload.get("when", ""))
             elif payload.get("action") == "remove":
                 remove_habit(section, payload.get("key"))
+            elif payload.get("action") == "edit":
+                edit_habit(section, payload.get("key"),
+                           payload.get("title"), payload.get("note", ""),
+                           payload.get("when", ""))
             else:
                 self._send(400, '{"error":"unknown action"}',
                            "application/json")
