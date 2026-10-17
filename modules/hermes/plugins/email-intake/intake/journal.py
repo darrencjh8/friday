@@ -234,3 +234,20 @@ class Journal:
         return [(f, v, u, t) for f, v, u, t in self._db.execute(
             "SELECT folder, uidvalidity, uid, updated_at FROM messages WHERE account = ? AND evidence_hash = ? "
             "ORDER BY folder, uid", (account, evidence_hash))]
+
+    def stale(self, account, statuses, version, limit):
+        """Locations whose Jev decision came from another classifier version."""
+        marks = ",".join("?" * len(statuses))
+        return self._db.execute(
+            f"SELECT folder, uidvalidity, uid FROM messages WHERE account = ? AND status IN ({marks}) "
+            f"AND COALESCE(json_extract(decision, '$.version'), '') != ? ORDER BY updated_at DESC LIMIT ?",
+            (account, *statuses, version, limit),
+        ).fetchall()
+
+    def update_decision(self, account, folder, uidvalidity, uid, status, decision):
+        """Replace a decision in place, keeping updated_at (when the mail was first recorded)."""
+        self._db.execute(
+            "UPDATE messages SET status = ?, decision = ? WHERE account=? AND folder=? AND uidvalidity=? AND uid=?",
+            (status, json.dumps(decision), account, folder, uidvalidity, uid),
+        )
+        self._db.commit()
