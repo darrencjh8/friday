@@ -31,18 +31,64 @@ def _state_text(parsed):
     )
 
 
+REFRESH_PER_RUN = 20
+_JEV_STATUSES = tuple(_STATUS.values())
+
+
 class ShadowRunner:
-    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list):
+    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list, fetch=None):
+        """`fetch(folder, uidvalidity, uid)` re-reads one email so stale decisions can be refreshed."""
         self._scanner = scanner
         self._journal = journal
         self._classify = classify
         self._senders = senders
         self._notify_rules = notify_rules
+        self._fetch = fetch
+
+    def _jev_decision(self, parsed, known, summary):
+        decision = self._journal.cached_decision(parsed.evidence_hash, CLASSIFIER_VERSION)
+        if decision is None:
+            result = self._classify(_state_text(parsed), senders.hint(known, parsed.sender_domain, parsed.auth))
+            if not isinstance(result, Decision):
+                result = Decision("uncertain", reason="bad_result")
+            decision = {
+                "version": CLASSIFIER_VERSION,
+                "destination": result.destination,
+                "subtype": result.subtype,
+                "confidence": result.confidence,
+                "reason": result.reason,
+                "proposed": result.proposed,
+                "proposed_subtype": result.proposed_subtype,
+                "kind": result.kind,
+                "sender_domain": parsed.sender_domain,
+                "auth": parsed.auth,
+            }
+            self._journal.cache_decision(parsed.evidence_hash, CLASSIFIER_VERSION, decision)
+            summary["classified"] += 1
+        return _STATUS.get(decision.get("destination"), "shadow_uncertain"), decision
+
+    def _refresh(self, account, known, summary):
+        """Re-classify mail an older classifier decided: the scanner never re-reads a known UID."""
+        for folder, uidvalidity, uid in self._journal.stale(account, _JEV_STATUSES, CLASSIFIER_VERSION,
+                                                            REFRESH_PER_RUN):
+            try:
+                raw = self._fetch(folder, uidvalidity, uid)
+            except Exception:  # noqa: BLE001 - retried next run
+                continue
+            if not raw:
+                continue
+            parsed = mail.parse(raw)
+            status, decision = self._jev_decision(parsed, known, summary)
+            # The recorded time is kept: a refresh is not new mail.
+            self._journal.update_decision(account, folder, uidvalidity, uid, status, decision)
+            summary["refreshed"] += 1
 
     def run_once(self):
-        summary = {"seen": 0, "classified": 0, "copies": 0, "blocked": 0, "notified": 0}
+        summary = {"seen": 0, "classified": 0, "copies": 0, "blocked": 0, "notified": 0, "refreshed": 0}
         account = self._scanner._account
         known, rules = self._senders(), self._notify_rules()
+        if self._fetch is not None:
+            self._refresh(account, known, summary)
         for found in self._scanner.scan():
             summary["seen"] += 1
             parsed = mail.parse(found.raw)
@@ -60,26 +106,7 @@ class ShadowRunner:
                 summary["blocked"] += 1
                 status, decision = "blocked_encrypted", {"version": CLASSIFIER_VERSION}
             else:
-                decision = self._journal.cached_decision(parsed.evidence_hash, CLASSIFIER_VERSION)
-                if decision is None:
-                    result = self._classify(_state_text(parsed), senders.hint(known, parsed.sender_domain, parsed.auth))
-                    if not isinstance(result, Decision):
-                        result = Decision("uncertain", reason="bad_result")
-                    decision = {
-                        "version": CLASSIFIER_VERSION,
-                        "destination": result.destination,
-                        "subtype": result.subtype,
-                        "confidence": result.confidence,
-                        "reason": result.reason,
-                        "proposed": result.proposed,
-                        "proposed_subtype": result.proposed_subtype,
-                        "kind": result.kind,
-                        "sender_domain": parsed.sender_domain,
-                        "auth": parsed.auth,
-                    }
-                    self._journal.cache_decision(parsed.evidence_hash, CLASSIFIER_VERSION, decision)
-                    summary["classified"] += 1
-                status = _STATUS.get(decision.get("destination"), "shadow_uncertain")
+                status, decision = self._jev_decision(parsed, known, summary)
             self._journal.record(account, found.folder, found.uidvalidity, found.uid,
                                  parsed.evidence_hash, parsed.message_id_hash, status, decision)
             # Checkpoint only after the evidence and decision are durably recorded.

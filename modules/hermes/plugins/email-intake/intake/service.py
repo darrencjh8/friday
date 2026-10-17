@@ -142,15 +142,20 @@ def run_intake(settings, sleep, stop):
 class Runner:
     """Scan and classify, then hand routed mail to the dispatcher (rehearsal or live)."""
 
-    def __init__(self, classifier, dispatcher=None):
+    def __init__(self, classifier, dispatcher=None, cleanup=None):
         self._classifier = classifier
         self._dispatcher = dispatcher
+        self._cleanup = cleanup
 
     def run_once(self):
         if self._dispatcher is not None:
             # Fix the start time and handoff boundary before this run's mail is recorded.
             self._dispatcher.prepare()
-        summary = self._classifier.run_once()
+        try:
+            summary = self._classifier.run_once()
+        finally:
+            if self._cleanup is not None:
+                self._cleanup()
         if self._dispatcher is not None:
             try:
                 summary["dispatch"] = self._dispatcher.run()
@@ -171,15 +176,17 @@ def build_runner(settings: Settings):
 
     account = settings.imap_username.lower()
     scanner = Scanner(connect, journal, account=account, baseline=True)
+    refresh_box = dispatch.ImapMailbox(connect)
     classifier = ShadowRunner(
         scanner=scanner,
         journal=journal,
         classify=lambda text, context="": jev.classify(state_text=text, api_key=settings.jev_api_key, context=context),
         senders=lambda: senders.load(settings.senders_file),
         notify_rules=lambda: senders.load_rules(settings.senders_file),
+        fetch=refresh_box.fetch,
     )
     if not settings.webhook_secret:
-        return Runner(classifier)
+        return Runner(classifier, cleanup=refresh_box.close)
     mode = "live" if settings.mode == "live" else "rehearsal"
     dispatcher = dispatch.Dispatcher(
         journal=journal,
@@ -191,4 +198,4 @@ def build_runner(settings: Settings):
         mode=mode,
         booked=lambda validity: dispatch.read_booked_uids(settings.dedup_db, validity),
     )
-    return Runner(classifier, dispatcher)
+    return Runner(classifier, dispatcher, cleanup=refresh_box.close)
