@@ -49,7 +49,9 @@ def existing_markers():
         for line in str(notes).splitlines():
             line = line.strip()
             if line.startswith(MARKER_PREFIX):
-                found[line] = task.get("due") or ""
+                # Google returns due as RFC3339 (2026-10-17T00:00:00.000Z);
+                # compare date-only so re-runs skip instead of conflicting.
+                found[line] = str(task.get("due") or "").split("T")[0]
     return found
 
 

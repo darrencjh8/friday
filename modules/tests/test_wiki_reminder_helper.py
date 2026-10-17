@@ -98,6 +98,20 @@ class HelperTests(unittest.TestCase):
         self.assertEqual(len(adds), 1)
         self.assertEqual(code, 1)
 
+    def test_rfc3339_due_matches_action_date(self):
+        # Google returns due as RFC3339; a same-day re-run must skip,
+        # not report a bogus conflict (daily Telegram noise).
+        module = load_helper()
+        marker = "wiki-reminder-marker:habit-water:2026-10-15"
+        candidates = [
+            {"key": "habit-water", "type": "daily", "title": "Drink water",
+             "action_date": "2026-10-15"},
+        ]
+        code, calls = self.run_helper(
+            module, candidates, {marker: "2026-10-15T00:00:00.000Z"})
+        adds = [c for c in calls if "add" in c]
+        self.assertEqual(adds, [])
+        self.assertEqual(code, 0)
 
     def test_malformed_types_are_isolated(self):
         module = load_helper()
