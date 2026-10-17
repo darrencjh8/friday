@@ -1010,6 +1010,7 @@ export class ToolRegistry {
     this._emailMsgId = null;
     this._emailRaw = null;
     this._imapHandler = null;
+    this._markHandler = null;
     this._statementJournal = null;
     this._orchestrator = null;
     this._dryRunScope = new AsyncLocalStorage();
@@ -1026,7 +1027,20 @@ export class ToolRegistry {
   setEmailContext(msgId, rawEmail, imapHandler) {
     this._emailMsgId = msgId;
     this._emailRaw = rawEmail;
-    this._imapHandler = imapHandler;
+    if (!imapHandler) {
+      this._imapHandler = null;
+      this._markHandler = null;
+      return;
+    }
+    // The /process intake passes a read-only stub without inbox browsing.
+    // It must not clobber the persistent IMAP handler, or list_inbox_emails
+    // breaks with "listInbox is not a function" for every later call.
+    if (typeof imapHandler.listInbox === "function") {
+      this._imapHandler = imapHandler;
+    } else if (!this._imapHandler) {
+      this._imapHandler = imapHandler;
+    }
+    this._markHandler = imapHandler;
   }
 
   getToolSchemas() {
@@ -1961,7 +1975,8 @@ export class ToolRegistry {
   // ── Email / notify tools ──────────────────────────────────────
 
   async _handle_mark_email_read({ uid } = {}) {
-    if (!this._imapHandler) {
+    const marker = this._markHandler ?? this._imapHandler;
+    if (!marker) {
       return { error: "IMAP not connected — no email inbox available" };
     }
     if (uid != null && !(Number.isInteger(uid) && uid > 0)) {
@@ -1972,7 +1987,7 @@ export class ToolRegistry {
       return { error: "No email to mark as read — provide a uid or read an email first" };
     }
     try {
-      await this._imapHandler.markRead(targetUid);
+      await marker.markRead(targetUid);
       return true;
     } catch (e) {
       return { error: "Failed to mark email read: " + e.message };
