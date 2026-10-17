@@ -88,6 +88,20 @@ def http_post(url, body, headers, timeout=600):
         return json.loads(resp.read())
 
 
+def http_get(url, timeout=30):
+    with urllib.request.urlopen(urllib.request.Request(url, method="GET"), timeout=timeout) as resp:
+        return json.loads(resp.read())
+
+
+def watcher_off(expense_url, get=http_get):
+    """True only when expense-tracker says its IDLE watcher is off; any doubt reads as on."""
+    try:
+        return (get(f"{expense_url}/health") or {}).get("email_watcher") == "off"
+    except Exception as error:  # noqa: BLE001 - live waits for the next run
+        logger.warning("email-intake watcher check failed: %s", type(error).__name__)
+        return False
+
+
 def read_booked_uids(dedup_db, inbox_uidvalidity):
     """The INBOX UIDs the old watcher booked, or None when they cannot be trusted."""
     try:
@@ -184,9 +198,10 @@ def _live_record(response):
 
 class Dispatcher:
     def __init__(self, journal, mailbox, post, secret, urls, account, mode,
-                 booked=None, clock=time.time, unlock=None):
+                 booked=None, clock=time.time, unlock=None, watcher_off=None):
         """`booked(uidvalidity)` returns the INBOX UIDs the old watcher booked, or None (live only);
-        `unlock(raw)` opens the email's password-protected PDFs, None while one stays locked."""
+        `unlock(raw)` opens the email's password-protected PDFs, None while one stays locked;
+        `watcher_off()` is True once the old watcher stopped: live books nothing before that."""
         if mode not in ("rehearsal", "live"):
             raise ValueError(mode)
         self._journal = journal
@@ -199,6 +214,7 @@ class Dispatcher:
         self._booked = booked
         self._clock = clock
         self._unlock = unlock
+        self._watcher_off = watcher_off
 
     def _legs(self, decision):
         found = legs(decision)
@@ -211,10 +227,16 @@ class Dispatcher:
         """When this mode began, and the INBOX handoff for live; None while it cannot start."""
         since = self._journal.get_state(f"{self._mode}_since")
         if self._mode == "rehearsal":
+            # A rollback: the old watcher books again, so a later cutover takes a fresh handoff.
+            self._journal.clear_state("live_since", "live_inbox_handoff")
             if since is None:
                 since = self._clock()
                 self._journal.set_state("rehearsal_since", since)
             return float(since), None
+        if self._watcher_off is not None and not self._watcher_off():
+            # Checked every run: both booking the same email is the one thing the cutover must not do.
+            logger.warning("email-intake live dispatch waits: the old watcher is still running")
+            return None
         if since is None:
             inbox_validity, _ = self._journal.folder_state(self._account, INBOX)
             if inbox_validity is None or self._booked is None:

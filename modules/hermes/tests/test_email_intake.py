@@ -559,11 +559,11 @@ class SettingsTest(unittest.TestCase):
         for key in ("IMAP_HOST", "IMAP_USERNAME", "IMAP_PASSWORD", "JEV_API_KEY"):
             self.assertIsNone(self.load(**{key: ""}), key)
 
-    def test_only_shadow_mode_exists_in_this_iteration(self):
-        for mode in ("live", "dispatch", "SHADOW "):
-            settings = self.load(EMAIL_INTAKE_MODE=mode)
-            self.assertTrue(settings is None or settings.mode == "shadow", mode)
-        self.assertIsNone(self.load(EMAIL_INTAKE_MODE="live"))
+    def test_only_shadow_and_live_modes_exist(self):
+        self.assertEqual(self.load(EMAIL_INTAKE_MODE="SHADOW ").mode, "shadow")
+        self.assertEqual(self.load(EMAIL_INTAKE_MODE=" Live").mode, "live")
+        for mode in ("dispatch", "on", "rehearsal"):
+            self.assertIsNone(self.load(EMAIL_INTAKE_MODE=mode), mode)
 
     def test_settings_repr_never_shows_secrets(self):
         text = repr(self.load())

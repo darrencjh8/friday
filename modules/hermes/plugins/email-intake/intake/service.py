@@ -2,9 +2,10 @@
 
 Settings come from the environment; intake stays off unless explicitly
 enabled and fully configured. Shadow mode also rehearses: each new expense
-transaction is sent to expense-tracker as a signed dry run. Live dispatch is
-built (build_runner, mode "live") but cannot be selected until the cutover
-switch also turns the old watcher off.
+transaction is sent to expense-tracker as a signed dry run. Live mode books
+mail, marks it read and messages the owner; the same EMAIL_INTAKE_MODE=live
+turns expense-tracker's IDLE watcher off, and live books nothing until that
+watcher reports itself off.
 One owner lock per data directory guarantees a single active scanner even if
 the gateway builds a second adapter. The poll loop survives errors.
 """
@@ -24,7 +25,7 @@ from .shadow import ShadowRunner
 
 logger = logging.getLogger(__name__)
 
-MODES = ("shadow",)
+MODES = ("shadow", "live")
 DEFAULT_INTERVAL = 300
 DEFAULT_SENDERS_FILE = "/opt/data/home/wiki/entities/email-senders.md"
 DEFAULT_EXPENSE_URL = "http://expense-tracker:8080"
@@ -217,6 +218,7 @@ def build_runner(settings: Settings):
         mode=mode,
         booked=lambda validity: dispatch.read_booked_uids(settings.dedup_db, validity),
         unlock=open_pdfs,
+        watcher_off=lambda: dispatch.watcher_off(settings.expense_url),
     )
     outbox = None
     if mode == "live" and settings.telegram_token and settings.telegram_chat:

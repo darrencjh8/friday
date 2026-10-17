@@ -126,7 +126,10 @@ async function main() {
     app.use(express.json({ limit: "10mb" }));
 
     // Health check
-    app.get("/health", (_req, res) => res.json({ status: "ok" }));
+    // Hermes intake reads email_watcher and starts live booking only once it is off.
+    app.get("/health", (_req, res) =>
+        res.json({ status: "ok", email_watcher: cfg.emailWatcher === false ? "off" : "on" }),
+    );
 
     // Register MCP SSE BEFORE listening — hermes depends on it
     createMcpServer(registry, app);
@@ -221,10 +224,14 @@ async function main() {
                 event: "health_check_started",
                 data: { port },
             });
-            // Start IMAP idle loop in background
-            imapHandler.idleLoop(onNewEmail).catch((err) => {
-                logger.error({ event: "imap_idle_error", error: err.message });
-            });
+            // Start IMAP idle loop in background, unless Hermes intake books the mail.
+            if (cfg.emailWatcher === false) {
+                logger.info({ event: "imap_watcher_disabled", reason: "email_intake_live" });
+            } else {
+                imapHandler.idleLoop(onNewEmail).catch((err) => {
+                    logger.error({ event: "imap_idle_error", error: err.message });
+                });
+            }
 
             // Periodic dedup cleanup (every 6 hours)
             const CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
