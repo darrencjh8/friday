@@ -234,6 +234,28 @@ class HabitsEditTests(unittest.TestCase):
         self.assertIn('id="h-count-daily"', source)   # count badges
         self.assertIn("max-width:600px", source)      # mobile padding
 
+    def test_chips_and_button_style_hooks(self):
+        source = SERVER.read_text()
+        self.assertIn("chip", source)
+        self.assertIn("btn-primary", source)
+        self.assertIn("btn-quiet", source)
+        # Round-1 review: no color-mix anywhere (older mobile would
+        # silently drop it); tabs must survive CSS display rules.
+        self.assertNotIn("color-mix", source)
+        self.assertIn("[hidden]{display:none!important}", source)
+        self.assertIn("position:sticky", source)
+        self.assertLess(source.index("position:sticky"),
+                        source.index("<main>"))
+
+    def test_snapshot_grouping_hooks(self):
+        # Pending/done partition + captions + tab bar wired in PAGE.
+        source = SERVER.read_text()
+        self.assertIn("Needs attention", source)
+        self.assertIn("Done", source)
+        self.assertIn("data-section", source)
+        self.assertIn("switchTab(", source)
+        self.assertIn('type="submit"', source)
+
     def test_meta_line_above_snapshot(self):
         # The run line describes the snapshot, so it must render after
         # the habits card (after the token block) and before the snapshot

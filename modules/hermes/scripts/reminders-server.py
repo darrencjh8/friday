@@ -44,85 +44,137 @@ PAGE = """<!doctype html>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%E2%8F%B0%3C/text%3E%3C/svg%3E">
 <style>
 :root{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;--line:#e2e7f0;
---ok:#0a7d43;--warn:#8a5a00;--err:#b00020}
-@media (prefers-color-scheme:dark){:root{--bg:#0f131a;--card:#171c26;--ink:#e8ecf4;
---muted:#9aa5b8;--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b}}
+--ok:#0a7d43;--warn:#8a5a00;--err:#b00020;--accent:#2563eb;
+--ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd}
+@media (prefers-color-scheme:dark){:root{--bg:#0f131a;--card:#171c26;
+--ink:#e8ecf4;--muted:#9aa5b8;--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;
+--err:#ff8a9b;--accent:#8fb0ff;--ok-soft:#14301f;--warn-soft:#322610;
+--err-soft:#38141e;--accent-soft:#1d2a4a}}
 body.light{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;
---line:#e2e7f0;--ok:#0a7d43;--warn:#8a5a00;--err:#b00020}
+--line:#e2e7f0;--ok:#0a7d43;--warn:#8a5a00;--err:#b00020;--accent:#2563eb;
+--ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd}
 body.dark{--bg:#0f131a;--card:#171c26;--ink:#e8ecf4;--muted:#9aa5b8;
---line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b}
+--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b;--accent:#8fb0ff;
+--ok-soft:#14301f;--warn-soft:#322610;--err-soft:#38141e;--accent-soft:#1d2a4a}
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);
-font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:960px;margin:0 auto;padding:20px 16px 72px}
-h1{font-size:22px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 20px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;
-padding:18px;margin-bottom:12px}
+font:16px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:960px;margin:0 auto;padding:0 16px 72px}
+.topbar{position:sticky;top:0;z-index:5;padding:14px 16px;margin-bottom:16px;
+background:var(--card);border-bottom:1px solid var(--line)}
+.topbar-in{display:flex;justify-content:space-between;align-items:center;
+max-width:960px;margin:0 auto}
+h1{font-size:1.5rem;margin:0;letter-spacing:-.01em}
+.card-title{margin:0 0 10px;font-size:1.05rem}
+.hint{color:var(--muted);font-weight:400;font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+padding:18px;margin-bottom:14px;box-shadow:0 1px 2px rgba(15,19,26,.06)}
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
 th{color:var(--muted);font-weight:600}
+tr.group th{padding:12px 8px 2px;font-size:12px;text-transform:uppercase;
+letter-spacing:.05em;border-bottom:none}
+tr.attn td:first-child{border-left:3px solid var(--warn);padding-left:6px}
 .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;
-border-radius:999px;border:1px solid var(--line);color:var(--muted)}
-.pill.created,.pill.skipped{color:var(--ok);border-color:currentColor}
-.pill.pending{color:var(--warn);border-color:currentColor}
+border-radius:999px;color:var(--muted)}
+.pill.created,.pill.skipped{background:var(--ok-soft);color:var(--ok)}
+.pill.pending{background:var(--warn-soft);color:var(--warn)}
 .pill.overdue-manual,.pill.conflict,.pill.create-failed,
-.pill.unclassified{color:var(--err);border-color:currentColor}
+.pill.unclassified{background:var(--err-soft);color:var(--err)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;
+border-radius:999px;color:var(--muted)}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.warn{background:var(--warn-soft);color:var(--warn)}
+.chip.err{background:var(--err-soft);color:var(--err)}
+.chip.date{font-weight:400}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0 14px}
+.tab{border:1px solid var(--line);background:transparent;color:var(--muted);
+border-radius:999px;padding:6px 14px;font-weight:600}
+.tab.active{background:var(--accent-soft);color:var(--accent);
+border-color:currentColor}
+.tab-count{font-weight:400;opacity:.75}
+.empty{border:1px dashed var(--line);border-radius:10px;padding:10px 14px;
+color:var(--muted);font-size:14px}
+button,input,select{font-family:inherit;font-size:16px}
+.field{border:1px solid var(--line);border-radius:10px;padding:8px 10px;
+background:var(--card);color:var(--ink)}
+.field::placeholder{color:var(--muted)}
+.btn-primary{background:var(--accent);border:1px solid var(--accent);
+color:#fff;border-radius:10px;padding:8px 16px;font-weight:600}
+.btn-primary:disabled{opacity:.55}
+.btn-quiet{background:transparent;border:1px solid var(--line);
+color:var(--muted);border-radius:999px;padding:3px 12px;font-size:13px;
+font-weight:600}
+button:focus-visible,input:focus-visible,select:focus-visible,
+summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#h-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+#h-form .f1{flex:1;min-width:120px}
+#h-form .f2{flex:2;min-width:140px}
 .note{white-space:pre-wrap;color:var(--muted);font-size:13px}
-@media (max-width:600px){th,td{padding:4px 4px}
-button,input,select{font-size:15px}}
+@media (max-width:600px){th,td{padding:4px 4px}.card{padding:16px}}
 </style></head>
 <body><main>
-<div style="display:flex;justify-content:space-between;align-items:center">
+<div class="topbar"><div class="topbar-in">
 <h1>Reminders</h1>
-<select id="theme" style="padding:4px 8px">
+<select id="theme" class="field">
 <option value="auto">Auto</option><option value="light">Light</option>
 <option value="dark">Dark</option>
 </select>
-</div>
+</div></div>
 <div class="card">
-<h3 style="margin-top:0">Habits <span style="color:var(--muted);
-font-weight:400;font-size:13px">live from the wiki — edits apply from the
-next 08:15 run</span></h3>
-<h4 style="margin:10px 0 4px">Daily <span class="note"
- id="h-count-daily"></span></h4>
+<h3 class="card-title">Habits <span class="hint">live from the wiki —
+edits apply from the next 08:15 run</span></h3>
+<div class="tabs" id="h-tabs">
+<button type="button" class="tab active" data-tab="daily">Daily
+<span class="tab-count" id="h-count-daily"></span></button>
+<button type="button" class="tab" data-tab="weekly">Weekly
+<span class="tab-count" id="h-count-weekly"></span></button>
+<button type="button" class="tab" data-tab="monthly">Monthly
+<span class="tab-count" id="h-count-monthly"></span></button>
+</div>
+<div data-section="daily">
 <table><tbody id="habit-rows-daily"></tbody></table>
-<p id="habit-empty-daily" class="note" hidden>No daily habits.</p>
-<h4 style="margin:14px 0 4px">Weekly <span class="note"
- id="h-count-weekly"></span></h4>
+<p id="habit-empty-daily" class="empty" hidden>No daily habits.</p>
+</div>
+<div data-section="weekly" hidden>
 <table><tbody id="habit-rows-weekly"></tbody></table>
-<p id="habit-empty-weekly" class="note" hidden>No weekly habits.</p>
-<h4 style="margin:14px 0 4px">Monthly <span class="note"
- id="h-count-monthly"></span></h4>
+<p id="habit-empty-weekly" class="empty" hidden>No weekly habits.</p>
+</div>
+<div data-section="monthly" hidden>
 <table><tbody id="habit-rows-monthly"></tbody></table>
-<p id="habit-empty-monthly" class="note" hidden>No monthly habits.</p>
-<form id="h-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
-<select id="h-section" style="padding:6px 8px">
+<p id="habit-empty-monthly" class="empty" hidden>No monthly habits.</p>
+</div>
+<form id="h-form">
+<select id="h-section" class="field">
 <option value="daily">Daily</option><option value="weekly">Weekly</option>
 <option value="monthly">Monthly</option>
 </select>
-<input id="h-title" placeholder="New habit" maxlength="120"
- style="flex:1;min-width:120px;padding:6px 8px">
-<input id="h-when" placeholder="When (e.g. Sunday)" maxlength="120" hidden
- style="flex:1;min-width:120px;padding:6px 8px">
-<input id="h-note" placeholder="Note (optional)" maxlength="500"
- style="flex:2;min-width:140px;padding:6px 8px">
-<button id="h-add" style="padding:6px 14px">Add</button>
+<input id="h-title" class="field f1" placeholder="New habit" maxlength="120">
+<input id="h-when" class="field f1" placeholder="When (e.g. Sunday)"
+maxlength="120" hidden>
+<input id="h-note" class="field f2" placeholder="Note (optional)"
+maxlength="500">
+<button id="h-add" type="submit" class="btn-primary">Add</button>
 </form>
 <details id="h-token-details" style="margin-top:10px"><summary
- class="note">Edit token</summary>
-<input id="h-token" type="password" placeholder="edit token"
- style="width:100%;padding:6px 8px;margin-top:6px"></details>
-<p class="note" style="margin-top:10px">Removing a habit stops future
+class="hint">Edit token</summary>
+<input id="h-token" type="password" placeholder="edit token" class="field"
+style="width:100%;margin-top:6px"></details>
+<p class="hint" style="margin-top:10px">Removing a habit stops future
 tasks; tasks already created in Google Tasks are never deleted — clear
 them there. Titles and notes may not contain | or backticks.</p>
-<p id="habit-msg" class="note"></p>
+<p id="habit-msg" class="hint"></p>
 </div>
 <div class="card">
-<p class="sub" id="meta" style="margin-top:0">loading…</p>
+<div class="chips" id="meta"><span class="chip date">loading…</span></div>
 <table>
 <thead><tr><th>Reminder</th><th>Type</th><th>Due</th><th>Status</th></tr></thead>
 <tbody id="rows"></tbody>
-</table></div>
+</table>
+<p id="rows-empty" class="empty" hidden>No reminders in the snapshot.</p>
+</div>
 <div class="card" id="problems-card" hidden>
 <h3 style="margin-top:0">Problems</h3>
 <table><tbody id="problems"></tbody></table>
@@ -192,6 +244,8 @@ async function loadHabits() {
       const tdBtn = document.createElement("td");
       tdBtn.style.textAlign = "right";
       const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "btn-quiet";
       btn.textContent = "Remove";
       btn.addEventListener("click", () => editHabits(
         {action: "remove", section: section, key: h.key}, btn));
@@ -239,9 +293,21 @@ async function editHabits(payload, button) {
 const addBtn = document.getElementById("h-add");
 const whenBox = document.getElementById("h-when");
 const sectionSel = document.getElementById("h-section");
-sectionSel.addEventListener("change", () => {
+sectionSel.addEventListener("change", () => switchTab(sectionSel.value));
+// Tab bar: one section visible at a time; two-sided sync with the form
+// select (programmatic .value sets do not fire change, so switchTab
+// sets whenBox.hidden directly and the manual listener calls switchTab).
+const tabButtons = Array.from(document.querySelectorAll("#h-tabs .tab"));
+function switchTab(name) {
+  for (const b of tabButtons)
+    b.classList.toggle("active", b.dataset.tab === name);
+  for (const wrap of document.querySelectorAll("[data-section]"))
+    wrap.hidden = wrap.dataset.section !== name;
+  sectionSel.value = name;
   whenBox.hidden = sectionSel.value === "daily";
-});
+}
+for (const b of tabButtons)
+  b.addEventListener("click", () => switchTab(b.dataset.tab));
 document.getElementById("h-form").addEventListener("submit", (ev) => {
   ev.preventDefault();
   const title = document.getElementById("h-title").value.trim();
@@ -270,41 +336,37 @@ async function load() {
     return;
   }
   const items = snap.items || [];
-  meta.textContent = "Run " + (snap.run_date || "?") +
-    " · created " + (snap.summary?.created ?? 0) +
-    " · skipped " + (snap.summary?.skipped ?? 0) +
-    " · pending " + (snap.summary?.pending ?? 0);
+  const sum = snap.summary || {};
+  const probs = snap.problems || [];
+  meta.textContent = "";
+  addChip(meta, "ok", "created " + (sum.created ?? 0));
+  addChip(meta, "", "skipped " + (sum.skipped ?? 0));
+  addChip(meta, "warn", "pending " + (sum.pending ?? 0));
+  if (probs.length) addChip(meta, "err", "problems " + probs.length);
+  addChip(meta, "date", "run " + (snap.run_date || "?"));
   const rows = document.getElementById("rows");
   rows.textContent = "";
-  for (const it of items) {
-    const tr = document.createElement("tr");
-    const tdTitle = document.createElement("td");
-    tdTitle.textContent = it.title || it.key;
-    const tdType = document.createElement("td");
-    tdType.textContent = it.type || "";
-    const tdDue = document.createElement("td");
-    tdDue.textContent = dueText(it);
-    const tdStatus = document.createElement("td");
-    const pill = document.createElement("span");
-    pill.className = "pill " + (it.status || "");
-    pill.textContent = it.status || "";
-    tdStatus.appendChild(pill);
-    tr.append(tdTitle, tdType, tdDue, tdStatus);
-    rows.appendChild(tr);
-    if (it.note) {
-      const ncard = document.getElementById("notes-card");
-      ncard.hidden = false;
-      const div = document.createElement("div");
-      const h = document.createElement("h4");
-      h.textContent = it.title || it.key;
-      const p = document.createElement("p");
-      p.className = "note";
-      p.textContent = it.note;
-      div.append(h, p);
-      document.getElementById("notes").appendChild(div);
-    }
+  document.getElementById("rows-empty").hidden = items.length > 0;
+  // Partition into Needs-attention (pending-like; unknown statuses count
+  // as needing attention) and Done, pending group first, server order
+  // kept inside each group.
+  const ATTENTION = new Set(["pending", "overdue-manual", "conflict",
+                             "create-failed", "unclassified"]);
+  const groups = [[], []];
+  for (const it of items)
+    groups[ATTENTION.has(it.status) ? 0 : 1].push(it);
+  const gname = ["Needs attention", "Done"];
+  for (let g = 0; g < 2; g++) {
+    if (!groups[g].length) continue;
+    const cap = document.createElement("tr");
+    cap.className = "group";
+    const th = document.createElement("th");
+    th.colSpan = 4;
+    th.textContent = gname[g];
+    cap.appendChild(th);
+    rows.appendChild(cap);
+    for (const it of groups[g]) rows.appendChild(snapshotRow(it, g === 0));
   }
-  const probs = snap.problems || [];
   if (probs.length) {
     document.getElementById("problems-card").hidden = false;
     const pb = document.getElementById("problems");
@@ -317,6 +379,41 @@ async function load() {
       pb.appendChild(tr);
     }
   }
+}
+function addChip(box, cls, text) {
+  const sp = document.createElement("span");
+  sp.className = "chip" + (cls ? " " + cls : "");
+  sp.textContent = text;
+  box.appendChild(sp);
+}
+function snapshotRow(it, attention) {
+  const tr = document.createElement("tr");
+  if (attention) tr.className = "attn";
+  const tdTitle = document.createElement("td");
+  tdTitle.textContent = it.title || it.key;
+  const tdType = document.createElement("td");
+  tdType.textContent = it.type || "";
+  const tdDue = document.createElement("td");
+  tdDue.textContent = dueText(it);
+  const tdStatus = document.createElement("td");
+  const pill = document.createElement("span");
+  pill.className = "pill " + (it.status || "");
+  pill.textContent = it.status || "";
+  tdStatus.appendChild(pill);
+  tr.append(tdTitle, tdType, tdDue, tdStatus);
+  if (it.note) {
+    const ncard = document.getElementById("notes-card");
+    ncard.hidden = false;
+    const div = document.createElement("div");
+    const h = document.createElement("h4");
+    h.textContent = it.title || it.key;
+    const p = document.createElement("p");
+    p.className = "note";
+    p.textContent = it.note;
+    div.append(h, p);
+    document.getElementById("notes").appendChild(div);
+  }
+  return tr;
 }
 function dueText(it) {
   if (it.action_date == null || it.action_date === "") return "";
