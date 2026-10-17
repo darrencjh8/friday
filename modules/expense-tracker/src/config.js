@@ -56,6 +56,9 @@ export class Config {
     this.imapUsername = env.IMAP_USERNAME;
     this.imapPassword = env.IMAP_PASSWORD;
     this.imapMailbox = env.IMAP_MAILBOX || "INBOX";
+    // Hermes email intake books mail once it is live (issue #783); the IDLE
+    // watcher then stops, so no email is booked twice.
+    this.emailWatcher = String(env.EMAIL_INTAKE_MODE || "").trim().toLowerCase() !== "live";
     this.notifyUrl = env.NOTIFY_URL;
     this.notifySecret = env.HERMES_WEBHOOK_SECRET;
     this.userName = env.USER_NAME || "there";

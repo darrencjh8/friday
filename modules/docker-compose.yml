@@ -113,6 +113,9 @@ services:
             - NOTIFY_URL=${NOTIFY_URL}
             - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
             - BRAVE_SEARCH_API_KEY=${BRAVE_SEARCH_API_KEY}
+            # The one cutover switch (#783): "live" here stops the IDLE watcher, and
+            # the same value puts Hermes intake live. Both default to shadow.
+            - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
             - IMAP_HOST=${IMAP_HOST}
             - IMAP_USERNAME=${IMAP_USERNAME}
             - IMAP_PASSWORD=${IMAP_PASSWORD}

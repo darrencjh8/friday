@@ -75,7 +75,7 @@ class Clock:
 
 
 class Harness:
-    def __init__(self, tmp, imap, answers, mode, booked=None, tracker=None, unlock=None):
+    def __init__(self, tmp, imap, answers, mode, booked=None, tracker=None, unlock=None, watcher_off=None):
         self.journal = Journal(Path(tmp) / "j.db")
         self.imap = imap
         self.tracker = tracker or FakeTracker()
@@ -89,6 +89,7 @@ class Harness:
         self.dispatcher = dispatch.Dispatcher(
             journal=self.journal, mailbox=dispatch.ImapMailbox(lambda: imap), post=self.tracker, secret=SECRET,
             urls=URLS, account="acct", mode=mode, booked=booked, clock=self.clock, unlock=unlock,
+            watcher_off=watcher_off,
         )
         self.runner = service.Runner(self.classifier, self.dispatcher)
 
@@ -430,8 +431,13 @@ class WiringTest(unittest.TestCase):
         env = {**self.BASE, **over}
         return service.load_settings(lambda key, default="": env.get(key, default))
 
-    def test_live_cannot_be_selected_until_the_cutover_switch(self):
-        self.assertIsNone(self.load(EMAIL_INTAKE_MODE="live"))
+    def test_live_is_selectable_and_waits_for_the_old_watcher(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        runner = service.build_runner(self.load(EMAIL_INTAKE_MODE="live", EMAIL_INTAKE_DATA_DIR=tmp.name))
+        self.assertEqual(runner._dispatcher._mode, "live")
+        self.assertIsNotNone(runner._dispatcher._watcher_off)
+        self.assertIsNone(self.load(EMAIL_INTAKE_MODE="on"))
 
     def test_shadow_rehearses_when_the_signing_secret_is_present(self):
         tmp = tempfile.TemporaryDirectory()

@@ -25,6 +25,10 @@ class EmailIntakeWiringTest(unittest.TestCase):
                      "IMAP_PASSWORD=${IMAP_PASSWORD}", "EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}"):
             self.assertIn(line, env)
 
+    def test_expense_tracker_reads_the_same_switch(self):
+        services = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]
+        self.assertIn("EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}", services["expense-tracker"]["environment"])
+
     def test_mode_is_an_actions_variable_so_it_can_be_turned_off(self):
         self.assertIn("EMAIL_INTAKE_MODE: ${{ vars.EMAIL_INTAKE_MODE }}", WORKFLOW.read_text(encoding="utf-8"))
 

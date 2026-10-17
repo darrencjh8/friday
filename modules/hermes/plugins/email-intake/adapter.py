@@ -1,8 +1,8 @@
-"""Hermes platform glue for email-intake (issue #783, shadow mode).
+"""Hermes platform glue for email-intake (issue #783).
 
-The gateway starts this adapter when EMAIL_INTAKE_MODE=shadow and the IMAP
-and Jev settings are present. connect() takes the single-owner lock and
-starts the shadow loop on a background thread; it never calls
+The gateway starts this adapter when EMAIL_INTAKE_MODE is shadow or live and
+the IMAP and Jev settings are present. connect() takes the single-owner lock
+and starts the intake loop on a background thread; it never calls
 handle_message, so no email ever becomes an agent turn. send() refuses:
 intake does not reply.
 """
