@@ -23,6 +23,7 @@ LEAD_DAYS = {
     "monthly": 3,
     "waiver_check": 0,
     "daily": 0,
+    "weekly": 0,
 }
 
 
