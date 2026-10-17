@@ -302,6 +302,22 @@ class HabitsEditTests(unittest.TestCase):
         seg = media.split("#h-form .f1", 1)[1]
         self.assertIn("flex:1 1 100%", seg.split("}", 1)[0])
 
+    def test_single_load_declaration_l_one(self):
+        # Issue #30: PAGE declared `function load(k)` (localStorage getter)
+        # and `async function load()` (snapshot loader); hoisting made the
+        # last declaration win, so token/theme preload calls ran the
+        # snapshot loader too and the un-cleared Notes card accumulated a
+        # copy per accidental invocation (2-3x duplication on screen).
+        source = SERVER.read_text()
+        self.assertEqual(source.count("function load("), 1,
+                         "load must be declared exactly once")
+        # Every call site must use the storage getter's real name; a
+        # leftover `= load(` re-hijacks the snapshot loader (issue #30).
+        self.assertEqual(source.count("= load("), 0,
+                         "getter call sites must be renamed to getStored")
+        # Re-render defence: the Notes container is cleared per pass.
+        self.assertIn('notesBox.textContent = "";', source)
+
     def test_add_form_and_feedback_hooks(self):
         # UX hooks the editor relies on; static because JS behavior is
         # not unit-testable here.

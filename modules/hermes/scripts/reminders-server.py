@@ -209,16 +209,16 @@ or backticks.</p>
 // API base from the mount path so fetches never escape it.
 const BASE = location.pathname.replace(/\/+$/, "");
 function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
-function load(k) { try { return localStorage.getItem(k) || ""; }
+function getStored(k) { try { return localStorage.getItem(k) || ""; }
                    catch (e) { return ""; } }
 const tokenBox = document.getElementById("h-token");
-tokenBox.value = load("reminders-edit-token");
+tokenBox.value = getStored("reminders-edit-token");
 tokenBox.addEventListener("change", () => {
   store("reminders-edit-token", tokenBox.value);
 });
 const themeSel = document.getElementById("theme");
 function applyTheme(v) { document.body.className = v === "auto" ? "" : v; }
-themeSel.value = load("reminders-theme") || "auto";
+themeSel.value = getStored("reminders-theme") || "auto";
 applyTheme(themeSel.value);
 themeSel.addEventListener("change", () => {
   store("reminders-theme", themeSel.value);
@@ -408,7 +408,18 @@ async function load() {
   const items = snap.items || [];
   const sum = snap.summary || {};
   const probs = snap.problems || [];
+  // Reset every rendered container on each pass, immediately after the
+  // successful fetch (the early failure return above must not wipe a
+  // good render). The Notes card was the one container that never
+  // cleared — combined with a shadowed `load` name it accumulated a
+  // full copy per render pass (issue #30).
   meta.textContent = "";
+  const notesBox = document.getElementById("notes");
+  notesBox.textContent = "";
+  document.getElementById("notes-card").hidden = true;
+  const problemsBox = document.getElementById("problems");
+  problemsBox.textContent = "";
+  document.getElementById("problems-card").hidden = true;
   addChip(meta, "ok", "created " + (sum.created ?? 0));
   addChip(meta, "", "skipped " + (sum.skipped ?? 0));
   addChip(meta, "warn", "pending " + (sum.pending ?? 0));
@@ -439,14 +450,12 @@ async function load() {
   }
   if (probs.length) {
     document.getElementById("problems-card").hidden = false;
-    const pb = document.getElementById("problems");
-    pb.textContent = "";
     for (const p of probs) {
       const tr = document.createElement("tr");
       const td = document.createElement("td");
       td.textContent = p;
       tr.appendChild(td);
-      pb.appendChild(tr);
+      problemsBox.appendChild(tr);
     }
   }
 }
