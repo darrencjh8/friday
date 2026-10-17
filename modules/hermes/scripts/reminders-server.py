@@ -45,17 +45,20 @@ PAGE = """<!doctype html>
 <style>
 :root{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;--line:#e2e7f0;
 --ok:#0a7d43;--warn:#8a5a00;--err:#b00020;--accent:#2563eb;
---ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd}
+--ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd;
+--accent-ink:#fff}
 @media (prefers-color-scheme:dark){:root{--bg:#0f131a;--card:#171c26;
 --ink:#e8ecf4;--muted:#9aa5b8;--line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;
 --err:#ff8a9b;--accent:#8fb0ff;--ok-soft:#14301f;--warn-soft:#322610;
---err-soft:#38141e;--accent-soft:#1d2a4a}}
+--err-soft:#38141e;--accent-soft:#1d2a4a;--accent-ink:#14203a}}
 body.light{--bg:#f4f6fb;--card:#fff;--ink:#141a24;--muted:#5b6577;
 --line:#e2e7f0;--ok:#0a7d43;--warn:#8a5a00;--err:#b00020;--accent:#2563eb;
---ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd}
+--ok-soft:#e0f3e9;--warn-soft:#f8eeda;--err-soft:#fbe4e9;--accent-soft:#e4ecfd;
+--accent-ink:#fff}
 body.dark{--bg:#0f131a;--card:#171c26;--ink:#e8ecf4;--muted:#9aa5b8;
 --line:#28303d;--ok:#5fd39a;--warn:#e6bf6a;--err:#ff8a9b;--accent:#8fb0ff;
---ok-soft:#14301f;--warn-soft:#322610;--err-soft:#38141e;--accent-soft:#1d2a4a}
+--ok-soft:#14301f;--warn-soft:#322610;--err-soft:#38141e;--accent-soft:#1d2a4a;
+--accent-ink:#14203a}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
 body{margin:0;background:var(--bg);color:var(--ink);
@@ -102,7 +105,7 @@ button,input,select{font-family:inherit;font-size:16px}
 background:var(--card);color:var(--ink)}
 .field::placeholder{color:var(--muted)}
 .btn-primary{background:var(--accent);border:1px solid var(--accent);
-color:#fff;border-radius:10px;padding:8px 16px;font-weight:600}
+color:var(--accent-ink);border-radius:10px;padding:8px 16px;font-weight:600}
 .btn-primary:disabled{opacity:.55}
 .btn-quiet{background:transparent;border:1px solid var(--line);
 color:var(--muted);border-radius:999px;padding:3px 12px;font-size:13px;
@@ -347,14 +350,14 @@ async function load() {
   const rows = document.getElementById("rows");
   rows.textContent = "";
   document.getElementById("rows-empty").hidden = items.length > 0;
-  // Partition into Needs-attention (pending-like; unknown statuses count
-  // as needing attention) and Done, pending group first, server order
-  // kept inside each group.
-  const ATTENTION = new Set(["pending", "overdue-manual", "conflict",
-                             "create-failed", "unclassified"]);
+  // Partition into Needs-attention and Done (fail-closed: only created
+  // and skipped count as done; any unknown or missing status lands in
+  // Needs-attention). Pending group first, server order kept inside
+  // each group.
   const groups = [[], []];
   for (const it of items)
-    groups[ATTENTION.has(it.status) ? 0 : 1].push(it);
+    groups[(it.status === "created" || it.status === "skipped") ? 1 : 0]
+      .push(it);
   const gname = ["Needs attention", "Done"];
   for (let g = 0; g < 2; g++) {
     if (!groups[g].length) continue;
