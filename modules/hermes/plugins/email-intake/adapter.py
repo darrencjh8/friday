@@ -8,6 +8,7 @@ intake does not reply.
 """
 
 import logging
+import os
 import sys
 import threading
 from pathlib import Path
@@ -17,7 +18,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms._shared import get_scoped_secret
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from intake import service  # noqa: E402
+from intake import service, unlock  # noqa: E402
 
 logger = logging.getLogger(__name__)
 NAME = "email_intake"
@@ -27,10 +28,26 @@ def _get(key, default=""):
     return get_scoped_secret(key, default)
 
 
+def _profile_secrets():
+    """This profile's secrets with its Bitwarden ones; {} when Hermes cannot build them."""
+    try:
+        from agent.secret_scope import build_profile_secret_scope
+        from hermes_constants import get_hermes_home
+        return dict(build_profile_secret_scope(get_hermes_home()))
+    except Exception as error:  # noqa: BLE001 - statements then stay blocked, as before
+        logger.warning("[email-intake] statement passwords unavailable: %s", type(error).__name__)
+        return {}
+
+
+def _statement_passwords():
+    # Intake runs on its own thread, outside any secret scope: read the profile's mapping directly.
+    return unlock.statement_passwords(_profile_secrets(), os.environ)
+
+
 class EmailIntakeAdapter(BasePlatformAdapter):
     def __init__(self, config: PlatformConfig):
         super().__init__(config=config, platform=Platform(NAME))
-        self._settings = service.load_settings(_get)
+        self._settings = service.load_settings(_get, passwords=_statement_passwords)
         self._lock = None
         self._stop = None
         self._thread = None
