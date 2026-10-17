@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import dispatch, jev, notify, senders
+from . import dispatch, jev, notify, senders, unlock
 from .journal import Journal
 from .scanner import Scanner
 from .shadow import ShadowRunner
@@ -49,10 +49,13 @@ class Settings:
     dedup_db: str = DEFAULT_DEDUP_DB
     telegram_token: str = field(default="", repr=False)
     telegram_chat: str = field(default="", repr=False)
+    # () -> the STMT_PW_* statement passwords; read on each use so a new Bitwarden secret needs no restart.
+    statement_passwords: object = field(default=list, repr=False)
 
 
-def load_settings(get):
-    """`get(key, default)` reads one setting (env or Hermes scoped secret); None when intake is off."""
+def load_settings(get, passwords=list):
+    """`get(key, default)` reads one setting (env or Hermes scoped secret), `passwords()` the statement
+    passwords; None when intake is off."""
     mode = (get("EMAIL_INTAKE_MODE", "") or "").strip().lower()
     if mode not in MODES:
         return None
@@ -80,6 +83,7 @@ def load_settings(get):
         dedup_db=(get("EMAIL_INTAKE_DEDUP_DB", "") or DEFAULT_DEDUP_DB).strip(),
         telegram_token=(get("TELEGRAM_BOT_TOKEN", "") or "").strip(),
         telegram_chat=(get("TELEGRAM_HOME_CHANNEL", "") or "").strip(),
+        statement_passwords=passwords,
     )
 
 
@@ -187,6 +191,10 @@ def build_runner(settings: Settings):
     account = settings.imap_username.lower()
     scanner = Scanner(connect, journal, account=account, baseline=True)
     refresh_box = dispatch.ImapMailbox(connect)
+
+    def open_pdfs(raw):
+        return unlock.unlock(raw, settings.statement_passwords)
+
     classifier = ShadowRunner(
         scanner=scanner,
         journal=journal,
@@ -194,6 +202,7 @@ def build_runner(settings: Settings):
         senders=lambda: senders.load(settings.senders_file),
         notify_rules=lambda: senders.load_rules(settings.senders_file),
         fetch=refresh_box.fetch,
+        unlock=open_pdfs,
     )
     if not settings.webhook_secret:
         return Runner(classifier, cleanup=refresh_box.close)
@@ -207,6 +216,7 @@ def build_runner(settings: Settings):
         account=account,
         mode=mode,
         booked=lambda validity: dispatch.read_booked_uids(settings.dedup_db, validity),
+        unlock=open_pdfs,
     )
     outbox = None
     if mode == "live" and settings.telegram_token and settings.telegram_chat:

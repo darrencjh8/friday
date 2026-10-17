@@ -225,6 +225,10 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_email_intake_dispatch.py -v
             - name: Test Hermes email-intake Telegram messages and /replay (#783)
               run: python -m unittest modules/hermes/tests/test_email_intake_notify.py -v
+            - name: Install qpdf for the email-intake statement tests
+              run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf
+            - name: Test Hermes email-intake password-protected statements (#783)
+              run: python -m unittest modules/hermes/tests/test_email_intake_unlock.py -v
 
     # The Hermes image is the only artifact the new WebUI ships inside, and every
     # other check in this workflow is text-only: an unreachable pinned commit, a

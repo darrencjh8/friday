@@ -75,7 +75,7 @@ class Clock:
 
 
 class Harness:
-    def __init__(self, tmp, imap, answers, mode, booked=None, tracker=None):
+    def __init__(self, tmp, imap, answers, mode, booked=None, tracker=None, unlock=None):
         self.journal = Journal(Path(tmp) / "j.db")
         self.imap = imap
         self.tracker = tracker or FakeTracker()
@@ -84,10 +84,11 @@ class Harness:
             scanner=Scanner(lambda: imap, self.journal, account="acct"),
             journal=self.journal,
             classify=lambda text, context="": jev.classify(state_text=text, post=FakeJev(answers), context=context),
+            unlock=unlock,
         )
         self.dispatcher = dispatch.Dispatcher(
             journal=self.journal, mailbox=dispatch.ImapMailbox(lambda: imap), post=self.tracker, secret=SECRET,
-            urls=URLS, account="acct", mode=mode, booked=booked, clock=self.clock,
+            urls=URLS, account="acct", mode=mode, booked=booked, clock=self.clock, unlock=unlock,
         )
         self.runner = service.Runner(self.classifier, self.dispatcher)
 
