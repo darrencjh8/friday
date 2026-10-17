@@ -1,11 +1,3 @@
-# Plan: reminders dashboard — smaller mobile text + in-place habit edit
-
-Issue: #26. Kind: feature. Base: b1a6df196d3a506e9d0cbdf2b5c254b67774e45a.
-Only `modules/hermes/scripts/reminders-server.py` (PAGE + habit write helpers)
-and `modules/tests/test_reminders_server.py` change. No wiki-format change,
-no auth change, no new routes (POST /api/habits gains an `edit` action
-branch).
-
 ## QUESTIONS
 
 q: What is wrong on mobile today? | a: Two things, both from the #24
