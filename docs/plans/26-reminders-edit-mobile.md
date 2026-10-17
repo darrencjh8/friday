@@ -1,5 +1,4 @@
 QUESTIONS
-
 q: What is wrong on mobile today? | a: Two things, both from the #24 batch: (1) the fixed type scale (16px body/fields, 14px tables, 12px pills) reads a notch too big on a phone, and (2) `#h-form` wraps by min-width, so on ~412px viewports the When placeholder truncates and Add strands on its own short row.
 q: What changes for text sizes? | a: Inside the existing `@media (max-width:600px)` block only: body 15px/1.45, table 13px, h1 1.35rem, card-title 1rem, hint/note 12.5px, empty 13.5px, tab 14px with 5px/12px padding, chip/pill 11px, btn-quiet 12px, topbar padding 10px 12px, card padding 16px (kept), th/td padding 4px (kept). `.field` (inputs/selects) stays 16px everywhere — the iOS focus-zoom guard is non-negotiable; buttons may go smaller because focus on a button never zooms.
 q: What changes for the form? | a: Same media block: `#h-form input, #h-form select, #h-form button {flex:1 1 100%}` so each control is its own full-width row — nothing truncates, Add is a comfortable target. Desktop untouched.
