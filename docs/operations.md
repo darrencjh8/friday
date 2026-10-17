@@ -78,10 +78,25 @@ tailscale serve --bg --https=8642 http://127.0.0.1:8642
 tailscale serve --bg --https=443 --set-path /reminders http://127.0.0.1:8300
 ```
 
-Reminders dashboard: read-only stdlib page over the structured snapshot
+Reminders dashboard: stdlib page over the structured snapshot
 (`wiki-reminder-tasks.py --snapshot-out /opt/data/reminders/reminders.json`,
-written by the daily job). No account data beyond your own task titles;
-tailnet-only. Verify with `tailscale serve status`.
+written by the daily job) plus authenticated editing of the Daily
+candidates table in `daily-habits.md`. No account data beyond your own
+task titles; tailnet-only. Verify with `tailscale serve status`.
+
+Editing daily habits from the page requires the edit token. Generate it
+once and store it as a GitHub secret (deploy.yml passes it into the
+container; an empty/unset token disables editing):
+
+```sh
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+gh secret set REMINDERS_EDIT_TOKEN
+```
+
+Edits rewrite the wiki table atomically and take effect from the next
+08:15 cron run. Removing a habit stops future task creation only —
+already-created Google Tasks are never deleted; clear them in Google
+Tasks. Titles/notes may not contain `|`, backticks, or newlines.
 
 Google Tasks OAuth uses a loopback redirect (`http://localhost:9090/callback`,
 exempt from Google's own-your-domain redirect policy, which rejects
