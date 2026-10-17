@@ -17,7 +17,7 @@ import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from . import dispatch, jev, senders
+from . import dispatch, jev, notify, senders
 from .journal import Journal
 from .scanner import Scanner
 from .shadow import ShadowRunner
@@ -47,6 +47,8 @@ class Settings:
     expense_url: str = DEFAULT_EXPENSE_URL
     portfolio_url: str = DEFAULT_PORTFOLIO_URL
     dedup_db: str = DEFAULT_DEDUP_DB
+    telegram_token: str = field(default="", repr=False)
+    telegram_chat: str = field(default="", repr=False)
 
 
 def load_settings(get):
@@ -76,6 +78,8 @@ def load_settings(get):
         expense_url=(get("EMAIL_INTAKE_EXPENSE_URL", "") or DEFAULT_EXPENSE_URL).strip().rstrip("/"),
         portfolio_url=(get("EMAIL_INTAKE_PORTFOLIO_URL", "") or DEFAULT_PORTFOLIO_URL).strip().rstrip("/"),
         dedup_db=(get("EMAIL_INTAKE_DEDUP_DB", "") or DEFAULT_DEDUP_DB).strip(),
+        telegram_token=(get("TELEGRAM_BOT_TOKEN", "") or "").strip(),
+        telegram_chat=(get("TELEGRAM_HOME_CHANNEL", "") or "").strip(),
     )
 
 
@@ -142,9 +146,10 @@ def run_intake(settings, sleep, stop):
 class Runner:
     """Scan and classify, then hand routed mail to the dispatcher (rehearsal or live)."""
 
-    def __init__(self, classifier, dispatcher=None, cleanup=None):
+    def __init__(self, classifier, dispatcher=None, outbox=None, cleanup=None):
         self._classifier = classifier
         self._dispatcher = dispatcher
+        self._outbox = outbox
         self._cleanup = cleanup
 
     def run_once(self):
@@ -161,6 +166,11 @@ class Runner:
                 summary["dispatch"] = self._dispatcher.run()
             except Exception as error:  # noqa: BLE001 - classification already succeeded
                 summary["dispatch"] = {"error": type(error).__name__}
+        if self._outbox is not None:
+            try:
+                summary["telegram_sent"] = self._outbox.flush()
+            except Exception as error:  # noqa: BLE001 - queued messages wait for the next run
+                summary["telegram_sent"] = {"error": type(error).__name__}
         return summary
 
 
@@ -198,4 +208,10 @@ def build_runner(settings: Settings):
         mode=mode,
         booked=lambda validity: dispatch.read_booked_uids(settings.dedup_db, validity),
     )
-    return Runner(classifier, dispatcher, cleanup=refresh_box.close)
+    outbox = None
+    if mode == "live" and settings.telegram_token and settings.telegram_chat:
+        # Only live intake talks to the owner; shadow and rehearsal stay silent.
+        outbox = notify.Outbox(journal, notify.TelegramSender(
+            settings.telegram_token, settings.telegram_chat,
+            post=lambda url, body, headers: dispatch.http_post(url, body, headers, timeout=30)))
+    return Runner(classifier, dispatcher, outbox=outbox, cleanup=refresh_box.close)
