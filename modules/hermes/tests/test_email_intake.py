@@ -347,6 +347,32 @@ class ShadowRunnerTest(unittest.TestCase):
         statuses = {row[2] for row in self.decisions()}
         self.assertEqual(statuses, {"shadow_actual_budget"})
 
+    def test_a_decision_from_an_older_classifier_is_refreshed_without_moving_its_time(self):
+        raw = make_mail()
+        imap = FakeImap({"INBOX": [(1, raw)]})
+        self.run_once(imap, FakeJev(good_answer("neither")))
+        con = sqlite3.connect(self.journal.path)
+        con.execute("UPDATE messages SET decision = json_set(decision, '$.version', 'dest-v1')")
+        con.execute("DELETE FROM decisions")
+        con.commit()
+        before = con.execute("SELECT updated_at FROM messages").fetchone()[0]
+        con.close()
+        runner = ShadowRunner(
+            scanner=Scanner(lambda: imap, self.journal, account="acct"),
+            journal=self.journal,
+            classify=lambda text, context="": jev.classify(state_text=text, post=FakeJev(good_answer()), context=context),
+            fetch=lambda folder, validity, uid: dict(imap.folders[folder])[uid],
+        )
+        summary = runner.run_once()
+        self.assertEqual(summary["refreshed"], 1)
+        folder, uid, status, decision = self.decisions()[0]
+        self.assertEqual(status, "shadow_actual_budget")
+        self.assertEqual(json.loads(decision)["version"], CLASSIFIER_VERSION)
+        con = sqlite3.connect(self.journal.path)
+        self.assertEqual(con.execute("SELECT updated_at FROM messages").fetchone()[0], before)
+        con.close()
+        self.assertEqual(runner.run_once()["refreshed"], 0)
+
     def test_second_run_classifies_nothing_new(self):
         imap = FakeImap({"INBOX": [(1, make_mail())]})
         fake = FakeJev(good_answer())
