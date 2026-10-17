@@ -36,14 +36,16 @@ _JEV_STATUSES = tuple(_STATUS.values())
 
 
 class ShadowRunner:
-    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list, fetch=None):
-        """`fetch(folder, uidvalidity, uid)` re-reads one email so stale decisions can be refreshed."""
+    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list, fetch=None, unlock=None):
+        """`fetch(folder, uidvalidity, uid)` re-reads one email so stale decisions can be refreshed;
+        `unlock(raw)` opens its password-protected PDFs, None while one stays locked."""
         self._scanner = scanner
         self._journal = journal
         self._classify = classify
         self._senders = senders
         self._notify_rules = notify_rules
         self._fetch = fetch
+        self._unlock = unlock
 
     def _jev_decision(self, parsed, known, summary):
         decision = self._journal.cached_decision(parsed.evidence_hash, CLASSIFIER_VERSION)
@@ -102,7 +104,7 @@ class ShadowRunner:
                 summary["notified"] += 1
                 status, decision = "shadow_notify", {"version": CLASSIFIER_VERSION, "destination": "notify",
                                                      "message": rule.message, "sender_domain": parsed.sender_domain}
-            elif parsed.encrypted_pdf:
+            elif parsed.encrypted_pdf and (self._unlock is None or self._unlock(found.raw) is None):
                 summary["blocked"] += 1
                 status, decision = "blocked_encrypted", {"version": CLASSIFIER_VERSION}
             else:

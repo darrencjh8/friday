@@ -184,8 +184,9 @@ def _live_record(response):
 
 class Dispatcher:
     def __init__(self, journal, mailbox, post, secret, urls, account, mode,
-                 booked=None, clock=time.time):
-        """`booked(uidvalidity)` returns the INBOX UIDs the old watcher booked, or None (live only)."""
+                 booked=None, clock=time.time, unlock=None):
+        """`booked(uidvalidity)` returns the INBOX UIDs the old watcher booked, or None (live only);
+        `unlock(raw)` opens the email's password-protected PDFs, None while one stays locked."""
         if mode not in ("rehearsal", "live"):
             raise ValueError(mode)
         self._journal = journal
@@ -197,6 +198,7 @@ class Dispatcher:
         self._mode = mode
         self._booked = booked
         self._clock = clock
+        self._unlock = unlock
 
     def _legs(self, decision):
         found = legs(decision)
@@ -381,7 +383,15 @@ class Dispatcher:
             for kind, _, attempts in todo:
                 self._save_retry(evidence_hash, kind, attempts, {"reason": "email_missing"}, summary)
             return
-        evidence = base64.b64encode(raw).decode()
+        opened = self._unlock(raw) if self._unlock else raw
+        if opened is None:
+            # The tracker would only answer blocked_encrypted; retried in case the password arrives.
+            for kind, _, attempts in todo:
+                self._save_retry(evidence_hash, kind, attempts, {"reason": "encrypted"}, summary)
+            if self._mode == "live":
+                self._queue_result(evidence_hash, decision, raw)  # only once the retries are spent
+            return
+        evidence = base64.b64encode(opened).decode()
         for kind, service, attempts in todo:
             self._send(evidence_hash, kind, service, attempts, evidence, summary)
         if self._mode == "live":
