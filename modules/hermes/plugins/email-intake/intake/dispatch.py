@@ -215,6 +215,7 @@ class Dispatcher:
         self._clock = clock
         self._unlock = unlock
         self._watcher_off = watcher_off
+        self._blocked = None
 
     def _legs(self, decision):
         found = legs(decision)
@@ -233,9 +234,10 @@ class Dispatcher:
                 since = self._clock()
                 self._journal.set_state("rehearsal_since", since)
             return float(since), None
+        self._blocked = "no_handoff_boundary"
         if self._watcher_off is not None and not self._watcher_off():
             # Checked every run: both booking the same email is the one thing the cutover must not do.
-            logger.warning("email-intake live dispatch waits: the old watcher is still running")
+            self._blocked = "old_watcher_running"
             return None
         if since is None:
             inbox_validity, _ = self._journal.folder_state(self._account, INBOX)
@@ -263,8 +265,8 @@ class Dispatcher:
         summary = {"mode": self._mode, "sent": 0, "ok": 0, "failed": 0, "retry": 0, "handed_off": 0}
         started = self._start()
         if started is None:
-            summary["blocked"] = "no_handoff_boundary"
-            logger.warning("email-intake live dispatch waits: no trusted handoff boundary")
+            summary["blocked"] = self._blocked
+            logger.warning("email-intake live dispatch waits: %s", self._blocked)
             return summary
         since, handoff = started
         try:

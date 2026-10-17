@@ -39,7 +39,7 @@ From the deploy run's logs and the containers' logs (read-only):
 
 - expense-tracker logs `imap_watcher_disabled`, and its `/health` shows
   `"email_watcher":"off"`.
-- Hermes logs `[email-intake] live mode started`. It logs `live dispatch waits`
+- Hermes logs `[email-intake] live mode started`. It logs `live dispatch waits: old_watcher_running`
   while the watcher still reports on; that must stop within one interval
   (300 s by default).
 - The next financial email arrives in the home chat once, booked in Actual.

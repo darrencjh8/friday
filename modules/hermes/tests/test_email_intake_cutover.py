@@ -54,7 +54,7 @@ class CutoverTest(unittest.TestCase):
     def test_live_books_nothing_until_the_old_watcher_is_off(self):
         h = self.harness("live")
         summary = h.run()
-        self.assertEqual(summary["dispatch"]["blocked"], "no_handoff_boundary")
+        self.assertEqual(summary["dispatch"]["blocked"], "old_watcher_running")
         self.assertEqual(self.tracker.calls, [])
         self.assertEqual(self.imap.seen, [])
         self.assertIsNone(h.journal.get_state("live_since"))  # no boundary fixed while both could book
