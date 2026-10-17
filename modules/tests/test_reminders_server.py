@@ -90,6 +90,24 @@ class ServerTests(unittest.TestCase):
         self.assertNotIn("innerHTML", source)
         self.assertIn("textContent", source)
 
+    def test_corrupt_snapshot_serves_flagged_empty_state(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        bad = Path(tmp.name) / "reminders.json"
+        bad.write_text("{truncated")
+        module, server = load_server(bad)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.shutdown)
+        self.addCleanup(server.server_close)
+        base = "http://127.0.0.1:%d" % server.server_address[1]
+        status, body = self.get(base, "/api/reminders")
+        self.assertEqual(status, 200)
+        payload = json.loads(body)
+        self.assertEqual(payload["items"], [])
+        self.assertTrue(payload["problems"],
+                        "corrupt snapshot must not look like never-ran")
+
 
 if __name__ == "__main__":
     unittest.main()

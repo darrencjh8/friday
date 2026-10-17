@@ -136,9 +136,19 @@ def load_snapshot():
     try:
         with open(SNAPSHOT, encoding="utf-8") as handle:
             return json.load(handle)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {"version": 1, "generated_at": None, "run_date": None,
                 "task_list": "Planned", "items": [], "problems": [],
+                "summary": {"created": 0, "skipped": 0, "pending": 0}}
+    except (OSError, ValueError) as exc:
+        # A corrupt snapshot must not masquerade as "never ran": say so
+        # on stderr so the container log names it, while still serving
+        # the empty state so the page stays up.
+        sys.stderr.write("reminders corrupt snapshot %s: %s\n"
+                         % (SNAPSHOT, exc))
+        return {"version": 1, "generated_at": None, "run_date": None,
+                "task_list": "Planned", "items": [],
+                "problems": ["snapshot unreadable; see container log"],
                 "summary": {"created": 0, "skipped": 0, "pending": 0}}
 
 
