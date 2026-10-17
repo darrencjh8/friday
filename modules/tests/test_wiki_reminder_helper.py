@@ -4,6 +4,7 @@ import datetime
 import importlib.util
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -26,8 +27,9 @@ class HelperTests(unittest.TestCase):
             calls.append(cmd)
             if "view" in cmd:
                 out = [
-                    {"title": "t", "description": m, "due": d}
-                    for m, d in existing.items()
+                    {"id": "t%d" % n, "title": "t", "description": m,
+                     "due": d, "status": "needsAction"}
+                    for n, (m, d) in enumerate(existing.items())
                 ]
                 return mock.Mock(returncode=0, stdout=json.dumps(out), stderr="")
             return mock.Mock(returncode=0, stdout="", stderr="")
@@ -142,6 +144,91 @@ class HelperTests(unittest.TestCase):
         adds = [c for c in calls if "add" in c]
         self.assertEqual(len(adds), 1)
         self.assertEqual(code, 1)
+
+    def test_close_stale_daily_tasks(self):
+        # Unfinished daily habit tasks from earlier days are closed (marked
+        # completed, never deleted); weekly/monthly/unknown keys are not.
+        module = load_helper()
+        candidates = [
+            {"key": "habit-water", "type": "daily", "title": "Drink water",
+             "action_date": "2026-10-15"},
+        ]
+        stale = "wiki-reminder-marker:habit-water:2026-10-10"
+        done = "wiki-reminder-marker:habit-water:2026-10-12"
+        nontask = "wiki-reminder-marker:claim-big:2026-10-10"
+        fake_view = [
+            {"id": "t1", "title": "x", "description": stale,
+             "due": "2026-10-10T00:00:00.000Z", "status": "needsAction"},
+            {"id": "t2", "title": "x", "description": done,
+             "due": "2026-10-12T00:00:00.000Z", "status": "completed"},
+            {"id": "t3", "title": "x", "description": nontask,
+             "due": "2026-10-10T00:00:00.000Z", "status": "needsAction"},
+            # Missing status: unknown state is never closed.
+            {"id": "t4", "title": "x", "description": stale,
+             "due": "2026-10-09T00:00:00.000Z"},
+        ]
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if "view" in cmd:
+                return mock.Mock(returncode=0, stdout=json.dumps(fake_view),
+                                 stderr="")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        fake_stdin = mock.Mock()
+        fake_stdin.read.return_value = json.dumps(candidates)
+        calls = []
+        with mock.patch.object(module.subprocess, "run", side_effect=fake_run), \
+                mock.patch.object(module.sys, "stdin", fake_stdin), \
+                mock.patch.object(sys, "stdout"):
+            code = module.main(today_override=datetime.date(2026, 10, 15))
+        dones = [c for c in calls if "done" in c]
+        self.assertEqual(dones, [["gtasks", "tasks", "done", "-l", "Planned",
+                                  "--id", "t1"]])
+        adds = [c for c in calls if "add" in c]
+        self.assertEqual(len(adds), 1)  # today's task is still created
+        self.assertEqual(code, 0)
+
+    def test_close_failure_is_a_problem(self):
+        module = load_helper()
+        candidates = [
+            {"key": "habit-water", "type": "daily", "title": "Drink water",
+             "action_date": "2026-10-15", "note": "2L"},
+        ]
+        stale = "wiki-reminder-marker:habit-water:2026-10-10"
+        fake_view = [
+            {"id": "t9", "title": "x", "description": stale,
+             "due": "2026-10-10T00:00:00.000Z", "status": "needsAction"},
+        ]
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if "view" in cmd:
+                return mock.Mock(returncode=0, stdout=json.dumps(fake_view),
+                                 stderr="")
+            if "done" in cmd:
+                return mock.Mock(returncode=1, stdout="", stderr="quota")
+            return mock.Mock(returncode=0, stdout="", stderr="")
+
+        fake_stdin = mock.Mock()
+        fake_stdin.read.return_value = json.dumps(candidates)
+        calls = []
+        with tempfile.TemporaryDirectory() as tmp:
+            snap_path = tmp + "/reminders.json"
+            with mock.patch.object(module.subprocess, "run",
+                                   side_effect=fake_run), \
+                    mock.patch.object(module.sys, "stdin", fake_stdin), \
+                    mock.patch.object(sys, "stdout"):
+                code = module.main(today_override=datetime.date(2026, 10, 15),
+                                   snapshot_path=snap_path)
+            snap = json.load(open(snap_path))
+        self.assertEqual(code, 1)
+        self.assertTrue(any(p.startswith("close-failed: habit-water")
+                            for p in snap["problems"]))
+        self.assertEqual(snap["summary"]["created"], 1)
+        self.assertEqual(snap["summary"]["closed"], 0)
+        adds = [c for c in calls if "add" in c]
+        self.assertEqual(len(adds), 1)
 
     def test_snapshot_out_writes_structured_items(self):
         import tempfile

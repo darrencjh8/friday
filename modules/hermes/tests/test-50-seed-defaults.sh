@@ -827,7 +827,7 @@ checks = {
     "planned_list": "Planned" in prompt,
     "helper": "wiki-reminder-tasks.py" in prompt,
     "marker": "wiki-reminder-marker:" in prompt,
-    "completed": "--include-completed" in prompt,
+    "stale_close": "auto-closes stale open daily-habit tasks" in prompt,
     "snapshot": "--snapshot-out" in prompt,
     "habits": "daily-habits" in prompt,
     "silent_rule": "[SILENT]" in prompt,
