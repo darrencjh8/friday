@@ -222,6 +222,86 @@ class HabitsEditTests(unittest.TestCase):
         with urllib.request.urlopen(base + "/", timeout=10) as resp:
             self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
 
+    def test_edit_action_updates_row_in_place(self):
+        base, _, hab = self.serve()
+        self.post(base, {"action": "add", "section": "daily",
+                         "title": "Take pills", "note": "with lunch"})
+        status, body = self.get(base, "/api/habits")
+        before = [h["key"] for h in body["daily"]]
+        self.assertEqual(before[-1], "habit-take-pills")
+        status, _ = self.post(base, {
+            "action": "edit", "section": "daily",
+            "key": "habit-take-pills",
+            "title": "Take medicine", "note": "with breakfast"})
+        self.assertEqual(status, 200)
+        text = hab.read_text()
+        self.assertIn("`habit-take-medicine`", text)
+        self.assertIn("| Take medicine | today | daily | with breakfast |",
+                      text)
+        self.assertNotIn("Take pills", text)
+        status, body = self.get(base, "/api/habits")
+        keys = [h["key"] for h in body["daily"]]
+        self.assertEqual(keys[-1], "habit-take-medicine")
+        self.assertEqual(len(keys), len(before))
+        # Same auth as add/remove.
+        status, _ = self.post(base, {"action": "edit", "section": "daily",
+                                     "key": "habit-take-medicine",
+                                     "title": "X"}, token=None)
+        self.assertEqual(status, 401)
+
+    def test_edit_validation(self):
+        base, _, hab = self.serve()
+        # Unchanged title (note-only edit) succeeds: the collision check
+        # must exclude the edited row itself.
+        status, _ = self.post(base, {
+            "action": "edit", "section": "daily", "key": "habit-water",
+            "title": "Drink water", "note": "big glass"})
+        self.assertEqual(status, 200)
+        text = hab.read_text()
+        self.assertIn("big glass", text)
+        # Key stability: an unchanged title keeps the row's original key.
+        self.assertIn("`habit-water`", text)
+        # Unknown key.
+        status, _ = self.post(base, {"action": "edit", "section": "daily",
+                                     "key": "habit-nope", "title": "X"})
+        self.assertEqual(status, 404)
+        # Monthly edit requires when.
+        status, _ = self.post(base, {"action": "edit", "section": "monthly",
+                                     "key": "monthly-clean-room",
+                                     "title": "Clean room", "note": ""})
+        self.assertEqual(status, 400)
+        # Bad chars.
+        status, _ = self.post(base, {"action": "edit", "section": "daily",
+                                     "key": "habit-water",
+                                     "title": "Drink | water"})
+        self.assertEqual(status, 400)
+        # Duplicate of another row.
+        status, _ = self.post(base, {"action": "edit", "section": "daily",
+                                     "key": "habit-water",
+                                     "title": "Make bed"})
+        self.assertEqual(status, 400)
+        self.assertIn("already exists",
+                      self.post(base, {"action": "edit", "section": "daily",
+                                       "key": "habit-water",
+                                       "title": "Make bed"})[1]["error"])
+
+    def test_edit_ui_and_mobile_scale_hooks(self):
+        source = SERVER.read_text()
+        self.assertIn("dataset.editingKey", source)
+        self.assertIn('id="h-cancel"', source)
+        self.assertIn("Saved.", source)
+        self.assertIn('"add"|"edit"|"remove"', source)
+        self.assertIn("table.snapshot", source)
+        # Mobile scale: body override inside the media query, inputs
+        # excluded (16px zoom guard), form stacks full-width.
+        media = source.split("@media (max-width:600px)", 1)[1]
+        self.assertIn("body{font:15px", media)
+        self.assertIn("table{font-size:13px", media)
+        # The override must be .f1/.f2-qualified to win the cascade
+        # against #h-form .f1{flex:1;...} above it.
+        seg = media.split("#h-form .f1", 1)[1]
+        self.assertIn("flex:1 1 100%", seg.split("}", 1)[0])
+
     def test_add_form_and_feedback_hooks(self):
         # UX hooks the editor relies on; static because JS behavior is
         # not unit-testable here.
