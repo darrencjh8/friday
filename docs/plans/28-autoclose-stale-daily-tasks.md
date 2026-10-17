@@ -7,15 +7,15 @@ q: Where does the list data come from? | a: The existing one-liner already runs 
 q: When in the run does the sweep happen? | a: After the candidate loop, before the snapshot write. Order relative to creation is irrelevant (today's marker differs from any stale one), but after-creation keeps creation failures first-class.
 q: What if closing fails? | a: Each failure appends a `close-failed: {key}: {stderr}` problem — it renders on the dashboard Problems card and reports to Telegram like every other problem, without breaking the rest of the run (creation already committed).
 q: What is logged? | a: The run summary gains a `closed` list of `{key}` (keys only, matching how created/skipped/pending already log keys; habit titles never go into stdout). Snapshot `summary` gains the same count. No new secrets, tokens, or PII surfaces.
-q: What about the seed prompt contract? | a: The agent is told to "never update, delete, or move tasks" — that stays for the agent; the prompt's rule is reworded to name the helper's own auto-close sweep as the one sanctioned mutation, and step 6's helper description mentions stale-close + close-failed reporting. The seed test suite has no assertion on the old sentence (verified by grep), so only the prompt text changes.
+q: What about the seed prompt contract? | a: The agent is told to "never update, delete, or move tasks" — that stays for the agent. The pinned rewrite of rule 5: "Dedup of Google Tasks is by the wiki-reminder-marker: note line, reading the Planned list with --include-completed; never update, delete, or move tasks yourself — the helper's own close sweep is the single sanctioned mutation: it auto-closes stale open daily-habit tasks dated before today (marks them completed, never deletes)." Step 6's helper description gains "(it also closes stale open daily-habit tasks from earlier days; close failures arrive in its problems list)". The seed harness has no assertion counter — the daily-reminder `checks` dict gains boolean keys ("stale_close": "auto-closes stale open daily-habit tasks" in prompt), not a count.
 q: Why does the sweep require the key to exist in today's candidates? | a: Wiki-scoped: a daily habit removed from the wiki has its lingering tasks closed manually by the user (documented removal hint); auto-closing keys not sanctioned by today's wiki would be the helper deciding on stale authority. The wiki is the source of truth for what counts as a repeating daily habit today.
 q: Everything else frozen? | a: Marker format, create path, conflict/skip/pending logic, snapshot item schema, TASK_LIST, auth surface, dashboard PAGE — untouched. gtasks.py's other verbs untouched.
 
 ## Change surface
 
-- `modules/hermes/scripts/gtasks.py`: `tasks done|undo` accept `--id` (explicit task id); positional-number path unchanged.
+- `modules/hermes/scripts/gtasks.py`: `tasks done|undo` accept `--id` (explicit task id); positional-number path unchanged. Gated argparse test pins `--id` parsing: `build_parser().parse_args(["tasks","done","-l","Planned","--id","X"])` → `args.id == "X"` (red at base: the arg does not exist, so parse_args raises).
 - `modules/hermes/scripts/wiki-reminder-tasks.py`:
-  - `view_tasks()` (refactor of the existing view subprocess call); `existing_markers()` derives from it.
+  - `view_tasks()` (refactor of the existing view subprocess call); `existing_markers()` derives from it; a comment names the pre-existing 100-record cap (no pagination) and its two silent consequences (same-day dedup skip, sweep coverage beyond page 1) as known accepted limits for a future plan.
   - `close_stale_daily(tasks, daily_keys, current)`: filter (marker prefix, key ∈ daily_keys, date parse, date < current, status ≠ completed) then close by id; returns closed keys + close-failed problems.
   - `main()`: daily keys from candidates; sweep after the loop; problems extended; printed summary gains `"closed"`; snapshot summary gains closed count.
   - Module docstring: "Never updates, deletes, or moves tasks" — with the single sanctioned exception spelled out.
@@ -25,6 +25,7 @@ q: Everything else frozen? | a: Marker format, create path, conflict/skip/pendin
 ## Test command and scope
 
 - `.venv/bin/python -m unittest modules.tests.test_wiki_reminder_helper`
+- `.venv/bin/python -m unittest modules.tests.test_gtasks_tasks_id`
 - `.venv/bin/python -m unittest modules.tests.test_reminders_server` (adjacent-surface guard)
 - `bash modules/hermes/tests/test-50-seed-defaults.sh`
 - `bash modules/hermes/tests/test-docker-compose-env.sh`
@@ -33,7 +34,8 @@ q: Everything else frozen? | a: Marker format, create path, conflict/skip/pendin
 New tests, red at base:
 - `HelperTests.test_close_stale_daily_tasks`: daily key with an open task dated before today → run issues `["gtasks","tasks","done","-l","Planned","--id",…]` exactly once for that task only; summary `closed` lists the key; task already completed or empty/missing id → no close call; weekly key overdue → no close call.
 - `HelperTests.test_close_failure_is_a_problem`: done subprocess returns 1 → `close-failed: {key}` in problems and snapshot; created flow still completed.
-- `test-50-seed-defaults.sh` +1 count: prompt assert pins the reworded sentence present and the bare old "never updates, deletes, or moves tasks" string absent from the new prompt (the harness counts assertions).
+- `GtasksIdArgsTests.test_done_accepts_id` (modules/tests, argparse-level against gtasks.py's `build_parser`): `tasks done --id X` parses with `args.id == "X"` and no number required (red at base: unknown argument raises).
+- Seed script: the daily-reminder `checks` dict gains `"stale_close": "auto-closes stale open daily-habit tasks" in prompt` (no assertion counter exists in the harness); regression = the pinned rule-5 sentence above must keep both the forbid clause ("never update, delete, or move tasks yourself") and the exception clause — no bare absence assert on the old sentence, since the pinned rewrite legitimately contains the forbid words.
 
 ## Constraints
 
@@ -52,6 +54,7 @@ Feature: no repro. Gating test id for the tests gate:
 Mutation commands (throwaway worktree, `python3`, no `.venv`):
 - `python3 -m unittest modules.tests.test_wiki_reminder_helper.HelperTests.test_close_stale_daily_tasks`
 - `python3 -m unittest modules.tests.test_wiki_reminder_helper.HelperTests.test_close_failure_is_a_problem`
+- `python3 -m unittest modules.tests.test_gtasks_tasks_id.GtasksIdArgsTests.test_done_accepts_id`
 
 # Plan: auto-close stale open daily-habit tasks (issue #28)
 
