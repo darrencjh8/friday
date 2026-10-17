@@ -1,0 +1,12 @@
+#!/command/with-contenv sh
+# Reminders dashboard: read-only stdlib page for the structured reminder
+# snapshot (wiki-reminder-tasks.py --snapshot-out). Same bind rationale as
+# the WebUI: 0.0.0.0 here because compose publishes 127.0.0.1:8300 on the
+# host and Docker forwards to the container interface, not its loopback.
+# Host side stays loopback-only; Tailscale serve maps /reminders to it.
+export HOME=/opt/data
+export PYTHONUNBUFFERED=1
+export REMINDERS_PORT=8300
+export REMINDERS_SNAPSHOT=/opt/data/reminders/reminders.json
+mkdir -p /opt/data/reminders
+exec s6-setuidgid hermes python3 /opt/hermes-defaults/scripts/reminders-server.py

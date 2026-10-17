@@ -9,6 +9,7 @@ created first, then problems are reported.
 
 import datetime as datetime_module
 import json
+import os
 import subprocess
 import sys
 
@@ -67,7 +68,27 @@ def today():
     return datetime_module.date.today()
 
 
-def main(today_override=None):
+SNAPSHOT_VERSION = 1
+
+
+def write_snapshot(path, payload):
+    """Atomic JSON snapshot for the reminders UI and the agent.
+
+    The wiki stays the human-authored source; this file is the machine
+    truth the dashboard renders and the next agent run reads instead of
+    re-parsing prose dates. Task titles/notes are user data — the file
+    lives on the persisted volume and is served tailnet-only.
+    """
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, indent=2)
+    os.replace(tmp, path)
+
+
+def main(today_override=None, snapshot_path=None):
     try:
         candidates = json.load(sys.stdin)
     except json.JSONDecodeError as error:
@@ -86,10 +107,15 @@ def main(today_override=None):
 
     created, skipped, pending = [], [], []
     problems = []
+    items = []
 
     for item in candidates:
         if not isinstance(item, dict):
             problems.append("unclassified: non-object candidate")
+            items.append({"key": "", "type": "", "title": "",
+                          "action_date": "", "days_left": None,
+                          "lead_days": None, "status": "unclassified",
+                          "note": ""})
             continue
         key = item.get("key") or ""
         kind = item.get("type") or ""
@@ -109,19 +135,39 @@ def main(today_override=None):
             or "\r" in key
         ):
             problems.append(f"unclassified: {key or title or item!r}")
+            items.append({"key": key if isinstance(key, str) else "",
+                          "type": kind if isinstance(kind, str) else "",
+                          "title": title if isinstance(title, str) else "",
+                          "action_date": action_date
+                          if isinstance(action_date, str) else "",
+                          "days_left": None, "lead_days": None,
+                          "status": "unclassified",
+                          "note": note if isinstance(note, str) else ""})
             continue
         try:
             due = datetime_module.date.fromisoformat(action_date)
         except ValueError:
             problems.append(f"unclassified: bad date {key}: {action_date!r}")
+            items.append({"key": key, "type": kind, "title": title,
+                          "action_date": action_date, "days_left": None,
+                          "lead_days": None, "status": "unclassified",
+                          "note": note})
             continue
         days_left = (due - current).days
+        lead_days = LEAD_DAYS[kind]
         marker = marker_for(key, action_date)
+        entry = {"key": key, "type": kind, "title": title,
+                 "action_date": action_date, "days_left": days_left,
+                 "lead_days": lead_days, "status": "", "note": note}
         if days_left < 0:
             problems.append(f"overdue-manual: {key} was due {action_date}")
+            entry["status"] = "overdue-manual"
+            items.append(entry)
             continue
-        if days_left > LEAD_DAYS[kind]:
+        if days_left > lead_days:
             pending.append(f"{key} due {action_date} ({days_left}d)")
+            entry["status"] = "pending"
+            items.append(entry)
             continue
         if marker in existing:
             if existing[marker] and existing[marker] != action_date:
@@ -129,18 +175,37 @@ def main(today_override=None):
                     f"conflict: {key} wiki date {action_date} "
                     f"vs task due {existing[marker]}"
                 )
+                entry["status"] = "conflict"
             else:
                 skipped.append(key)
+                entry["status"] = "skipped"
+            items.append(entry)
             continue
         notes = note.rstrip() + f"\n{marker}"
         try:
             create_task(title, notes, action_date)
         except RuntimeError as error:
             problems.append(f"create-failed: {key}: {error}")
+            entry["status"] = "create-failed"
+            items.append(entry)
             continue
         existing[marker] = action_date
         created.append(key)
+        entry["status"] = "created"
+        items.append(entry)
 
+    if snapshot_path:
+        write_snapshot(snapshot_path, {
+            "version": SNAPSHOT_VERSION,
+            "generated_at": datetime_module.datetime.now(
+                datetime_module.timezone.utc).isoformat(),
+            "run_date": current.isoformat(),
+            "task_list": TASK_LIST,
+            "items": items,
+            "problems": problems,
+            "summary": {"created": len(created), "skipped": len(skipped),
+                        "pending": len(pending)},
+        })
     print(json.dumps({
         "created": created, "skipped": skipped,
         "pending": pending, "problems": problems,
@@ -149,4 +214,16 @@ def main(today_override=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    snapshot = None
+    argv = sys.argv[1:]
+    if "--snapshot-out" in argv:
+        idx = argv.index("--snapshot-out")
+        try:
+            snapshot = argv[idx + 1]
+        except IndexError:
+            raise SystemExit("--snapshot-out needs a path")
+    else:
+        for arg in argv:
+            if arg.startswith("--snapshot-out="):
+                snapshot = arg.split("=", 1)[1]
+    raise SystemExit(main(snapshot_path=snapshot))

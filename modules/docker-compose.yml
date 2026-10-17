@@ -273,6 +273,9 @@ services:
             # Hermes WebUI. Host loopback only: Tailscale serve terminates TLS on
             # the tailnet and proxies to 127.0.0.1:8787, so nothing binds the LAN.
             - "127.0.0.1:8787:8787"
+            # Reminders dashboard. Host loopback only: Tailscale serve maps
+            # /reminders to 127.0.0.1:8300, so nothing binds the LAN.
+            - "127.0.0.1:8300:8300"
             # Own Google Tasks OAuth callback listener. Host loopback only.
             # The redirect is loopback (http://localhost:9090/callback), which
             # is exempt from Google's own-your-domain redirect policy; the
