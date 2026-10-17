@@ -68,6 +68,8 @@ border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 .pill.overdue-manual,.pill.conflict,.pill.create-failed,
 .pill.unclassified{color:var(--err);border-color:currentColor}
 .note{white-space:pre-wrap;color:var(--muted);font-size:13px}
+@media (max-width:600px){th,td{padding:4px 4px}
+button,input,select{font-size:15px}}
 </style></head>
 <body><main>
 <div style="display:flex;justify-content:space-between;align-items:center">
@@ -81,16 +83,19 @@ border-radius:999px;border:1px solid var(--line);color:var(--muted)}
 <h3 style="margin-top:0">Habits <span style="color:var(--muted);
 font-weight:400;font-size:13px">live from the wiki — edits apply from the
 next 08:15 run</span></h3>
-<h4 style="margin:10px 0 4px">Daily</h4>
+<h4 style="margin:10px 0 4px">Daily <span class="note"
+ id="h-count-daily"></span></h4>
 <table><tbody id="habit-rows-daily"></tbody></table>
 <p id="habit-empty-daily" class="note" hidden>No daily habits.</p>
-<h4 style="margin:14px 0 4px">Weekly</h4>
+<h4 style="margin:14px 0 4px">Weekly <span class="note"
+ id="h-count-weekly"></span></h4>
 <table><tbody id="habit-rows-weekly"></tbody></table>
 <p id="habit-empty-weekly" class="note" hidden>No weekly habits.</p>
-<h4 style="margin:14px 0 4px">Monthly</h4>
+<h4 style="margin:14px 0 4px">Monthly <span class="note"
+ id="h-count-monthly"></span></h4>
 <table><tbody id="habit-rows-monthly"></tbody></table>
 <p id="habit-empty-monthly" class="note" hidden>No monthly habits.</p>
-<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
+<form id="h-form" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px">
 <select id="h-section" style="padding:6px 8px">
 <option value="daily">Daily</option><option value="weekly">Weekly</option>
 <option value="monthly">Monthly</option>
@@ -102,17 +107,19 @@ next 08:15 run</span></h3>
 <input id="h-note" placeholder="Note (optional)" maxlength="500"
  style="flex:2;min-width:140px;padding:6px 8px">
 <button id="h-add" style="padding:6px 14px">Add</button>
-</div>
-<details style="margin-top:10px"><summary class="note">Edit token</summary>
+</form>
+<details id="h-token-details" style="margin-top:10px"><summary
+ class="note">Edit token</summary>
 <input id="h-token" type="password" placeholder="edit token"
  style="width:100%;padding:6px 8px;margin-top:6px"></details>
-<p class="note">Removing a habit stops future tasks; tasks already created
-in Google Tasks are never deleted — clear them there. Titles and notes may
-not contain | or backticks.</p>
+<p class="note" style="margin-top:10px">Removing a habit stops future
+tasks; tasks already created in Google Tasks are never deleted — clear
+them there. Titles and notes may not contain | or backticks.</p>
 <p id="habit-msg" class="note"></p>
 </div>
-<p class="sub" id="meta">loading…</p>
-<div class="card"><table>
+<div class="card">
+<p class="sub" id="meta" style="margin-top:0">loading…</p>
+<table>
 <thead><tr><th>Reminder</th><th>Type</th><th>Due</th><th>Status</th></tr></thead>
 <tbody id="rows"></tbody>
 </table></div>
@@ -154,6 +161,9 @@ async function loadHabits() {
     if (!r.ok) throw new Error("http " + r.status);
     data = await r.json();
   } catch (e) {
+    for (const section of ["daily", "weekly", "monthly"]) {
+      document.getElementById("h-count-" + section).textContent = "";
+    }
     habitMsg("Habits unavailable — the wiki could not be read.");
     return;
   }
@@ -161,6 +171,8 @@ async function loadHabits() {
     const rows = document.getElementById("habit-rows-" + section);
     rows.textContent = "";
     const list = data[section] || [];
+    document.getElementById("h-count-" + section).textContent =
+      "(" + list.length + ")";
     document.getElementById("habit-empty-" + section).hidden =
       list.length > 0;
     for (const h of list) {
@@ -182,7 +194,7 @@ async function loadHabits() {
       const btn = document.createElement("button");
       btn.textContent = "Remove";
       btn.addEventListener("click", () => editHabits(
-        {action: "remove", section: section, key: h.key}));
+        {action: "remove", section: section, key: h.key}, btn));
       tdBtn.appendChild(btn);
       cells.push(tdBtn);
       tr.append(...cells);
@@ -190,36 +202,48 @@ async function loadHabits() {
     }
   }
 }
-async function editHabits(payload) {
-  habitMsg("");
-  let r;
+const tokDetails = document.getElementById("h-token-details");
+async function editHabits(payload, button) {
+  if (button) button.disabled = true;
+  habitMsg("Saving…");
   try {
-    r = await fetch(BASE + "/api/habits", {
-      method: "POST",
-      headers: {"Content-Type": "application/json",
-                "Authorization": "Bearer " + tokenBox.value},
-      body: JSON.stringify(payload)});
-  } catch (e) {
-    habitMsg("Request failed: " + e.message);
-    return;
+    let r;
+    try {
+      r = await fetch(BASE + "/api/habits", {
+        method: "POST",
+        headers: {"Content-Type": "application/json",
+                  "Authorization": "Bearer " + tokenBox.value},
+        body: JSON.stringify(payload)});
+    } catch (e) {
+      habitMsg("Request failed: " + e.message);
+      return;
+    }
+    if (r.status === 401 || r.status === 403) {
+      tokDetails.open = true;
+      tokenBox.focus();
+      habitMsg("Edit token missing or wrong — set it above.");
+      return;
+    }
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      habitMsg(data.error || ("Error " + r.status));
+      return;
+    }
+    habitMsg(payload.action === "add" ? "Added"
+                                      : "Removed");
+    loadHabits();
+  } finally {
+    if (button) button.disabled = false;
   }
-  if (r.status === 401 || r.status === 403) {
-    habitMsg("Edit token missing or wrong — set it above.");
-    return;
-  }
-  const data = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    habitMsg(data.error || ("Error " + r.status));
-    return;
-  }
-  loadHabits();
 }
+const addBtn = document.getElementById("h-add");
 const whenBox = document.getElementById("h-when");
 const sectionSel = document.getElementById("h-section");
 sectionSel.addEventListener("change", () => {
   whenBox.hidden = sectionSel.value === "daily";
 });
-document.getElementById("h-add").addEventListener("click", () => {
+document.getElementById("h-form").addEventListener("submit", (ev) => {
+  ev.preventDefault();
   const title = document.getElementById("h-title").value.trim();
   if (!title) { habitMsg("Title required."); return; }
   const payload = {action: "add", section: sectionSel.value, title: title,
@@ -231,7 +255,8 @@ document.getElementById("h-add").addEventListener("click", () => {
   document.getElementById("h-title").value = "";
   document.getElementById("h-note").value = "";
   whenBox.value = "";
-  editHabits(payload);
+  addBtn.disabled = true;
+  editHabits(payload, addBtn);
 });
 async function load() {
   const meta = document.getElementById("meta");

@@ -222,6 +222,28 @@ class HabitsEditTests(unittest.TestCase):
         with urllib.request.urlopen(base + "/", timeout=10) as resp:
             self.assertEqual(resp.headers.get("Cache-Control"), "no-store")
 
+    def test_add_form_and_feedback_hooks(self):
+        # UX hooks the editor relies on; static because JS behavior is
+        # not unit-testable here.
+        source = SERVER.read_text()
+        self.assertIn('id="h-form"', source)          # Enter-to-add form
+        self.assertIn("Saving…", source)              # busy state
+        self.assertIn("Added", source)                # success feedback
+        self.assertIn('id="h-token-details"', source)  # auto-open on 401/403
+        self.assertIn(".open = true", source)
+        self.assertIn('id="h-count-daily"', source)   # count badges
+        self.assertIn("max-width:600px", source)      # mobile padding
+
+    def test_meta_line_above_snapshot(self):
+        # The run line describes the snapshot, so it must render after
+        # the habits card (after the token block) and before the snapshot
+        # table headers.
+        source = SERVER.read_text()
+        self.assertGreater(source.index('id="meta"'),
+                           source.index('id="h-token-details"'))
+        self.assertLess(source.index('id="meta"'),
+                        source.index('id="rows"'))
+
     def test_edit_needs_token(self):
         base, _, _ = self.serve()
         status, _ = self.post(base, {"action": "add", "title": "x"},
