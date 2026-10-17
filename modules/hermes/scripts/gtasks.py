@@ -514,9 +514,11 @@ def cmd_tasks(args):
         print("Task created%s." % (" x%d" % len(dates) if len(dates) > 1 else ""))
     elif args.action in ("done", "undo"):
         lid = _list_id_or_exit(args.list)
-        task = _resolve_number(lid, args.number)
+        # Explicit --id short-circuits the positional-list resolution:
+        # closing by a re-resolved index could hit a moving target.
+        task_id = args.id or _resolve_number(lid, args.number)["id"]
         status = "completed" if args.action == "done" else "needsAction"
-        _api("PATCH", _tasks_path(lid, task["id"]), {"status": status})
+        _api("PATCH", _tasks_path(lid, task_id), {"status": status})
         print("Marked %s." % args.action)
     elif args.action == "clear":
         lid = _list_id_or_exit(args.list)
@@ -595,6 +597,7 @@ def build_parser():
     tasks.add_argument("-n", "--note", default="")
     tasks.add_argument("-d", "--due", default="")
     tasks.add_argument("-i", "--include-completed", action="store_true")
+    tasks.add_argument("--id", default="")
     tasks.add_argument("--sort", default="position",
                        choices=("position", "due", "title"))
     tasks.add_argument("--max", type=int, default=None)

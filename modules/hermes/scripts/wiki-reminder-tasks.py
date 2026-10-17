@@ -2,9 +2,12 @@
 """Create deduplicated Google Tasks for wiki reminder candidates.
 
 Reads candidate JSON on stdin, enforces per-type lead windows, and invokes
-`gtasks` with argument arrays (never shell). Never updates, deletes, or
-moves tasks. Each candidate is processed independently: valid due tasks are
-created first, then problems are reported.
+`gtasks` with argument arrays (never shell). It never edits task text or
+due dates, and never deletes; its only sanctioned mutation auto-closes
+stale open daily-habit tasks dated before today (marks completed, keeps
+them retrievable). Each candidate is processed independently: valid due
+tasks are created first, then the stale-close sweep runs, then problems
+are reported.
 """
 
 import datetime as datetime_module
@@ -31,8 +34,13 @@ def marker_for(key, action_date):
     return f"{MARKER_PREFIX}{key}:{action_date}"
 
 
-def existing_markers():
-    """Return {marker: due} for every task in Planned, including completed."""
+def view_tasks():
+    """Full Planned-list records, completed included.
+
+    The view is capped at 100 records (no pagination in the gtasks CLI) —
+    a pre-existing, silently accepted limit for both same-day marker skip
+    and sweep coverage beyond page 1.
+    """
     proc = subprocess.run(
         ["gtasks", "tasks", "-l", TASK_LIST, "view",
          "--format=json", "--include-completed"],
@@ -41,9 +49,13 @@ def existing_markers():
     if proc.returncode != 0:
         raise SystemExit(f"gtasks view failed: {proc.stderr.strip()}")
     try:
-        tasks = json.loads(proc.stdout or "[]")
+        return json.loads(proc.stdout or "[]")
     except json.JSONDecodeError as error:
         raise SystemExit(f"gtasks view returned invalid JSON: {error}")
+
+
+def markers_from_tasks(tasks):
+    """Derive {marker: due} from view_tasks() records."""
     found = {}
     for task in tasks:
         notes = task.get("description") or task.get("notes") or ""
@@ -54,6 +66,67 @@ def existing_markers():
                 # compare date-only so re-runs skip instead of conflicting.
                 found[line] = str(task.get("due") or "").split("T")[0]
     return found
+
+
+def existing_markers():
+    """Return {marker: due} for every task in Planned, including completed."""
+    return markers_from_tasks(view_tasks())
+
+
+def close_stale_daily(tasks, daily_keys, current):
+    """Close stale open daily-habit tasks from earlier days.
+
+    Only tasks carrying our marker line, whose key is in today's daily
+    candidates, whose stored date parses, is strictly before today, and
+    whose status is the open `needsAction`, are closed — mark completed
+    via `gtasks tasks done --id <taskId>`, never deleted. Anything
+    ambiguous or unknown (missing/other status, missing id, unparseable
+    date, unknown key) is skipped: the failure mode is a lingering task
+    the user can still see, never a wrong close.
+    """
+    closed, problems = [], []
+    for task in tasks:
+        if not isinstance(task, dict):
+            continue
+        status = task.get("status")
+        task_id = task.get("id")
+        # Only a known open status is closed: anything unknown (missing
+        # status, unknown token) is skipped — a lingering task the user
+        # can still see, never a wrong close.
+        if status != "needsAction" or not task_id:
+            continue
+        due_date = None
+        target = None
+        for line in str(task.get("description")
+                        or task.get("notes") or "").splitlines():
+            line = line.strip()
+            if not line.startswith(MARKER_PREFIX):
+                continue
+            # Date is after the LAST colon: keys may contain colons.
+            key, _, date_text = line[len(MARKER_PREFIX):].rpartition(":")
+            if key not in daily_keys:
+                continue
+            try:
+                candidate_day = datetime_module.date.fromisoformat(
+                    date_text.split("T")[0])
+            except ValueError:
+                continue
+            if candidate_day < current:
+                due_date = candidate_day
+                target = task_id
+                break
+        if target is None:
+            continue
+        proc = subprocess.run(
+            ["gtasks", "tasks", "done", "-l", TASK_LIST, "--id", target],
+            capture_output=True, text=True, check=False,
+        )
+        if proc.returncode != 0:
+            problems.append(f"close-failed: {key}: "
+                            f"{(proc.stderr or proc.stdout).strip()}")
+            continue
+        closed.append(key)
+    return closed, problems
 
 
 def create_task(title, notes, due):
@@ -103,10 +176,15 @@ def main(today_override=None, snapshot_path=None):
 
     current = today_override or today()
     try:
-        existing = existing_markers()
+        tasks = view_tasks()
+        existing = markers_from_tasks(tasks)
     except SystemExit as error:
         print(error)
         return 2
+    daily_keys = {item.get("key") for item in candidates
+                  if isinstance(item, dict)
+                  and item.get("type") == "daily"
+                  and isinstance(item.get("key"), str) and item.get("key")}
 
     created, skipped, pending = [], [], []
     problems = []
@@ -197,6 +275,9 @@ def main(today_override=None, snapshot_path=None):
         entry["status"] = "created"
         items.append(entry)
 
+    closed, close_failures = close_stale_daily(tasks, daily_keys, current)
+    problems.extend(close_failures)
+
     if snapshot_path:
         write_snapshot(snapshot_path, {
             "version": SNAPSHOT_VERSION,
@@ -207,11 +288,12 @@ def main(today_override=None, snapshot_path=None):
             "items": items,
             "problems": problems,
             "summary": {"created": len(created), "skipped": len(skipped),
-                        "pending": len(pending)},
+                        "pending": len(pending), "closed": len(closed)},
         })
     print(json.dumps({
         "created": created, "skipped": skipped,
         "pending": pending, "problems": problems,
+        "closed": closed,
     }, indent=2))
     return 1 if problems else 0
 
