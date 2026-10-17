@@ -1,4 +1,4 @@
-## QUESTIONS
+QUESTIONS
 
 q: What is wrong on mobile today? | a: Two things, both from the #24
 batch: (1) the fixed type scale (16px body/fields, 14px tables, 12px
