@@ -86,6 +86,9 @@ class FakeResponse:
 
 
 class HelperTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(mock.patch("syslog.syslog"))
+
     def run_main(self, module, creds, upstream, output_path, sent=None):
         creds_path = output_path.parent / "credentials.json"
         creds_path.write_text(json.dumps(creds), encoding="utf-8")
