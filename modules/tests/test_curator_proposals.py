@@ -182,6 +182,22 @@ class CuratorProposalApprovalTest(unittest.TestCase):
             self.assertEqual(all_rows.stdout, "")
             self.assertEqual(one_row.stdout, "")
 
+    def test_missing_null_consolidations_and_bad_reason_fail_closed(self):
+        summaries = (
+            "```yaml\nprunings: []\n```",
+            "```yaml\nconsolidations:\n```",
+            "```yaml\nconsolidations:\n  - from: one\n    into: umbrella\n    reason: 4\n```",
+        )
+        for summary in summaries:
+            with self.subTest(summary=summary), tempfile.TemporaryDirectory() as tmp:
+                home = Path(tmp)
+                proposal_id = self.write_report(home, {"llm_final": summary})
+
+                result = self.run_approval(home, proposal_id, "all")
+
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+
 
 class TelegramReplyContextPatchTest(unittest.TestCase):
     def load_patch(self):

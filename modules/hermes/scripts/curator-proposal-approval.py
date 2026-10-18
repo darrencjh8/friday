@@ -32,17 +32,18 @@ def selected_merges(proposal_id: str, selection: str) -> list[dict[str, str]]:
     summary = BLOCK.search(final)
     if not summary:
         raise ValueError("saved proposal has no structured summary")
-    data = yaml.safe_load(summary.group(1)) or {}
-    if not isinstance(data, dict):
+    data = yaml.safe_load(summary.group(1))
+    if not isinstance(data, dict) or "consolidations" not in data:
         raise ValueError("saved proposal summary is malformed")
-    raw_merges = data.get("consolidations") or []
+    raw_merges = data["consolidations"]
     if not isinstance(raw_merges, list):
         raise ValueError("saved proposal consolidation list is malformed")
     merges = []
     for entry in raw_merges:
         if (not isinstance(entry, dict) or not isinstance(entry.get("from"), str)
                 or not entry["from"].strip() or not isinstance(entry.get("into"), str)
-                or not entry["into"].strip()):
+                or not entry["into"].strip()
+                or ("reason" in entry and not isinstance(entry["reason"], str))):
             raise ValueError("saved proposal contains a malformed merge")
         merges.append({key: str(entry.get(key) or "").strip() for key in ("from", "into", "reason")})
     if selection == "all":
