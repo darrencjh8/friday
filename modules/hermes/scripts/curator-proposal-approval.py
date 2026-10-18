@@ -26,6 +26,8 @@ def selected_merges(proposal_id: str, selection: str) -> list[dict[str, str]]:
     report = json.loads(raw)
     if not isinstance(report, dict):
         raise ValueError("saved proposal report is malformed")
+    if report.get("llm_error"):
+        raise ValueError("saved curator run contains an LLM error")
     final = report.get("llm_final")
     if not isinstance(final, str):
         raise ValueError("saved proposal summary is malformed")

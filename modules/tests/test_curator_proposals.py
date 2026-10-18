@@ -149,6 +149,20 @@ class CuratorProposalApprovalTest(unittest.TestCase):
             self.assertEqual(changed.stdout, "")
             self.assertEqual(invalid.stdout, "")
 
+    def test_failed_curator_report_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            report = {
+                "llm_error": "curator pass failed",
+                "llm_final": "```yaml\nconsolidations:\n  - from: one\n    into: umbrella\n    reason: first\n```",
+            }
+            proposal_id = self.write_report(home, report)
+
+            result = self.run_approval(home, proposal_id, "all")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
     def test_malformed_saved_summary_is_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
