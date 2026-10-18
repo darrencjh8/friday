@@ -13,7 +13,9 @@ READ-ONLY INVARIANTS (review these on every change):
 - NO token or credential material is ever written to the output file, logs,
   or stdout: the published JSON carries utilization numbers only.
 - On ANY failure (missing credentials, 401, network error, unexpected shape)
-  the previous output file is left untouched and this exits non-zero quietly.
+  the previous output file is left untouched and this exits non-zero. Only a
+  fixed failure category (and numeric HTTP status) is sent to system logs;
+  stdout and stderr stay quiet, and exception contents are never logged.
   The router's staleness rule turns the card stale by itself.
 
 Output schema:
@@ -32,7 +34,9 @@ fixtures; the cron call sets none of them.
 import json
 import os
 import sys
+import syslog
 import time
+import urllib.error
 import urllib.request
 
 DEFAULT_CREDENTIALS_FILE = "/home/darren/.claude/.credentials.json"
@@ -109,7 +113,21 @@ def main():
         snapshot = fetch_usage(os.environ.get("CLAUDE_USAGE_URL", DEFAULT_API_URL), token)
         snapshot["fetched_at"] = int(time.time())
         write_snapshot(snapshot, os.environ.get("CLAUDE_USAGE_OUT", DEFAULT_OUTPUT_FILE))
-    except Exception:
+    except Exception as error:
+        if isinstance(error, urllib.error.HTTPError) and isinstance(error.code, int):
+            reason = f"http_{error.code}"
+        elif isinstance(error, (urllib.error.URLError, TimeoutError)):
+            reason = "network"
+        elif isinstance(error, ValueError):
+            reason = "invalid_data"
+        elif isinstance(error, OSError):
+            reason = "filesystem"
+        else:
+            reason = "unexpected"
+        try:
+            syslog.syslog(syslog.LOG_WARNING, "claude-usage: collection failed: " + reason)
+        except Exception:
+            pass
         return 1
     return 0
 
