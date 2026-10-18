@@ -28,14 +28,14 @@ OLD_REPLY_BLOCK = '''        reply_to_text = message.reply_to_message.text or me
 '''
 
 NEW_REPLY_BLOCK = f'''{ADAPTER_MARKER}
-        reply_to_text = message.reply_to_message.text or message.reply_to_message.caption or None
+        # Native quote was handled above; cached rich content beats partial API echoes.
+        try:
+            from gateway import rich_sent_store
+            reply_to_text = rich_sent_store.lookup(str(message.chat.id), reply_to_id)
+        except Exception:
+            reply_to_text = None
         if not reply_to_text:
-            # Rich API echoes can omit table cells; use the original sent content when available.
-            try:
-                from gateway import rich_sent_store
-                reply_to_text = rich_sent_store.lookup(str(message.chat.id), reply_to_id)
-            except Exception:
-                reply_to_text = None
+            reply_to_text = message.reply_to_message.text or message.reply_to_message.caption or None
         if not reply_to_text:
             reply_to_text = self._extract_rich_reply_text(message.reply_to_message)
         return reply_to_id, reply_to_text

@@ -168,6 +168,20 @@ class CuratorProposalApprovalTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
 
+    def test_malformed_merge_entry_is_rejected_for_all_and_single_selection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            proposal_id = self.write_report(home, {
+                "llm_final": "```yaml\nconsolidations:\n  - from: one\n    reason: missing target\n```"})
+
+            all_rows = self.run_approval(home, proposal_id, "all")
+            one_row = self.run_approval(home, proposal_id, "1")
+
+            self.assertNotEqual(all_rows.returncode, 0)
+            self.assertNotEqual(one_row.returncode, 0)
+            self.assertEqual(all_rows.stdout, "")
+            self.assertEqual(one_row.stdout, "")
+
 
 class TelegramReplyContextPatchTest(unittest.TestCase):
     def load_patch(self):
@@ -184,7 +198,7 @@ class TelegramReplyContextPatchTest(unittest.TestCase):
         adapter = namespace["TelegramAdapter"]()
         adapter._rich_text = "table heading\nrow one\nrow two"
         message = types.SimpleNamespace(
-            reply_to_message=types.SimpleNamespace(message_id=7, text=None, caption=None),
+            reply_to_message=types.SimpleNamespace(message_id=7, text="partial header", caption=None),
             quote=None,
             chat=types.SimpleNamespace(id=3),
         )
