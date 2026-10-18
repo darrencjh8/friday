@@ -13,7 +13,7 @@ Accept these forms when replying directly to a proposal whose ID is unambiguous 
 - `approve 1,3`
 - `reject all`
 
-In a fresh session without the replied-to message, require the explicit-ID forms `approve <proposal-id> all`, `approve <proposal-id> 1,3`, or `reject <proposal-id>`. Otherwise ask for the proposal ID. Rejection means make no changes.
+When the reply omits the ID, use its preserved context only if it contains exactly one valid proposal ID. If the ID is missing or ambiguous, ask for it and do not call the validator. In a fresh session without the replied-to message, require the explicit-ID forms `approve <proposal-id> all`, `approve <proposal-id> 1,3`, or `reject <proposal-id>`. Rejection means make no changes.
 
 Before any write, run `python3 curator-proposal-approval.py <proposal-id> <all|row-list>` from the same scripts directory as `curator-proposals.py` and inspect its JSON output. The validator checks that the original `/opt/data/logs/curator/<run-id>/run.json` still matches the hash in the ID and returns only selected `consolidations` from that report. Never rerun `hermes curator` to resolve an approval. If validation fails, stop and ask for a fresh proposal.
 
