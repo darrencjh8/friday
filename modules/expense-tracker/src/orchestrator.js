@@ -2179,6 +2179,27 @@ export class AgentOrchestrator {
                             );
                             if (!valid) {
                                 invalidFields.push("account_id");
+                            } else if (
+                                senderBank &&
+                                hasBankToken(valid.name) &&
+                                !nameMatchesBank(valid.name, senderBank)
+                            ) {
+                                // Another bank's account. domain_account_filter
+                                // lets this through when the sender bank has no
+                                // named account; then no retry can find one, so
+                                // hold instead of booking cross-bank.
+                                const sameBankOpen = liveAccounts.some(
+                                    (a) =>
+                                        !a.closed &&
+                                        nameMatchesBank(a.name, senderBank),
+                                );
+                                logger.warn({
+                                    event: "cross_bank_account_rejected",
+                                    senderBank,
+                                    sameBankOpen,
+                                });
+                                if (!sameBankOpen) return null;
+                                invalidFields.push("account_id");
                             } else {
                                 output.account_name = valid.name;
                             }
