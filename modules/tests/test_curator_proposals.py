@@ -158,6 +158,16 @@ class CuratorProposalApprovalTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertEqual(result.stdout, "")
 
+    def test_non_list_consolidations_are_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            proposal_id = self.write_report(home, {"llm_final": "```yaml\nconsolidations: {from: one, into: umbrella}\n```"})
+
+            result = self.run_approval(home, proposal_id, "all")
+
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(result.stdout, "")
+
 
 class TelegramReplyContextPatchTest(unittest.TestCase):
     def load_patch(self):
