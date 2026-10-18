@@ -2177,26 +2177,33 @@ export class AgentOrchestrator {
                             const valid = liveAccounts.find(
                                 (a) => a.id === output.account_id && !a.closed,
                             );
+                            const sameBank = (a) =>
+                                senderBank && nameMatchesBank(a.name, senderBank);
+                            const sameBankOpen = liveAccounts.some(
+                                (a) => !a.closed && sameBank(a),
+                            );
+                            // Every account of the sender bank is closed: any
+                            // pick is some other account, named or not.
+                            const sameBankAllClosed =
+                                !sameBankOpen &&
+                                liveAccounts.some((a) => a.closed && sameBank(a));
                             if (!valid) {
                                 invalidFields.push("account_id");
                             } else if (
                                 senderBank &&
-                                hasBankToken(valid.name) &&
-                                !nameMatchesBank(valid.name, senderBank)
+                                (sameBankAllClosed ||
+                                    (hasBankToken(valid.name) &&
+                                        !nameMatchesBank(valid.name, senderBank)))
                             ) {
                                 // Another bank's account. domain_account_filter
                                 // lets this through when the sender bank has no
                                 // named account; then no retry can find one, so
                                 // hold instead of booking cross-bank.
-                                const sameBankOpen = liveAccounts.some(
-                                    (a) =>
-                                        !a.closed &&
-                                        nameMatchesBank(a.name, senderBank),
-                                );
                                 logger.warn({
                                     event: "cross_bank_account_rejected",
                                     senderBank,
                                     sameBankOpen,
+                                    sameBankAllClosed,
                                 });
                                 if (!sameBankOpen) return null;
                                 invalidFields.push("account_id");
