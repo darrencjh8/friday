@@ -1585,6 +1585,90 @@ describe("Phase 1: LLM-directed retrieval (multi-round tools)", () => {
     expect(orch._llm.chat).toHaveBeenCalledTimes(2);
   });
 
+  it("holds an alert from a bank with no open account instead of booking it on another bank's account", async () => {
+    // The sender bank's only account is closed, so domain_account_filter
+    // finds no match and shows the LLM every account. A pick on another
+    // bank's account must never be booked; retrying cannot help, since no
+    // open account of the sender bank exists. Fixture values are synthetic.
+    const { AgentOrchestrator } = await import("../src/orchestrator.js");
+    const tools = multiRoundTools({
+      executeTool: vi.fn(async (name) => {
+        if (name === "fetch_context")
+          return {
+            accounts: [
+              { id: "acc-sc-closed", name: "SC Saver", closed: true },
+              { id: "acc-ocbc", name: "OCBC Everyday", closed: false },
+            ],
+            categories: [],
+            payees: [],
+          };
+        if (name === "search_memory") return { results: [] };
+        return true;
+      }),
+    });
+    const orch = new AgentOrchestrator(makeConfig(), tools);
+    orch._llm.chat = vi.fn().mockResolvedValue({
+      choices: [{ message: jsonMsg({
+        merchant: "Transfer",
+        amount_cents: -10000,
+        date: new Date().toISOString().slice(0, 10),
+        currency: "SGD",
+        account_id: "acc-ocbc",
+        account_name: "OCBC Everyday",
+        raw_description: "FAST transfer",
+        notes: "",
+        skip: false,
+        reasoning: "no open SC account; picked another",
+        notify_message: "",
+      }) }],
+    });
+
+    const result = await orch._runPhase1("Confirmation of a FAST payment from your account.", { senderBank: "SC" });
+
+    expect(result).toBeNull();
+  });
+
+  it("keeps an account whose name carries no bank when the sender bank has no named account", async () => {
+    // Account names without a bank token cannot be judged cross-bank, so the
+    // guard must leave them alone. Fixture values are synthetic.
+    const { AgentOrchestrator } = await import("../src/orchestrator.js");
+    const tools = multiRoundTools({
+      executeTool: vi.fn(async (name) => {
+        if (name === "fetch_context")
+          return {
+            accounts: [
+              { id: "acc-plain", name: "Everyday Wallet", closed: false },
+              { id: "acc-ocbc", name: "OCBC Everyday", closed: false },
+            ],
+            categories: [],
+            payees: [],
+          };
+        if (name === "search_memory") return { results: [] };
+        return true;
+      }),
+    });
+    const orch = new AgentOrchestrator(makeConfig(), tools);
+    orch._llm.chat = vi.fn().mockResolvedValue({
+      choices: [{ message: jsonMsg({
+        merchant: "Coffee Shop",
+        amount_cents: -450,
+        date: new Date().toISOString().slice(0, 10),
+        currency: "SGD",
+        account_id: "acc-plain",
+        account_name: "Everyday Wallet",
+        raw_description: "Card purchase at Coffee Shop",
+        notes: "",
+        skip: false,
+        reasoning: "only plausible account",
+        notify_message: "",
+      }) }],
+    });
+
+    const result = await orch._runPhase1("Card purchase of SGD 4.50 at Coffee Shop.", { senderBank: "SC" });
+
+    expect(result?.account_id).toBe("acc-plain");
+  });
+
   it("still corrects a wrong account on a purchase alert phrased with movement-adjacent wording ('was paid'/'using your')", async () => {
     // Coverage for the ACCOUNT_TRANSFER_SHAPE_RE / MOVEMENT_LIKE split: a
     // real card/wallet purchase (not a transfer) can be phrased with words
