@@ -22,6 +22,7 @@ SCRIPT = HERMES / "scripts" / "curator-proposals.py"
 APPROVAL_SCRIPT = HERMES / "scripts" / "curator-proposal-approval.py"
 REPLY_PATCH = HERMES / "patches" / "patch-telegram-reply-context.py"
 REPLY_FIXTURE = HERMES / "tests" / "fixtures" / "upstream_telegram_reply_context_v0.22.2.py"
+STORE_FIXTURE = HERMES / "tests" / "fixtures" / "upstream_rich_sent_store_v0.22.2.py"
 
 
 def fake_hermes(bindir: Path, run: dict | None, exit_code: int = 0) -> Path:
@@ -241,8 +242,13 @@ class TelegramReplyContextPatchTest(unittest.TestCase):
 
     def test_patch_keeps_a_finite_long_message_cache_limit(self):
         patch = self.load_patch()
-        patched = patch.patch_store("_MAX_TEXT_CHARS = 2000\n")
-        self.assertIn("_MAX_TEXT_CHARS = 20000", patched)
+        source = STORE_FIXTURE.read_text(encoding="utf-8")
+        patched = patch.patch_store(source)
+        namespace = {}
+        exec(compile(patched, "patched_store", "exec"), namespace)
+        message = "proposal row\n" * 250
+
+        self.assertEqual(namespace["lookup"](namespace["record"](message)), message)
         self.assertEqual(patch.patch_store(patched), patched)
 
 
