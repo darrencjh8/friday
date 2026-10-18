@@ -1628,6 +1628,47 @@ describe("Phase 1: LLM-directed retrieval (multi-round tools)", () => {
     expect(result).toBeNull();
   });
 
+  it("holds an alert from a bank whose accounts are all closed even when the pick names no bank", async () => {
+    // Every account of the sender bank is closed, so any pick is another
+    // account, even one whose name carries no bank. Fixture values are synthetic.
+    const { AgentOrchestrator } = await import("../src/orchestrator.js");
+    const tools = multiRoundTools({
+      executeTool: vi.fn(async (name) => {
+        if (name === "fetch_context")
+          return {
+            accounts: [
+              { id: "acc-sc-closed", name: "SC Saver", closed: true },
+              { id: "acc-plain", name: "Everyday Wallet", closed: false },
+            ],
+            categories: [],
+            payees: [],
+          };
+        if (name === "search_memory") return { results: [] };
+        return true;
+      }),
+    });
+    const orch = new AgentOrchestrator(makeConfig(), tools);
+    orch._llm.chat = vi.fn().mockResolvedValue({
+      choices: [{ message: jsonMsg({
+        merchant: "Transfer",
+        amount_cents: -10000,
+        date: new Date().toISOString().slice(0, 10),
+        currency: "SGD",
+        account_id: "acc-plain",
+        account_name: "Everyday Wallet",
+        raw_description: "FAST transfer",
+        notes: "",
+        skip: false,
+        reasoning: "no open SC account; picked another",
+        notify_message: "",
+      }) }],
+    });
+
+    const result = await orch._runPhase1("Confirmation of a FAST payment from your account.", { senderBank: "SC" });
+
+    expect(result).toBeNull();
+  });
+
   it("keeps an account whose name carries no bank when the sender bank has no named account", async () => {
     // Account names without a bank token cannot be judged cross-bank, so the
     // guard must leave them alone. Fixture values are synthetic.
