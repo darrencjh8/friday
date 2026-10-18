@@ -178,7 +178,7 @@ jobs:
             - name: Test seeded cron job renames
               run: python -m unittest modules/hermes/tests/test_cron_job_renames.py
             - name: Test curator merge proposals script
-              run: python -m unittest modules/hermes/tests/test_curator_proposals.py
+              run: python -m unittest modules/tests/test_curator_proposals.py
             - name: Test lifecycle ledger startup patch
               run: python -m unittest modules/hermes/tests/test_lifecycle_ledger_patch.py
             - name: Test stale open webhook session patch
