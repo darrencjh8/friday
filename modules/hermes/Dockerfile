@@ -52,6 +52,10 @@ RUN python3 /tmp/patch-session-caps.py /opt/hermes/hermes_state_maintenance.py \
 COPY patches/patch-slack-send-fallback.py /tmp/patch-slack-send-fallback.py
 RUN python3 /tmp/patch-slack-send-fallback.py /opt/hermes/plugins/platforms/slack/adapter.py \
     && rm /tmp/patch-slack-send-fallback.py
+# Telegram replies to rich tables need the cached original, not the incomplete rich echo.
+COPY patches/patch-telegram-reply-context.py /tmp/patch-telegram-reply-context.py
+RUN python3 /tmp/patch-telegram-reply-context.py /opt/hermes/plugins/platforms/telegram/adapter.py /opt/hermes/gateway/rich_sent_store.py \
+    && rm /tmp/patch-telegram-reply-context.py
 COPY config.yaml SOUL.md.template /opt/hermes-defaults/
 COPY skills/ /opt/hermes-defaults/skills/
 COPY scripts/ /opt/hermes-defaults/scripts/

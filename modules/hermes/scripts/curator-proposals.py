@@ -11,6 +11,7 @@ when the run or its report failed.
 
 import datetime
 import glob
+import hashlib
 import json
 import os
 import re
@@ -52,8 +53,9 @@ def main():
     if not new:
         return fail("curator wrote no new report")
     try:
-        with open(new[-1], encoding="utf-8") as handle:
-            run = json.load(handle)
+        with open(new[-1], "rb") as handle:
+            raw = handle.read()
+        run = json.loads(raw)
     except (OSError, ValueError) as e:
         return fail(f"unreadable {new[-1]}: {e}")
     if run.get("llm_error"):
@@ -70,17 +72,20 @@ def main():
     if not merges and not prunes:
         print(json.dumps({"wakeAgent": False}))
         return 0
+    run_id = os.path.basename(os.path.dirname(new[-1]))
+    proposal_id = f"{run_id}-{hashlib.sha256(raw).hexdigest()[:12]}"
     today = datetime.datetime.now(datetime.timezone(datetime.timedelta(hours=8))).date().isoformat()
-    lines = [f"🧰 *Skill merge proposals · {today}*", ""]
+    lines = [f"🧰 *Skill merge proposals · {today}*", f"proposal_id={proposal_id}", ""]
     if merges:
-        lines += ["| Merge | Into | Why |", "|---|---|---|"]
-        lines += [f"| {cell(e['from'])} | {cell(e['into'])} | {cell(e.get('reason'))} |" for e in merges]
+        lines += ["| # | Merge | Into | Why |", "|---|---|---|---|"]
+        lines += [f"| {i} | {cell(e['from'])} | {cell(e['into'])} | {cell(e.get('reason'))} |"
+                  for i, e in enumerate(merges, 1)]
         lines.append("")
     if prunes:
         lines += ["| Archive | Why |", "|---|---|"]
         lines += [f"| {cell(e['name'])} | {cell(e.get('reason'))} |" for e in prunes]
         lines.append("")
-    lines.append("Nothing has changed yet. Reply to say which to apply.")
+    lines.append(f"Reply `approve all`, `approve 1,3`, or `reject all` to this message. For a fresh session, include `{proposal_id}`.")
     print("\n".join(lines))
     return 0
 
