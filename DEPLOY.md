@@ -123,6 +123,22 @@ without it darren's cron cannot reach the leaf, since `/home/runner` is 700 —
 and removes any runner-crontab leftover for this helper on every codex-router
 deploy.)
 
+Collector failures preserve the last good snapshot and emit one system-log
+warning with the prefix `claude-usage: collection failed:`. Only the category
+is recorded: `http_<numeric status>`, `network`, `invalid_data`, `filesystem`, or
+`unexpected`. Exception messages, response bodies, URLs, paths, and credentials
+are never logged. Successful runs remain quiet. An authorized host operator can
+search the system journal for that prefix; reading system logs may require
+administrator access. Logging failure never changes snapshot preservation or
+the collector's nonzero failure exit.
+
+The user-owned cron entry must reference the **current deployed checkout** shown
+above. A schedule still pointing at a retired checkout keeps executing its old
+helper, even after a successful deployment of this repository. Deploy does not
+migrate that user's crontab; schedule changes require a separately approved
+operator action. Diagnostics improve evidence for future failures, not the
+freshness of a snapshot whose collector has not succeeded.
+
 ### How an environment variable reaches the gateway
 
 A deploy variable travels `deploy.yml` job env → `modules/docker-compose.yml`
