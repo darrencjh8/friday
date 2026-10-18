@@ -1669,6 +1669,70 @@ describe("Phase 1: LLM-directed retrieval (multi-round tools)", () => {
     expect(result).toBeNull();
   });
 
+  describe("closed sender bank on the movement paths", () => {
+    // The movement parsers resolve the account in code and return before the
+    // Phase-1 LLM validation runs, so the closed-bank hold must cover their
+    // output too. Fixture values are synthetic.
+    async function orchWith(accounts) {
+      const { AgentOrchestrator } = await import("../src/orchestrator.js");
+      const tools = multiRoundTools({
+        executeTool: vi.fn(async (name) => {
+          if (name === "fetch_context") return { accounts, categories: [], payees: [] };
+          if (name === "search_memory") return { results: [] };
+          return true;
+        }),
+      });
+      return new AgentOrchestrator(makeConfig(), tools);
+    }
+    const booking = {
+      merchant: "Transfer",
+      amount_cents: -10000,
+      date: "2026-10-10",
+      currency: "SGD",
+      account_id: "acc-plain",
+      account_name: "Everyday Wallet",
+      budget_id: "budget",
+      action: "insert",
+    };
+
+    it("holds a movement booking when every account of the sender bank is closed", async () => {
+      const orch = await orchWith([
+        { id: "acc-sc-closed", name: "SC Saver", closed: true },
+        { id: "acc-plain", name: "Everyday Wallet", closed: false },
+      ]);
+      orch._runStructuredMovement = vi.fn(async () => ({ ...booking }));
+
+      const result = await orch._runPhase1("FAST payment from your account.", { senderBank: "SC" });
+
+      expect(result).toBeNull();
+    });
+
+    it("keeps a movement booking when the sender bank has an open account", async () => {
+      const orch = await orchWith([
+        { id: "acc-sc-closed", name: "SC Saver", closed: true },
+        { id: "acc-sc-open", name: "SC Everyday", closed: false },
+        { id: "acc-plain", name: "Everyday Wallet", closed: false },
+      ]);
+      orch._runStructuredMovement = vi.fn(async () => ({ ...booking }));
+
+      const result = await orch._runPhase1("FAST payment from your account.", { senderBank: "SC" });
+
+      expect(result?.account_id).toBe("acc-plain");
+    });
+
+    it("leaves an existing movement hold alone", async () => {
+      const orch = await orchWith([
+        { id: "acc-sc-closed", name: "SC Saver", closed: true },
+        { id: "acc-plain", name: "Everyday Wallet", closed: false },
+      ]);
+      orch._runStructuredMovement = vi.fn(async () => ({ ...booking, _hold_unresolved_transfer: true }));
+
+      const result = await orch._runPhase1("FAST payment from your account.", { senderBank: "SC" });
+
+      expect(result?._hold_unresolved_transfer).toBe(true);
+    });
+  });
+
   it("keeps an account whose name carries no bank when the sender bank has no named account", async () => {
     // Account names without a bank token cannot be judged cross-bank, so the
     // guard must leave them alone. Fixture values are synthetic.

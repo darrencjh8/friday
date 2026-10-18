@@ -1865,17 +1865,38 @@ export class AgentOrchestrator {
         }, { allowSuffixLearning: true });
     }
 
+    /**
+     * Null when every account of the sender bank is closed and the movement
+     * output would still book on some account: no open account of that bank
+     * exists, so the pick is another account. Holds and skips pass unchanged.
+     */
+    async _guardClosedSenderBank(output, senderBank) {
+        if (!output || !senderBank || output.skip || !output.account_id) return output;
+        if (output._hold_unresolved_transfer || output._hold_unresolved_paynow) return output;
+        let accounts = [];
+        try {
+            const ctx = await this._tools.executeTool("fetch_context", { budget_id: output.budget_id });
+            accounts = ctx?.accounts || [];
+        } catch {
+            return output;
+        }
+        const sameBank = accounts.filter((a) => nameMatchesBank(a.name, senderBank));
+        if (sameBank.length === 0 || sameBank.some((a) => !a.closed)) return output;
+        logger.warn({ event: "cross_bank_account_rejected", senderBank, sameBankOpen: false, sameBankAllClosed: true });
+        return null;
+    }
+
     async _runPhase1(emailText, { senderBank, receivedAt, linesText = "" } = {}) {
         try {
             const structured = await this._runStructuredMovement(emailText, senderBank, receivedAt, linesText);
-            if (structured) return structured;
+            if (structured) return await this._guardClosedSenderBank(structured, senderBank);
         } catch (error) {
             logger.warn({ event: "structured_movement_failed", error: error.message });
         }
 
         try {
             const legacy = await this._runLegacyBillPaymentMovement(emailText, senderBank, receivedAt);
-            if (legacy) return legacy;
+            if (legacy) return await this._guardClosedSenderBank(legacy, senderBank);
         } catch (error) {
             logger.warn({ event: "legacy_bill_payment_movement_failed", error: error.message });
         }
@@ -1886,7 +1907,7 @@ export class AgentOrchestrator {
         // full Phase-1 LLM.
         if (MOVEMENT_LIKE.test(emailText)) {
             const extracted = await this._llmExtractMovement(emailText, senderBank, receivedAt);
-            if (extracted) return extracted;
+            if (extracted) return await this._guardClosedSenderBank(extracted, senderBank);
         }
 
         let prompt = getPhase1Prompt();
