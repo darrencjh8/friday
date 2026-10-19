@@ -2,11 +2,14 @@
 
 import importlib.util
 import json
+import re
 import tempfile
 import threading
 import unittest
 import urllib.error
+import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from http.server import HTTPServer
 from pathlib import Path
 
@@ -92,6 +95,19 @@ class ServerTests(unittest.TestCase):
         status, body = self.get(base, "/api/reminders")
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["items"][0]["key"], "habit-water")
+
+    def test_favicon_is_flat_svg(self):
+        base = self.serve({"items": []})
+        _, body = self.get(base, "/")
+        match = re.search(r'<link rel="icon"[^>]*href="([^"]+)"', body)
+        self.assertIsNotNone(match)
+        self.assertTrue(match[1].startswith("data:image/svg+xml,"))
+        svg = ET.fromstring(urllib.parse.unquote(match[1].split(",", 1)[1]))
+        ns = "{http://www.w3.org/2000/svg}"
+        self.assertEqual(svg.tag, ns + "svg")
+        self.assertIsNone(svg.find(ns + "text"), "favicon must not use emoji fonts")
+        self.assertEqual(svg.find(ns + "rect").get("fill"), "#0d9488")
+        self.assertEqual(svg.find(ns + "path").get("fill"), "#fff")
 
     def test_missing_snapshot_is_empty_state(self):
         tmp = tempfile.TemporaryDirectory()
