@@ -131,9 +131,9 @@ The expense-tracker orchestrator handles ALL phases internally. Hermes only rout
 
 **Phase 2 — Resolution (code-driven, no LLM gates):** Deterministic fill-in of blanks:
 - **payee:** memory → `resolve_merchant` → Jev (needs `JEV_API_KEY`) picks one EXISTING payee from the full email, plus one Firecrawl web search for the merchant (needs `FIRECRAWL_API_KEY`) → `"Misc"`. Jev never creates a payee; its pick only becomes memory through the confirmable offer.
-- **category:** memory (keyed on the payee) → Jev picks one live spending category from the same email and search results → LLM category picker (`getCategoryPickerPrompt`, not for `Misc`) → `null`. A Jev category is never learned.
+- **category:** memory keyed on the merchant (a confirmed offer or the wiki's `Category override`) → memory keyed on the payee → Jev picks one live spending category from the same email and search results → LLM category picker (`getCategoryPickerPrompt`, not for `Misc`) → `null`. An exact category name wins over one that only contains it.
 
-Search results are untrusted evidence, never memory.
+Search results are untrusted evidence, never memory. A Jev pick becomes memory only when the user taps `/remember_<id>`: the offer names a merchant key (the descriptor without its branch, store code or company suffix, e.g. `X@T3` → `X`), the payee, and the category when Jev chose it. `Misc` is never offered or remembered. There is one offer per key; while it waits for an answer, the merchant's next alerts reuse it and are not searched again.
 
 **Phase 3 — Execute:** Insert with duplicate check, notify, `learn_fact` ×1. Skip for non-transactions. Notify on exhaustion.
 

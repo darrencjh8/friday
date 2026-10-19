@@ -25,7 +25,8 @@ const ID_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
  */
 export function descriptorOf(value) {
     const text = String(value ?? "").trim();
-    if (!/^[A-Za-z0-9][A-Za-z0-9 &'./*#-]{2,39}$/.test(text)) return null;
+    // "@" and "_" separate a branch or store code ("X@T3", "X_301").
+    if (!/^[A-Za-z0-9][A-Za-z0-9 &'./*#@_-]{2,39}$/.test(text)) return null;
     const letters = (text.match(/[A-Za-z]/g) || []).length;
     const digits = (text.match(/\d/g) || []).length;
     const significant = text.replace(/\s/g, "").length;
@@ -63,21 +64,27 @@ export class PendingLearning {
         return this._read().filter((offer) => offer.expiresAt > now);
     }
 
-    offer({ descriptor, payee, runnerUp = null, budgetId = "" }) {
+    /** The live offer for this key and budget, or null. */
+    find(descriptor, budgetId = "") {
+        return this._live().find((offer) => offer.descriptor === descriptor && offer.budgetId === budgetId) || null;
+    }
+
+    /**
+     * One offer per key and budget: a repeat keeps the first, which is the one
+     * the user was shown and is answering.
+     */
+    offer({ descriptor, payee, category = null, example = null, runnerUp = null, budgetId = "" }) {
         const offers = this._live();
-        const existing = offers.find(
-            (offer) =>
-                offer.descriptor === descriptor &&
-                offer.payee === payee &&
-                offer.budgetId === budgetId,
-        );
+        const existing = offers.find((offer) => offer.descriptor === descriptor && offer.budgetId === budgetId);
         if (existing) return existing.id;
         let id = "";
         for (let i = 0; i < 8; i += 1) id += ID_ALPHABET[randomInt(ID_ALPHABET.length)];
         offers.push({
             id,
             descriptor,
+            example: example && example !== descriptor ? example : null,
             payee,
+            category: category || null,
             runnerUp,
             budgetId,
             expiresAt: this._now() + this._ttlMs,
