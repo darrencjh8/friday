@@ -1,4 +1,4 @@
-"""Merchant web search reaches the expense tracker, off unless switched on."""
+"""Merchant web search reaches the expense tracker; the key alone turns it on."""
 
 from pathlib import Path
 import unittest
@@ -18,13 +18,13 @@ class MerchantSearchWiringTest(unittest.TestCase):
         self.assertIn("FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}", self.services["expense-tracker"]["environment"])
         self.assertIn("FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}", self.services["hermes"]["environment"])
 
-    def test_mode_defaults_to_off(self):
-        self.assertIn("MERCHANT_SEARCH_MODE=${MERCHANT_SEARCH_MODE:-off}", self.services["expense-tracker"]["environment"])
+    def test_no_feature_flag(self):
+        env = self.services["expense-tracker"]["environment"]
+        self.assertFalse([e for e in env if e.startswith("MERCHANT_SEARCH_MODE")])
+        self.assertNotIn("MERCHANT_SEARCH_MODE", WORKFLOW.read_text(encoding="utf-8"))
 
-    def test_key_is_a_secret_and_mode_is_a_variable(self):
-        text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}", text)
-        self.assertIn("MERCHANT_SEARCH_MODE: ${{ vars.MERCHANT_SEARCH_MODE }}", text)
+    def test_key_is_a_secret(self):
+        self.assertIn("FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}", WORKFLOW.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

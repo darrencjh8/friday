@@ -1,14 +1,13 @@
 /**
  * A new merchant that memory does not know is searched on the web, and Jev
  * picks one EXISTING payee and category from the alert plus the results. The
- * search only runs when MERCHANT_SEARCH_MODE allows it, never creates a
+ * search runs whenever FIRECRAWL_API_KEY is set, never creates a
  * payee, and nothing it finds is learned. Everything here is offline.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 import {
     merchantQuery,
     searchMerchant,
-    merchantSearchMode,
 } from "../src/merchant-search.js";
 import { NONE_OPTION, classifyPayee, classifyCategory } from "../src/jev.js";
 
@@ -46,16 +45,6 @@ describe("merchantQuery", () => {
     it("keeps the descriptor when trimming would leave nothing useful", () => {
         expect(merchantQuery("@T9", "SGD")).toBe("@T9 Singapore");
         expect(merchantQuery("", "SGD")).toBe("");
-    });
-});
-
-describe("merchantSearchMode", () => {
-    it("defaults to off and accepts only off, dry_run and live", () => {
-        expect(merchantSearchMode(undefined)).toBe("off");
-        expect(merchantSearchMode("")).toBe("off");
-        expect(merchantSearchMode(" LIVE ")).toBe("live");
-        expect(merchantSearchMode("dry_run")).toBe("dry_run");
-        expect(merchantSearchMode("yes")).toBe("off");
     });
 });
 

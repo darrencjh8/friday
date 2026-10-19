@@ -1,8 +1,7 @@
 /**
- * resolve_merchant and classify_category with web search (MERCHANT_SEARCH_MODE).
- * Memory always wins; the search runs only on a memory miss, only with the
- * email as evidence and a Jev key, and only in the mode that allows it. All
- * requests go to a URL-routed fetch stub.
+ * resolve_merchant and classify_category with web search. Memory always wins;
+ * the search runs only on a memory miss, only with the email as evidence, a
+ * Jev key and a Firecrawl key. All requests go to a URL-routed fetch stub.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -61,7 +60,7 @@ function routedFetch({ payeeChoice = "Food", categoryChoice = "Food", web = [{ t
 
 function registry(over = {}, facts = []) {
     return new ToolRegistry(
-        { dedupDbPath: ":memory:", jevApiKey: "jev-k", firecrawlApiKey: "fc-k", merchantSearchMode: "live", ...over },
+        { dedupDbPath: ":memory:", jevApiKey: "jev-k", firecrawlApiKey: "fc-k", ...over },
         memory(facts),
     );
 }
@@ -86,20 +85,26 @@ describe("resolve_merchant with web search", () => {
         expect(seen.jev).toHaveLength(0);
     });
 
-    it("mode off (the default) keeps today's email-only Jev call", async () => {
+    it("needs no switch beyond the keys: searches by default", async () => {
         const seen = routedFetch();
-        await registry({ merchantSearchMode: undefined }).executeTool("resolve_merchant", ARGS);
+        await registry().executeTool("resolve_merchant", ARGS);
+        expect(seen.firecrawl).toBe(1);
+        expect(seen.jev[0].state).toContain("<search>");
+    });
+
+    it("without a Firecrawl key keeps today's email-only Jev call", async () => {
+        const seen = routedFetch();
+        await registry({ firecrawlApiKey: "" }).executeTool("resolve_merchant", ARGS);
         expect(seen.firecrawl).toBe(0);
         expect(seen.jev[0].state).not.toContain("<search>");
     });
 
-    it("dry_run mode searches inside a dry run only", async () => {
+    it("also searches inside a dry run, which writes nothing", async () => {
         const seen = routedFetch();
-        const reg = registry({ merchantSearchMode: "dry_run" });
-        await reg.executeTool("resolve_merchant", ARGS);
-        expect(seen.firecrawl).toBe(0);
-        await reg.dryRun(() => reg.executeTool("resolve_merchant", ARGS));
+        const reg = registry();
+        const { calls } = await reg.dryRun(() => reg.executeTool("resolve_merchant", ARGS));
         expect(seen.firecrawl).toBe(1);
+        expect(calls).toHaveLength(0);
     });
 
     it("never searches without the email as evidence, a Jev key or a Firecrawl key", async () => {
@@ -141,9 +146,9 @@ describe("classify_category", () => {
         expect(out).toMatchObject({ category_id: "c-food", category_name: "Food", source: "jev" });
     });
 
-    it("is off unless the mode allows it", async () => {
+    it("is off without a Jev key", async () => {
         const seen = routedFetch();
-        const out = await registry({ merchantSearchMode: "off" }).executeTool("classify_category", CAT_ARGS);
+        const out = await registry({ jevApiKey: "" }).executeTool("classify_category", CAT_ARGS);
         expect(out.category_id).toBeNull();
         expect(seen.jev).toHaveLength(0);
     });

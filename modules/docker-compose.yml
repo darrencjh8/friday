@@ -92,10 +92,8 @@ services:
             - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
             - JEV_API_KEY=${JEV_API_KEY:-}
             # Web search for a merchant memory does not know, as Jev evidence.
-            # Same Firecrawl account as Hermes. Off unless MERCHANT_SEARCH_MODE
-            # is dry_run (calibration replays only) or live.
+            # Same Firecrawl account as Hermes; unset turns the search off.
             - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
-            - MERCHANT_SEARCH_MODE=${MERCHANT_SEARCH_MODE:-off}
             - WIKI_DIR=/wiki/accounts
             # Hermes's own bot, send-only here (Hermes polls it). Both set turns on
             # the tappable /remember_<id> and /forget_<id> commands (#723).

@@ -13,7 +13,7 @@ import { isBookableAmountCents } from "./amounts.js";
 import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
 import { classifyCategory, classifyPayee, eligiblePayees } from "./jev.js";
-import { merchantSearchMode, searchMerchant } from "./merchant-search.js";
+import { searchMerchant } from "./merchant-search.js";
 import { PendingLearning, descriptorOf } from "./learning.js";
 import { composeNotes } from "./transaction-notes.js";
 import { logger, getLogger, redactSensitive } from "./logging.js";
@@ -2203,7 +2203,7 @@ export class ToolRegistry {
     if (evidence?.text && this._config.jevApiKey) {
       // Memory missed, so this merchant is new: one web search gives Jev more
       // than the descriptor to go on. The results are evidence, never learned.
-      const search = this._merchantSearchOn()
+      const search = this._config.firecrawlApiKey
         ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
         : null;
       const withSearch = search ? { search } : {};
@@ -2237,20 +2237,6 @@ export class ToolRegistry {
     return { payee: "Misc", source: "fallback" };
   }
 
-  /** MERCHANT_SEARCH_MODE: live always, dry_run only inside a dry run. */
-  _merchantModeActive() {
-    const mode = merchantSearchMode(this._config.merchantSearchMode);
-    return mode === "live" || (mode === "dry_run" && Boolean(this._dryRunScope.getStore()));
-  }
-
-  _merchantSearchOn() {
-    return Boolean(this._config.firecrawlApiKey) && this._merchantModeActive();
-  }
-
-  _jevCategoryOn() {
-    return Boolean(this._config.jevApiKey) && this._merchantModeActive();
-  }
-
   /**
    * Internal: not on the HTTP or MCP routes. Jev picks one live spending
    * category for a row memory had none for. Writes nothing.
@@ -2265,7 +2251,7 @@ export class ToolRegistry {
     amount_cents,
     currency,
   }) {
-    if (!this._jevCategoryOn()) return { category_id: null, reason: "disabled" };
+    if (!this._config.jevApiKey) return { category_id: null, reason: "disabled" };
     try {
       const categories = await this._get("/categories", budget_id);
       const result = await classifyCategory({

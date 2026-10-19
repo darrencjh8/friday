@@ -4,9 +4,8 @@
  * The bank descriptor is trimmed to the merchant's name (no payment wrapper,
  * branch, card-not-present tag, company suffix or long digit run) and searched
  * once with Firecrawl. The results are evidence for Jev only: they are
- * untrusted, capped, stripped of links, and never learned. MERCHANT_SEARCH_MODE
- * decides whether any of this runs (off by default; dry_run only inside a
- * dry run, for calibration; live for every alert).
+ * untrusted, capped, stripped of links, and never learned. It runs whenever
+ * FIRECRAWL_API_KEY is set.
  */
 
 import { scrubEvidence } from "./jev.js";
@@ -18,14 +17,6 @@ const MAX_RESULTS = 5;
 const MAX_TITLE_CHARS = 120;
 const MAX_DESCRIPTION_CHARS = 300;
 const REQUEST_TIMEOUT_MS = 10000;
-
-const MODES = new Set(["off", "dry_run", "live"]);
-
-/** The configured mode; anything unrecognised is off. */
-export function merchantSearchMode(value) {
-    const mode = String(value || "").trim().toLowerCase();
-    return MODES.has(mode) ? mode : "off";
-}
 
 /** Country name and Firecrawl country code for the alert's currency. */
 const COUNTRY_BY_CURRENCY = {

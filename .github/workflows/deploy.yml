@@ -179,7 +179,6 @@ jobs:
                   EMAIL_INTAKE_MODE: ${{ vars.EMAIL_INTAKE_MODE }}
                   POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
                   JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
-                  MERCHANT_SEARCH_MODE: ${{ vars.MERCHANT_SEARCH_MODE }}
                   TELEGRAM_ALLOWED_USERS: ${{ vars.TELEGRAM_ALLOWED_USERS }}
                   TELEGRAM_HOME_CHANNEL: ${{ vars.TELEGRAM_HOME_CHANNEL }}
                   SLACK_ALLOWED_USERS: ${{ vars.SLACK_ALLOWED_USERS }}

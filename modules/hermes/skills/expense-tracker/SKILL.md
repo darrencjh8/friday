@@ -130,10 +130,10 @@ The expense-tracker orchestrator handles ALL phases internally. Hermes only rout
 **Phase 1 — LLM Analysis:** Single LLM call (`reasoning=low`) with the `fetch_context` tool to read live accounts/categories/payees. Extracts merchant, amount, date, currency and proposes payee/category, leaving fields blank when unsure. 1 retry.
 
 **Phase 2 — Resolution (code-driven, no LLM gates):** Deterministic fill-in of blanks:
-- **payee:** memory → `resolve_merchant` → Jev (needs `JEV_API_KEY`) picks one EXISTING payee from the full email, plus one Firecrawl web search for the merchant when `MERCHANT_SEARCH_MODE` is `live` → `"Misc"`. Jev never creates a payee; its pick only becomes memory through the confirmable offer.
-- **category:** memory (keyed on the payee) → Jev picks one live spending category from the same email and search results (same mode) → LLM category picker (`getCategoryPickerPrompt`, not for `Misc`) → `null`. A Jev category is never learned.
+- **payee:** memory → `resolve_merchant` → Jev (needs `JEV_API_KEY`) picks one EXISTING payee from the full email, plus one Firecrawl web search for the merchant (needs `FIRECRAWL_API_KEY`) → `"Misc"`. Jev never creates a payee; its pick only becomes memory through the confirmable offer.
+- **category:** memory (keyed on the payee) → Jev picks one live spending category from the same email and search results → LLM category picker (`getCategoryPickerPrompt`, not for `Misc`) → `null`. A Jev category is never learned.
 
-`MERCHANT_SEARCH_MODE` is `off` by default; `dry_run` searches only in a dry-run replay, for calibration. Search results are untrusted evidence, never memory.
+Search results are untrusted evidence, never memory.
 
 **Phase 3 — Execute:** Insert with duplicate check, notify, `learn_fact` ×1. Skip for non-transactions. Notify on exhaustion.
 

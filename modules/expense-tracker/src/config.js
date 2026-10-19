@@ -76,10 +76,8 @@ export class Config {
     this.jevApiKey = env.JEV_API_KEY || "";
     this.jevEndpoint = env.JEV_ENDPOINT || "";
     this.jevModel = env.JEV_MODEL || "";
-    // Web search for a merchant memory does not know, as Jev evidence. Off by
-    // default; dry_run searches only inside a dry run, for calibration.
+    // Web search for a merchant memory does not know, as Jev evidence.
     this.firecrawlApiKey = env.FIRECRAWL_API_KEY || "";
-    this.merchantSearchMode = env.MERCHANT_SEARCH_MODE || "off";
     this.pendingLearningPath = env.PENDING_LEARNING_PATH || "state/pending-learning.json";
     // Hermes's own bot: send-only here, since Hermes polls it (#723). Both set
     // turns on the /remember and /forget commands.
