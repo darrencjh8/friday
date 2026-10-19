@@ -87,10 +87,40 @@ mapping?". That is a guess, so nothing is saved until the user says yes.
   read-only to Hermes, so a fact still reaches memory only through the
   expense-tracker tools.
 
+## Correcting a booked transaction — payee, category, amount, date
+
+The user says something like "that CardUp one is income tax, category fee" or
+"wrong category for the Grab ride".
+
+1. `fetch_recent_transactions` for the budget and find the row by merchant,
+   amount and date. More than one candidate → ask which; do not guess.
+2. `fetch_context` and pick the payee and category from the live lists. A name
+   the user gives that matches nothing, or matches several → ask, and do not
+   create a payee or category.
+3. `update_transaction` with the row's `id`, `budget_id` and only the fields
+   that change. A refusal that lists candidate payee IDs → ask the user which.
+4. Confirm exactly what changed: old → new payee and category.
+
+A correction fixes one row. The next email from the same merchant books the
+same way until the mapping is remembered, so after a payee or category fix
+offer once: "Remember this for future <merchant> payments?". Only on an
+explicit yes, `learn_fact` with the canonical forms:
+
+```
+<MERCHANT DESCRIPTOR> merchant maps to <Payee> payee
+<Payee> maps to <Category> category
+```
+
+Use the descriptor as the bank prints it (`CARDUP-INLAND REVENUE`), not the
+whole alert line. The wiki is the authority, so `learn_fact` queues a proposal
+(`proposal_queued`) for Darren to approve in the wiki digest rather than taking
+effect at once; say so. No yes → change nothing beyond the transaction.
+
 ### Must not
 
 - Guess an account for a user, or store a fact the user did not confirm.
-- Edit Actual Budget transactions directly.
+- Change Actual Budget transactions except through the tracker's tools
+  (`update_transaction`), and only for the row the user means.
 - Use HTTP endpoints for these tools: `fetch_context` is MCP-only.
 
 ## Pipeline (3-phase design — see `src/orchestrator.js`)
