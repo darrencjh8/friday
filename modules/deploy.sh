@@ -677,6 +677,8 @@ if $GITHUB_MODE || check_file "$ET_ENV"; then
   done
   echo "  [Optional]"
   check_var_optional "BRAVE_SEARCH_API_KEY" "$ET_ENV"
+  check_var_optional "JEV_API_KEY" "$ET_ENV"
+  check_var_optional "FIRECRAWL_API_KEY" "$ET_ENV"
   check_var_optional "LLM_PROVIDER" "$ET_ENV"
   check_var_optional "LLM_BASE_URL" "$ET_ENV"
   check_var_optional "LLM_MODEL" "$ET_ENV"

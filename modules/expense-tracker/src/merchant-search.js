@@ -1,0 +1,114 @@
+/**
+ * Web search for a merchant memory does not know.
+ *
+ * The bank descriptor is trimmed to the merchant's name (no payment wrapper,
+ * branch, card-not-present tag, company suffix or long digit run) and searched
+ * once with Firecrawl. The results are evidence for Jev only: they are
+ * untrusted, capped, stripped of links, and never learned. It runs whenever
+ * FIRECRAWL_API_KEY is set.
+ */
+
+import { scrubEvidence } from "./jev.js";
+import { logger } from "./logging.js";
+
+export const FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search";
+
+const MAX_RESULTS = 5;
+const MAX_TITLE_CHARS = 120;
+const MAX_DESCRIPTION_CHARS = 300;
+const REQUEST_TIMEOUT_MS = 10000;
+
+/** Country name and Firecrawl country code for the alert's currency. */
+const COUNTRY_BY_CURRENCY = {
+    SGD: { name: "Singapore", code: "SG" },
+    MYR: { name: "Malaysia", code: "MY" },
+};
+
+/**
+ * The search query for a bank descriptor: the merchant's own name plus the
+ * country its currency implies. Falls back to the descriptor when trimming
+ * leaves nothing usable.
+ */
+export function merchantQuery(descriptor, currency) {
+    const raw = String(descriptor || "").replace(/\s+/g, " ").trim();
+    if (!raw) return "";
+    const name = raw
+        // Payment wrappers name the processor, not the merchant: "AMAZE* X",
+        // "GRB*X", "CARDUP-X".
+        .replace(/^[A-Za-z]{2,10}\s?\*\s*/, "")
+        .replace(/^CARDUP-/i, "")
+        // Branch or terminal after "@", store code or CNP tag after "_".
+        .replace(/[@_].*$/, "")
+        // Company suffixes and everything after them.
+        .replace(/\s+(?:PTE\.?\s*LT.*|SDN\.?\s*BHD.*|\(S\).*)$/i, "")
+        // Phone, store and terminal numbers; a trailing country code.
+        .replace(/\+?\d{4,}/g, " ")
+        .replace(/\s\+\d{1,3}$/, "")
+        .replace(/\s(?:SG|SGP|MY|MYS)$/i, "")
+        .replace(/\s+/g, " ")
+        .trim();
+    const base = name.replace(/[^A-Za-z]/g, "").length >= 2 ? name : raw;
+    const country = COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()];
+    return country ? `${base} ${country.name}` : base;
+}
+
+function clip(value, max) {
+    return scrubEvidence(String(value || "").replace(/\s+/g, " ").trim()).slice(0, max);
+}
+
+function hostOf(url) {
+    try {
+        return new URL(String(url)).hostname.replace(/^www\./, "");
+    } catch {
+        return "";
+    }
+}
+
+/**
+ * One Firecrawl web search for the descriptor.
+ * @returns {Promise<{query: string, results: {title: string, description: string, host: string}[]}>}
+ */
+export async function searchMerchant({ config, descriptor, currency, fetchImpl = fetch }) {
+    const query = merchantQuery(descriptor, currency);
+    const empty = { query, results: [] };
+    if (!config?.firecrawlApiKey || !query) return empty;
+    const country = COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()];
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+        const response = await fetchImpl(FIRECRAWL_SEARCH_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${config.firecrawlApiKey}`,
+            },
+            body: JSON.stringify({
+                query,
+                limit: MAX_RESULTS,
+                sources: ["web"],
+                ...(country ? { country: country.code } : {}),
+                timeout: REQUEST_TIMEOUT_MS,
+            }),
+            signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const body = await response.json();
+        // v2 nests web hits under data.web; v1 returned data as the array.
+        const hits = Array.isArray(body?.data?.web) ? body.data.web : Array.isArray(body?.data) ? body.data : [];
+        const results = hits
+            .slice(0, MAX_RESULTS)
+            .map((hit) => ({
+                title: clip(hit?.title, MAX_TITLE_CHARS),
+                description: clip(hit?.description ?? hit?.snippet, MAX_DESCRIPTION_CHARS),
+                host: hostOf(hit?.url),
+            }))
+            .filter((hit) => hit.title || hit.description);
+        return { query, results };
+    } catch (error) {
+        // Never log the key or the response: only that the search failed.
+        logger.warn({ event: "merchant_search_failed", error: error?.message || "unknown" });
+        return empty;
+    } finally {
+        clearTimeout(timer);
+    }
+}
