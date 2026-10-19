@@ -32,7 +32,9 @@ _COMMAND_RE = re.compile(r"^/(remember|forget)_([a-z0-9]{1,16})(@[A-Za-z0-9_]+)?
 _DEFAULT_URL = "http://expense-tracker:8080/learning/answer"
 _TIMEOUT_SECONDS = 15
 _MAPPING_PAGE = "entities/accounts/merchant-payee-mappings.md"
-_ROW_RE = re.compile(r"^\| `(?P<key>[^`]*)` \| (?P<payee>[^|]*?) \|")
+_ROW_RE = re.compile(r"^\| `(?P<key>[^`]*)` \| (?P<payee>[^|]*?) \|(?: (?P<override>[^|]*?) \|)?")
+# A category the tracker's fact readers would parse as another mapping.
+_GRAMMAR_RE = re.compile(r"maps to|payee|category|belongs to", re.IGNORECASE)
 _UNSAFE_RE = re.compile(r"[|`\r\n]|password|passcode|\bpin\b|\bnric\b", re.IGNORECASE)
 _MAX_CELL = 120
 _EXPIRED = "This offer has expired or was already answered."
@@ -78,18 +80,28 @@ def _safe_cell(value) -> bool:
     return isinstance(value, str) and 0 < len(value.strip()) <= _MAX_CELL and not _UNSAFE_RE.search(value)
 
 
-def _write_wiki_mapping(descriptor, payee, today=None) -> str:
-    """Add or replace one `descriptor` -> `payee` row; returns what happened. Never raises."""
+def _write_wiki_mapping(descriptor, payee, today=None, category=None) -> str:
+    """Add or replace one `descriptor` -> `payee` row, with the category in the
+    override column when the offer carried one; returns what happened. Never raises.
+
+    The same payee with no category keeps an override already on the row; a
+    new payee with no category clears it.
+    """
     try:
         if not (_safe_cell(descriptor) and _safe_cell(payee)):
             return "rejected"
+        if category and not (_safe_cell(category) and not _GRAMMAR_RE.search(category)):
+            return "rejected"
         descriptor, payee = descriptor.strip(), payee.strip()
+        category = (category or "").strip()
         today = today or datetime.date.today().isoformat()
         root = _wiki_root()
         page = root / _MAPPING_PAGE
         if not page.is_file():
             return "missing"
-        row = f"| `{descriptor}` | {payee} |  | confirmed | telegram-remember {today} |"
+        def row(override):
+            return f"| `{descriptor}` | {payee} | {override} | confirmed | telegram-remember {today} |"
+
         with open(page, "r+", encoding="utf-8") as handle:
             fcntl.flock(handle, fcntl.LOCK_EX)
             lines = handle.read().split("\n")
@@ -104,13 +116,14 @@ def _write_wiki_mapping(descriptor, payee, today=None) -> str:
                     continue
                 last_row = i
                 if match.group("key") == descriptor:
-                    if match.group("payee").strip() == payee:
+                    existing = (match.group("override") or "").strip()
+                    if match.group("payee").strip() == payee and (not category or category == existing):
                         return "unchanged"
-                    lines[i], outcome = row, "replaced"
+                    lines[i], outcome = row(category), "replaced"
             if outcome == "added":
                 if last_row is None:
                     return "missing"
-                lines.insert(last_row + 1, row)
+                lines.insert(last_row + 1, row(category))
             text = re.sub(r"^updated: .*$", f"updated: {today}", "\n".join(lines), count=1, flags=re.M)
             tmp = page.with_name(page.name + ".tmp")
             tmp.write_text(text, encoding="utf-8")
@@ -119,7 +132,8 @@ def _write_wiki_mapping(descriptor, payee, today=None) -> str:
         if log.is_file():
             with open(log, "a", encoding="utf-8") as handle:
                 handle.write(
-                    f"\n## [{today}] remember | {descriptor} -> {payee} ({outcome})\n"
+                    f"\n## [{today}] remember | {descriptor} -> {payee}"
+                    f"{f', category {category}' if category else ''} ({outcome})\n"
                     f"- Written by the learning-commands plugin from the owner's /remember tap.\n"
                 )
         return outcome
@@ -134,8 +148,9 @@ def _reply_text(status: int, body: dict) -> str:
     if status != 200 or not body.get("ok"):
         return _FAILED
     descriptor, payee = body.get("descriptor", ""), body.get("payee", "")
+    category = f', category {body["category"]}' if body.get("category") else ""
     if body.get("result") == "remembered":
-        return f'Remembered: "{descriptor}" is {payee}'
+        return f'Remembered: "{descriptor}" is {payee}{category}'
     return f'Not remembered: "{descriptor}"'
 
 
@@ -166,7 +181,7 @@ async def _on_pre_gateway_dispatch(event=None, gateway=None, **_kwargs):
             reply = _reply_text(status, body)
             if status == 200 and body.get("ok") and body.get("result") == "remembered":
                 written = await asyncio.to_thread(
-                    _write_wiki_mapping, body.get("descriptor"), body.get("payee")
+                    _write_wiki_mapping, body.get("descriptor"), body.get("payee"), None, body.get("category")
                 )
                 if written in ("added", "replaced", "unchanged"):
                     reply += " (saved to the wiki)"

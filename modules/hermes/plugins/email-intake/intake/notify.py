@@ -32,8 +32,13 @@ def _subject(subject):
 
 
 def offer_text(candidate):
+    """The tracker's offer wording: key, the descriptor it came from, payee and category."""
     offer_id = str(candidate.get("id", "")).lower()
-    return (f'Remember "{candidate.get("descriptor", "")}" as {candidate.get("payee", "")}? '
+    descriptor = candidate.get("descriptor", "")
+    example = candidate.get("example") or ""
+    source = f" (from {example})" if example and example != descriptor else ""
+    category = f', category {candidate["category"]}' if candidate.get("category") else ""
+    return (f'Remember "{descriptor}"{source} as {candidate.get("payee", "")}{category}? '
             f"Tap /remember_{offer_id} or /forget_{offer_id}. Nothing is saved until you choose.")
 
 

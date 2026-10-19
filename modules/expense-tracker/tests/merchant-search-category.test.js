@@ -41,7 +41,7 @@ function orchestrator({ resolve = { payee: "Food", source: "jev", search: SEARCH
         executeTool: vi.fn(async (name, args) => {
             calls.push({ name, args });
             if (name === "search_memory")
-                return { results: categoryFacts.filter((f) => f.toLowerCase().includes(String(args.query).toLowerCase())).map((text) => ({ text, score: 1 })) };
+                return { results: categoryFacts.filter((f) => words(args.query).some((w) => f.toLowerCase().includes(w))).map((text) => ({ text, score: 1 })) };
             if (name === "resolve_merchant") return resolve;
             if (name === "fetch_context") return CONTEXT;
             if (name === "classify_category") return jevCategory;
@@ -51,8 +51,11 @@ function orchestrator({ resolve = { payee: "Food", source: "jev", search: SEARCH
     const orch = new AgentOrchestrator(new Config({ DEEPSEEK_API_KEY: "sk-test", DEDUP_DB_PATH: ":memory:", STATEMENT_DB_PATH: ":memory:" }), tools);
     const chat = vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ category_id: picker }) } }] });
     orch._chat = chat;
-    return { orch, calls, chat };
+    return { orch, calls, chat, tools };
 }
+
+/** Memory search matches on words, as the real store does. */
+const words = (q) => String(q).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length >= 3);
 
 const named = (calls, name) => calls.filter((c) => c.name === name);
 
@@ -112,5 +115,75 @@ describe("category order after a Jev payee pick", () => {
         const { orch, calls } = orchestrator();
         await orch._resolvePhase2(phase1());
         expect(named(calls, "learn_fact")).toHaveLength(0);
+    });
+});
+
+describe("merchant-keyed category and confirmable offers", () => {
+    it("a category fact keyed on the merchant wins over the payee's category", async () => {
+        const { orch, calls } = orchestrator({
+            resolve: { payee: "Food", source: "memory" },
+            categoryFacts: ["ACME CHICKEN maps to Insurance category", "Food maps to Food category"],
+        });
+        const out = await orch._resolvePhase2(phase1());
+        expect(out.category_id).toBe("cat-ins");
+        expect(named(calls, "classify_category")).toHaveLength(0);
+    });
+
+    it("an exact category name wins over a longer one that contains it", async () => {
+        const { orch } = orchestrator({ categoryFacts: ["Food maps to Food category"] });
+        CONTEXT.categories.unshift({ id: "cat-fast", name: "Fast Food" });
+        try {
+            const out = await orch._resolvePhase2(phase1());
+            expect(out.category_id).toBe("cat-food");
+        } finally {
+            CONTEXT.categories.shift();
+        }
+    });
+
+    it("a pending offer's category is used without asking Jev again", async () => {
+        const { orch, calls } = orchestrator({ resolve: { payee: "Food", source: "jev", pending: true, category: "Insurance" } });
+        const out = await orch._resolvePhase2(phase1());
+        expect(out).toMatchObject({ category_id: "cat-ins", category_source: "jev" });
+        expect(named(calls, "classify_category")).toHaveLength(0);
+    });
+
+    it("offers the category only when Jev chose it", async () => {
+        const { orch, calls } = orchestrator();
+        const base = { payee_source: "jev", _jev: { descriptor: "ACME CHICKEN@T9", confidence: 0.9 }, budget_id: "b1" };
+        await orch._jevOffer({ ...base, category_source: "jev", category_name: "Food" }, "Food");
+        await orch._jevOffer({ ...base, category_name: "Food" }, "Food");
+        const offers = named(calls, "propose_learning").map((c) => c.args);
+        expect(offers[0]).toMatchObject({ descriptor: "ACME CHICKEN@T9", payee: "Food", category: "Food" });
+        expect(offers[1].category).toBeUndefined();
+    });
+
+    it("the offer text shows the key, the descriptor and the category", async () => {
+        const { orch, tools } = orchestrator();
+        tools.executeTool.mockImplementation(async (name) =>
+            name === "propose_learning" ? { offered: true, id: "AB23CD45", key: "ACME CHICKEN" } : {},
+        );
+        const offer = await orch._jevOffer(
+            { payee_source: "jev", _jev: { descriptor: "ACME CHICKEN@T9", confidence: 0.9 }, category_source: "jev", category_name: "Food" },
+            "Food",
+        );
+        expect(offer.text).toContain('Remember "ACME CHICKEN" (from ACME CHICKEN@T9) as Food, category Food?');
+    });
+
+    it("a repeat alert while the offer waits says nothing about remembering", async () => {
+        const { orch, tools } = orchestrator();
+        tools.executeTool.mockImplementation(async (name) =>
+            name === "propose_learning" ? { offered: false, reason: "already_offered", key: "ACME CHICKEN" } : {},
+        );
+        const offer = await orch._jevOffer({ payee_source: "jev", _jev: { descriptor: "ACME CHICKEN@T9" } }, "Food");
+        expect(offer).toMatchObject({ id: null });
+        expect(offer.text).not.toContain("Remember");
+    });
+
+    it("never offers for a PayNow counterparty or a transfer", async () => {
+        const { orch, calls } = orchestrator();
+        const base = { payee_source: "jev", _jev: { descriptor: "ACME PERSON" } };
+        await orch._jevOffer({ ...base, _is_paynow: true }, "Food");
+        await orch._jevOffer({ ...base, _is_transfer: true }, "Food");
+        expect(named(calls, "propose_learning")).toHaveLength(0);
     });
 });

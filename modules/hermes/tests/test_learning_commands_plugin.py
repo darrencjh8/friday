@@ -255,6 +255,42 @@ class WikiRememberWriterTest(unittest.TestCase):
             CHAT, 'Remembered: "A|B" is Food, but the wiki was not updated (rejected)'
         )
 
+    def test_a_category_fills_the_override_column(self):
+        self.assertEqual(plugin._write_wiki_mapping("Gamma Diner", "Food", today="2026-10-12", category="Snacks"), "added")
+        self.assertIn("| `Gamma Diner` | Food | Snacks | confirmed | telegram-remember 2026-10-12 |", self.page())
+        self.assertIn("Gamma Diner -> Food, category Snacks", (self.wiki / "log.md").read_text())
+
+    def test_category_replace_rules(self):
+        plugin._write_wiki_mapping("Beta Mart", "Groceries", today="2026-10-12", category="Snacks")
+        # Same payee and category: nothing to do.
+        self.assertEqual(plugin._write_wiki_mapping("Beta Mart", "Groceries", category="Snacks"), "unchanged")
+        # A payee-only answer for the same payee keeps the override.
+        self.assertEqual(plugin._write_wiki_mapping("Beta Mart", "Groceries"), "unchanged")
+        self.assertIn("| `Beta Mart` | Groceries | Snacks |", self.page())
+        # A new category replaces it.
+        self.assertEqual(plugin._write_wiki_mapping("Beta Mart", "Groceries", today="2026-10-13", category="Food"), "replaced")
+        self.assertIn("| `Beta Mart` | Groceries | Food | confirmed | telegram-remember 2026-10-13 |", self.page())
+        # A new payee with no category clears the old override.
+        self.assertEqual(plugin._write_wiki_mapping("Beta Mart", "Food", today="2026-10-14"), "replaced")
+        self.assertIn("| `Beta Mart` | Food |  | confirmed | telegram-remember 2026-10-14 |", self.page())
+        self.assertEqual(self.page().count("`Beta Mart`"), 1)
+
+    def test_rejects_an_unsafe_category(self):
+        for category in ("Fo|od", "Fo`od", "Fo\nod", "Food payee X", "x maps to y", "c" * 121):
+            self.assertEqual(plugin._write_wiki_mapping("Gamma", "Food", category=category), "rejected", category)
+        self.assertEqual(self.page(), MAPPING_PAGE)
+
+    def test_remember_reply_and_wiki_row_carry_the_category(self):
+        gateway, adapter = make_gateway()
+        with patch.object(plugin, "_call_tracker", return_value=(200, {
+            "ok": True, "result": "remembered", "descriptor": "Gamma Diner", "payee": "Food", "category": "Snacks",
+        })):
+            run(make_event("/remember_abc"), gateway)
+        adapter.send.assert_awaited_once_with(
+            CHAT, 'Remembered: "Gamma Diner" is Food, category Snacks (saved to the wiki)'
+        )
+        self.assertIn("| `Gamma Diner` | Food | Snacks |", self.page())
+
     def test_forget_never_touches_the_wiki(self):
         gateway, _ = make_gateway()
         before = self.page()

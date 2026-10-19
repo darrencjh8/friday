@@ -9,7 +9,9 @@
  */
 
 import { scrubEvidence } from "./jev.js";
+import { descriptorOf } from "./learning.js";
 import { logger } from "./logging.js";
+import { factNamesMerchant } from "./memory.js";
 
 export const FIRECRAWL_SEARCH_URL = "https://api.firecrawl.dev/v2/search";
 
@@ -50,6 +52,51 @@ export function merchantQuery(descriptor, currency) {
     const base = name.replace(/[^A-Za-z]/g, "").length >= 2 ? name : raw;
     const country = COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()];
     return country ? `${base} ${country.name}` : base;
+}
+
+/** Words too generic to stand alone as a remembered merchant key. */
+const GENERIC_KEYS = new Set([
+    "BAKERY", "BILL", "CAFE", "COFFEE", "FOOD", "GIRO", "KOPI", "MALAYSIA", "MART",
+    "ONLINE", "PARKING", "PAYMENT", "PAYMENTS", "PAYNOW", "RESTAURANT", "SHOP",
+    "SINGAPORE", "STORE", "TAXI", "TOPUP", "TRANSFER",
+]);
+const MIN_KEY_LETTERS = 5;
+
+const letterCount = (text) => (text.match(/[A-Za-z]/g) || []).length;
+
+/**
+ * The key to offer remembering a merchant under: its name without the payment
+ * wrapper, branch, store code, company suffix, or trailing number and country,
+ * so one confirmation covers every branch ("X@T3" -> "X"). Only the start and
+ * the end are cut, never the middle, so the key always matches the descriptor
+ * it came from. A short or generic name falls back to the whole descriptor;
+ * when neither is a usable key there is no offer.
+ * @returns {string|null}
+ */
+export function merchantKey(descriptor) {
+    // A line break or control character is never a bank descriptor.
+    if (/[\u0000-\u001f\u007f]/.test(String(descriptor ?? ""))) return null;
+    const raw = String(descriptor || "").replace(/ +/g, " ").trim();
+    if (!raw) return null;
+    let name = raw
+        .replace(/^[A-Za-z]{2,10}\s?\*\s*/, "")
+        .replace(/^CARDUP-/i, "")
+        .replace(/[@_].*$/, "")
+        .replace(/\s+(?:PTE\.?\s*LT.*|SDN\.?\s*BHD.*|\(S\).*)$/i, "");
+    for (let previous = ""; previous !== name; ) {
+        previous = name;
+        name = name
+            .replace(/\s+\+?\d+$/, "")
+            .replace(/\s(?:SG|SGP|MY|MYS)$/i, "")
+            .replace(/[\s*.-]+$/, "")
+            .trim();
+    }
+    const usable = (key) =>
+        Boolean(key) && !GENERIC_KEYS.has(key.toUpperCase()) && factNamesMerchant(`${key} maps to X payee`, raw);
+    const trimmed = descriptorOf(name);
+    if (usable(trimmed) && letterCount(trimmed) >= MIN_KEY_LETTERS) return trimmed;
+    const whole = descriptorOf(raw);
+    return usable(whole) ? whole : null;
 }
 
 function clip(value, max) {
