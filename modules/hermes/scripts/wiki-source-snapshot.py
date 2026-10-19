@@ -83,7 +83,8 @@ def actual(budget):
     }
     meta = {"source_url": f"expense-tracker fetch_context + actual-api /transactions ({budget})",
             "window": f"balances current; transactions {since}..today", "accounts": len(data["accounts"]),
-            "transactions": len(data["transactions"]), "has_more": "false (unpaged route)"}
+            "transactions": len(data["transactions"]), "has_more": False,
+            "completeness": "complete for window (actual-api /transactions returns every row, no paging or cap)"}
     return data, meta
 
 

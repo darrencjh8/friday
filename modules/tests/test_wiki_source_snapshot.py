@@ -98,6 +98,18 @@ class WikiSourceSnapshotTest(unittest.TestCase):
         self.assertEqual(kept, {"Name", "Status"})
         self.assertEqual(self.mod.notion_value(props["Name"]), "Card A")
 
+    def test_actual_meta_marks_the_transaction_window_complete(self) -> None:
+        # actual-api /transactions returns every row in the window (no paging, no cap),
+        # so the meta must not read as possibly truncated (an "incomplete" digest).
+        self.mod.mcp_call = lambda *a, **k: {"accounts": [], "payees": []}
+        self.mod.http_json = lambda *a, **k: ([], {})
+
+        _, meta = self.mod.actual("Darren SGD")
+
+        self.assertIs(meta["has_more"], False)
+        self.assertIn("complete", meta["completeness"])
+        self.assertNotIn("unpaged", str(meta))
+
 
 if __name__ == "__main__":
     unittest.main()
