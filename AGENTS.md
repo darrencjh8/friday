@@ -18,7 +18,7 @@
 - Never run `docker compose`, `git pull`, `deploy.sh`, or direct deployment commands on production.
 - For config-only intervention or CI/CD failure, ask the user for direction; do not perform manual production remediation by default.
 - Before any production debug, inspection, test, or verification command, ask for explicit approval.
-- Never edit Hermes data (wiki, memory, skills, anything under `/opt/data`) on the host or as root. Make the change through Hermes itself: its API server (`:8642`, `Authorization: Bearer $API_SERVER_KEY`, key read inside the container and never printed) or Telegram, with approval first.
+- Never edit Hermes data (wiki, memory, skills, anything under `/opt/data`) on the host or as root. Make the change through Hermes itself: its API server (`:8642`, `Authorization: Bearer $API_SERVER_KEY`, key read inside the container and never printed) or Telegram, with approval first. Reason: friday-memory is a one-way sync from the Hermes container cron to the repo, so a host edit, or a direct edit to the friday-memory repo, is discarded.
 
 ## Configuration
 
