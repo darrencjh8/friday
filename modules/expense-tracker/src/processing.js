@@ -200,7 +200,13 @@ export class ProcessingService {
       return true;
     });
     this._tools.setOfferSink(async (offer) => {
-      candidate = { id: offer.id, descriptor: offer.descriptor, payee: offer.payee };
+      candidate = {
+        id: offer.id,
+        descriptor: offer.descriptor,
+        payee: offer.payee,
+        ...(offer.example ? { example: offer.example } : {}),
+        ...(offer.category ? { category: offer.category } : {}),
+      };
     });
     let outcome;
     try {

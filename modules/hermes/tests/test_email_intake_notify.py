@@ -47,6 +47,12 @@ class FakeTelegram:
 
 
 class ComposeTest(unittest.TestCase):
+    def test_offer_text_names_the_example_and_the_category(self):
+        text = notify.offer_text({"id": "ABCD1234", "descriptor": "ALPHA CAFE", "example": "ALPHA CAFE@T3",
+                                  "payee": "Food", "category": "Snacks"})
+        self.assertIn('Remember "ALPHA CAFE" (from ALPHA CAFE@T3) as Food, category Snacks?', text)
+        self.assertIn("/remember_abcd1234", text)
+
     def test_offer_uses_the_tracker_wording_and_lowercase_commands(self):
         text = notify.offer_text({"id": "ABCD1234", "descriptor": "ALPHA CAFE", "payee": "Alpha Cafe"})
         self.assertEqual(text, 'Remember "ALPHA CAFE" as Alpha Cafe? Tap /remember_abcd1234 or /forget_abcd1234. '

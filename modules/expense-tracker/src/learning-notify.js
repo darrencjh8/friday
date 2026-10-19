@@ -32,6 +32,16 @@ export function verifyAnswer(signature, action, id, token) {
     return want.length === have.length && timingSafeEqual(want, have);
 }
 
+/**
+ * What an offer asks to remember: the key, the descriptor it was trimmed from,
+ * the payee and, when Jev chose one, the category.
+ */
+export function offerSubject(offer) {
+    const from = offer.example && offer.example !== offer.descriptor ? ` (from ${offer.example})` : "";
+    const category = offer.category ? `, category ${offer.category}` : "";
+    return `"${offer.descriptor}"${from} as ${offer.payee}${category}`;
+}
+
 export class LearningNotifier {
     constructor({ token, chatId, fetchFn = fetch }) {
         this._token = token;
@@ -47,7 +57,7 @@ export class LearningNotifier {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 chat_id: this._chatId,
-                text: `Remember "${offer.descriptor}" as ${offer.payee}?${runnerUp} Tap /remember_${id} or /forget_${id}. Nothing is saved until you choose.`,
+                text: `Remember ${offerSubject(offer)}?${runnerUp} Tap /remember_${id} or /forget_${id}. Nothing is saved until you choose.`,
             }),
         });
         const json = await response.json();
@@ -75,13 +85,14 @@ export function createAnswerHandler({ registry, token, chatId }) {
             const offer = registry._pendingLearning.get(id);
             if (!offer) return res.status(404).json({ ok: false, reason: "expired" });
             const { descriptor, payee } = offer;
+            const extra = offer.category ? { category: offer.category } : {};
             if (action === "forget") {
                 await registry._handle_decline_learning({ id });
-                return res.json({ ok: true, result: "forgotten", descriptor, payee });
+                return res.json({ ok: true, result: "forgotten", descriptor, payee, ...extra });
             }
             const confirmed = await registry._confirmLearning(id);
             if (!confirmed.confirmed) return res.status(500).json({ ok: false, reason: "not_saved" });
-            return res.json({ ok: true, result: "remembered", descriptor, payee });
+            return res.json({ ok: true, result: "remembered", descriptor, payee, ...extra });
         } catch (error) {
             logger.warn({ event: "learning_answer_failed", error: error.message });
             return res.status(500).json({ ok: false, reason: "error" });

@@ -12,9 +12,9 @@ import { DedupJournal } from "./dedup.js";
 import { isBookableAmountCents } from "./amounts.js";
 import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
-import { classifyCategory, classifyPayee, eligiblePayees } from "./jev.js";
-import { searchMerchant } from "./merchant-search.js";
-import { PendingLearning, descriptorOf } from "./learning.js";
+import { classifyCategory, classifyPayee, eligibleCategories, eligiblePayees } from "./jev.js";
+import { merchantKey, searchMerchant } from "./merchant-search.js";
+import { PendingLearning } from "./learning.js";
 import { composeNotes } from "./transaction-notes.js";
 import { logger, getLogger, redactSensitive } from "./logging.js";
 
@@ -959,6 +959,9 @@ const TOOL_MAP = Object.fromEntries(TOOLS.map((t) => [t.name, t]));
 // A dry run (#796 parity replay) executes only these tools: they read. Every
 // other tool is recorded with its arguments and answered with a stub, so a new
 // tool is held back from a dry run until it is listed here.
+/** Text a fact reader would parse as a mapping of its own. */
+const FACT_GRAMMAR_RE = /maps to|payee|category|belongs to|[|`\r\n]/i;
+
 const DRY_RUN_READ_TOOLS = new Set([
   "search_memory",
   "search_wiki",
@@ -2200,6 +2203,12 @@ export class ToolRegistry {
     // validated against the real payee list and thresholds, it only runs when the
     // orchestrator supplies the email as evidence, and its answer is never
     // learned here (a user must confirm it, #720).
+    // An offer for this merchant is still waiting for the user's answer: reuse
+    // it, so a repeat alert costs no search and no Jev call.
+    if (evidence?.text) {
+      const pending = await this._pendingAnswer(merchant, budgetId);
+      if (pending) return pending;
+    }
     if (evidence?.text && this._config.jevApiKey) {
       // Memory missed, so this merchant is new: one web search gives Jev more
       // than the descriptor to go on. The results are evidence, never learned.
@@ -2235,6 +2244,32 @@ export class ToolRegistry {
       return { payee: "Misc", source: "fallback", ...withSearch };
     }
     return { payee: "Misc", source: "fallback" };
+  }
+
+  /**
+   * The live offer whose key names this merchant in this budget, as a
+   * resolve_merchant answer, while its payee is still an eligible one.
+   */
+  async _pendingAnswer(merchant, budgetId) {
+    const offer = this._pendingLearning
+      .list()
+      .find(
+        (o) => o.budgetId === (budgetId || "") && factNamesMerchant(`${o.descriptor} maps to ${o.payee} payee`, merchant),
+      );
+    if (!offer) return null;
+    try {
+      if (!eligiblePayees(await this._get("/payees", budgetId)).includes(offer.payee)) return null;
+    } catch {
+      return null;
+    }
+    return {
+      payee: offer.payee,
+      source: "jev",
+      pending: true,
+      category: offer.category || null,
+      runner_up: offer.runnerUp || null,
+      confidence: null,
+    };
   }
 
   /**
@@ -2294,19 +2329,39 @@ export class ToolRegistry {
    * Internal: not on the HTTP or MCP routes. Stores an offer to remember a
    * mapping. Writes no fact.
    */
-  async _handle_propose_learning({ descriptor, payee, runner_up, budget_id }) {
-    const clean = descriptorOf(descriptor);
-    if (!clean) return { offered: false, reason: "unusable_descriptor" };
+  async _handle_propose_learning({ descriptor, payee, category, runner_up, budget_id }) {
+    const key = merchantKey(descriptor);
+    if (!key) return { offered: false, reason: "unusable_descriptor" };
     let eligible;
     try {
       eligible = eligiblePayees(await this._get("/payees", budget_id));
     } catch {
       return { offered: false, reason: "payees_unavailable" };
     }
+    // Misc is never eligible, so it is never remembered.
     if (!eligible.includes(payee)) return { offered: false, reason: "ineligible_payee" };
+    if (category) {
+      // Exactly a live spending category, and nothing a fact reader could
+      // parse as another mapping.
+      let names = [];
+      try {
+        names = eligibleCategories(await this._get("/categories", budget_id)).map((c) => c.name);
+      } catch {
+        return { offered: false, reason: "categories_unavailable" };
+      }
+      if (!names.includes(category) || FACT_GRAMMAR_RE.test(category)) {
+        return { offered: false, reason: "ineligible_category" };
+      }
+    }
+    // One offer per key: a repeat alert sends nothing new.
+    if (this._pendingLearning.find(key, budget_id || "")) {
+      return { offered: false, reason: "already_offered", key };
+    }
     const id = this._pendingLearning.offer({
-      descriptor: clean,
+      descriptor: key,
+      example: String(descriptor || "").trim(),
       payee,
+      category: category || null,
       runnerUp: runner_up || null,
       budgetId: budget_id || "",
     });
@@ -2320,7 +2375,7 @@ export class ToolRegistry {
         logger.warn({ event: "learning_offer_send_failed", error: error.message });
       }
     }
-    return { offered: true, id };
+    return { offered: true, id, key };
   }
 
   /** Internal: drop an offer whose notification never reached the user. */
@@ -2358,14 +2413,19 @@ export class ToolRegistry {
     // An existing identical fact is the outcome the user asked for.
     // With the wiki as authority (#783) the store queues the fact as a
     // proposal and Hermes writes the wiki row from the /remember answer.
-    const known = ["duplicate", "structured duplicate", "semantic duplicate", "proposal_queued"].includes(
-      learned?.reason,
-    );
-    if (!learned?.added && !known) {
+    const known = ["duplicate", "structured duplicate", "semantic duplicate", "proposal_queued"];
+    if (!learned?.added && !known.includes(learned?.reason)) {
       return { confirmed: false, reason: learned?.reason || "not_saved", kept: true };
     }
     this._pendingLearning.discard(offer.id);
-    return { confirmed: true, fact };
+    if (!offer.category) return { confirmed: true, fact };
+    // The payee is what was asked for; a category that is not saved is
+    // reported, not a failed confirm.
+    const categoryFact = `${offer.descriptor} maps to ${offer.category} category`;
+    const saved = await this._handle_learn_fact({ fact: categoryFact, budget_id: offer.budgetId });
+    const categorySaved = Boolean(saved?.added) || known.includes(saved?.reason);
+    if (!categorySaved) logger.warn({ event: "learning_category_not_saved", reason: saved?.reason || "unknown" });
+    return { confirmed: true, fact, category: offer.category, category_saved: categorySaved };
   }
 
   async _handle_decline_learning({ id }) {

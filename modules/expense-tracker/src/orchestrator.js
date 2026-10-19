@@ -32,6 +32,7 @@ import {
 } from "./suffix-facts.js";
 import { factNamesMerchant } from "./memory.js";
 import { descriptorOf } from "./learning.js";
+import { offerSubject } from "./learning-notify.js";
 import {
     bookableAmountCents,
     isBookableAmountCents,
@@ -351,6 +352,22 @@ export function nameMatchesBank(name, bank) {
     const aliases = BANK_ALIASES[bank.toLowerCase()] || [bank];
     const lower = name.toLowerCase();
     return aliases.some((t) => new RegExp(`\\b${t}\\b`, "i").test(lower));
+}
+
+/**
+ * The live category a memory fact names: an exact (case-insensitive) name
+ * first, so "Food" never lands on "Fast Food"; then, unless `exact`, the first
+ * name containing it, as before.
+ */
+function matchCategory(categories, name, { exact = false } = {}) {
+    const wanted = String(name || "").trim().toLowerCase();
+    if (!wanted) return null;
+    const named = (categories || []).filter((c) => c?.name);
+    return (
+        named.find((c) => c.name.trim().toLowerCase() === wanted) ||
+        (exact ? null : named.find((c) => c.name.toLowerCase().includes(wanted))) ||
+        null
+    );
 }
 
 /** Normalize a holder name for equality without turning a partial match into one. */
@@ -2876,8 +2893,9 @@ export class AgentOrchestrator {
         // A deterministic placeholder `Misc` is not a decision (#720): clear it so
         // the memory, resolver and Jev tiers below run, and fall back to `Misc`.
         if (output._payee_unresolved && !paynowSettled) output.payee_name = "";
+        // Memory hits for the merchant itself; the category tier reads them too.
+        let memResults = [];
         if (!output.payee_name && searchTerm && !paynowSettled) {
-            let memResults = [];
             try {
                 const memResult = await this._tools.executeTool(
                     "search_memory",
@@ -2925,6 +2943,8 @@ export class AgentOrchestrator {
                     );
                     // The same results are Jev's evidence for the category below.
                     if (resolved?.search) output._merchant_search = resolved.search;
+                    // An offer still waiting for an answer carries its category.
+                    if (resolved?.pending && resolved.category) output._pending_category = resolved.category;
                     if (resolved?.payee) {
                         output.payee_name = resolved.payee;
                         output.payee_source = resolved.source || "fallback";
@@ -3159,45 +3179,62 @@ export class AgentOrchestrator {
             // Query by payee name only (not "payee + ' category'") so substring
             // search can reach facts like "Maxis Fibre maps to Malaysia Utilities
             // category" (the "X category" suffix is not contiguous in the fact).
-            try {
-                const catMem = await this._tools.executeTool("search_memory", {
-                    query: output.payee_name,
-                });
-                // A category fact is keyed by the entity it names, which is the
-                // payee in the auto-learned shape and the merchant in older
-                // facts. Either may name it; a fact naming neither must not
-                // supply the category. Issues #471, #420.
-                const categoryKeys = [output.payee_name, output.merchant].filter(
-                    Boolean,
-                );
-                for (const r of catMem?.results || []) {
-                    if (
-                        !categoryKeys.some((key) =>
-                            factNamesMerchant(r.text, key),
+            // Tier 1a: a category fact keyed on this merchant (a confirmed offer
+            // or a wiki "Category override") outranks the payee's category.
+            for (const r of memResults) {
+                if (!searchTerm || !factNamesMerchant(r.text, searchTerm)) continue;
+                const m = (r.text || "").match(/maps to (.+?) category/i);
+                const matched = m ? matchCategory(liveCategories, m[1]) : null;
+                if (matched) {
+                    output.category_id = matched.id;
+                    output.category_name = matched.name;
+                    break;
+                }
+            }
+
+            if (!output.category_id) {
+                try {
+                    const catMem = await this._tools.executeTool("search_memory", {
+                        query: output.payee_name,
+                    });
+                    // A category fact is keyed by the entity it names, which is the
+                    // payee in the auto-learned shape and the merchant in older
+                    // facts. Either may name it; a fact naming neither must not
+                    // supply the category. Issues #471, #420.
+                    const categoryKeys = [output.payee_name, output.merchant].filter(
+                        Boolean,
+                    );
+                    for (const r of catMem?.results || []) {
+                        if (
+                            !categoryKeys.some((key) =>
+                                factNamesMerchant(r.text, key),
+                            )
                         )
-                    )
-                        continue;
-                    const m = (r.text || "").match(/maps to (.+?) category/i);
-                    if (m) {
-                        const matched = liveCategories.find(
-                            (c) =>
-                                c.name &&
-                                c.name
-                                    .toLowerCase()
-                                    .includes(m[1].toLowerCase()),
-                        );
-                        if (matched) {
-                            output.category_id = matched.id;
-                            output.category_name = matched.name;
-                            break;
+                            continue;
+                        const m = (r.text || "").match(/maps to (.+?) category/i);
+                        if (m) {
+                            const matched = matchCategory(liveCategories, m[1]);
+                            if (matched) {
+                                output.category_id = matched.id;
+                                output.category_name = matched.name;
+                                break;
+                            }
                         }
                     }
-                }
-            } catch {}
+                } catch {}
+            }
 
             // Tier 1b: Jev, only when memory had no category. It reads the email
             // and the search results that found the payee, and may categorise a
             // Misc row too. Its pick is validated here and never learned.
+            if (!output.category_id && output._pending_category && !output._is_transfer) {
+                const pending = matchCategory(liveCategories, output._pending_category, { exact: true });
+                if (pending) {
+                    output.category_id = pending.id;
+                    output.category_name = pending.name;
+                    output.category_source = "jev";
+                }
+            }
             if (!output.category_id && output._evidence?.text && !output._is_transfer) {
                 try {
                     const jev = await this._tools.executeTool("classify_category", {
@@ -3769,6 +3806,9 @@ export class AgentOrchestrator {
     async _jevOffer(llmOutput, payeeName) {
         const none = { id: null, text: "" };
         if (llmOutput.payee_source !== "jev" || !llmOutput._jev) return none;
+        // A PayNow counterparty is a person, not a merchant; a transfer is
+        // between the user's own accounts.
+        if (llmOutput._is_paynow || llmOutput._is_transfer) return none;
         const { descriptor, runnerUp, confidence } = llmOutput._jev;
         const placeholder = descriptor === "Unidentified deposit";
         const sure = Number.isFinite(Number(confidence))
@@ -3778,16 +3818,26 @@ export class AgentOrchestrator {
         // The placeholder names nothing to remember.
         if (placeholder) return { id: null, text: matched };
         try {
+            // Only a category Jev chose for this alert; one memory found through
+            // the payee is not this merchant's own.
+            const category = llmOutput.category_source === "jev" ? llmOutput.category_name : "";
             const offered = await this._tools.executeTool("propose_learning", {
                 descriptor,
                 payee: payeeName,
+                ...(category ? { category } : {}),
                 runner_up: runnerUp || "",
                 budget_id: llmOutput.budget_id || "",
             });
             if (!offered?.offered) return { id: null, text: matched };
+            const subject = offerSubject({
+                descriptor: offered.key || descriptor,
+                example: descriptor,
+                payee: payeeName,
+                category,
+            });
             return {
                 id: offered.id,
-                text: `${matched} Remember "${descriptor}" as ${payeeName}? Nothing is saved until you confirm.`,
+                text: `${matched} Remember ${subject}? Nothing is saved until you confirm.`,
             };
         } catch (error) {
             logger.warn({ event: "jev_offer_failed", error: error.message });
