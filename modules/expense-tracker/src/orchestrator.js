@@ -2923,6 +2923,8 @@ export class AgentOrchestrator {
                                 : {}),
                         },
                     );
+                    // The same results are Jev's evidence for the category below.
+                    if (resolved?.search) output._merchant_search = resolved.search;
                     if (resolved?.payee) {
                         output.payee_name = resolved.payee;
                         output.payee_source = resolved.source || "fallback";
@@ -3192,6 +3194,32 @@ export class AgentOrchestrator {
                     }
                 }
             } catch {}
+
+            // Tier 1b: Jev, only when memory had no category. It reads the email
+            // and the search results that found the payee, and may categorise a
+            // Misc row too. Its pick is validated here and never learned.
+            if (!output.category_id && output._evidence?.text && !output._is_transfer) {
+                try {
+                    const jev = await this._tools.executeTool("classify_category", {
+                        merchant: output.merchant || searchTerm || "",
+                        payee: output.payee_name,
+                        budget_id: output.budget_id || "",
+                        evidence: output._evidence,
+                        ...(output._merchant_search ? { search: output._merchant_search } : {}),
+                        direction: Number(output.amount_cents) > 0 ? "incoming" : "outgoing",
+                        amount_cents: output.amount_cents,
+                        currency: output.currency,
+                    });
+                    const valid = jev?.category_id
+                        ? liveCategories.find((c) => c.id === jev.category_id)
+                        : null;
+                    if (valid) {
+                        output.category_id = valid.id;
+                        output.category_name = valid.name;
+                        output.category_source = "jev";
+                    }
+                } catch {}
+            }
 
             // Tier 2: LLM picker (only if payee carries semantic signal
             // AND this is not a transfer)

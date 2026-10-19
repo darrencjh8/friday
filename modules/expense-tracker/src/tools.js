@@ -12,7 +12,8 @@ import { DedupJournal } from "./dedup.js";
 import { isBookableAmountCents } from "./amounts.js";
 import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
-import { classifyPayee, eligiblePayees } from "./jev.js";
+import { classifyCategory, classifyPayee, eligiblePayees } from "./jev.js";
+import { searchMerchant } from "./merchant-search.js";
 import { PendingLearning, descriptorOf } from "./learning.js";
 import { composeNotes } from "./transaction-notes.js";
 import { logger, getLogger, redactSensitive } from "./logging.js";
@@ -979,6 +980,7 @@ const DRY_RUN_READ_TOOLS = new Set([
   "check_statement_duplicate",
   "search_web",
   "resolve_merchant",
+  "classify_category",
   "list_pending_learning",
   "log_decision",
 ]);
@@ -2199,6 +2201,12 @@ export class ToolRegistry {
     // orchestrator supplies the email as evidence, and its answer is never
     // learned here (a user must confirm it, #720).
     if (evidence?.text && this._config.jevApiKey) {
+      // Memory missed, so this merchant is new: one web search gives Jev more
+      // than the descriptor to go on. The results are evidence, never learned.
+      const search = this._config.firecrawlApiKey
+        ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
+        : null;
+      const withSearch = search ? { search } : {};
       try {
         const payees = await this._get("/payees", budgetId);
         const result = await classifyPayee({
@@ -2209,6 +2217,7 @@ export class ToolRegistry {
           currency,
           evidence,
           payees,
+          ...withSearch,
         });
         if (result.payee) {
           return {
@@ -2217,13 +2226,50 @@ export class ToolRegistry {
             runner_up: result.runnerUp?.payee || null,
             confidence: result.confidence,
             evidence_score: result.evidenceScore,
+            ...withSearch,
           };
         }
       } catch (error) {
         logger.warn({ event: "jev_tier_failed", error: error.message });
       }
+      return { payee: "Misc", source: "fallback", ...withSearch };
     }
     return { payee: "Misc", source: "fallback" };
+  }
+
+  /**
+   * Internal: not on the HTTP or MCP routes. Jev picks one live spending
+   * category for a row memory had none for. Writes nothing.
+   */
+  async _handle_classify_category({
+    merchant,
+    payee,
+    budget_id,
+    evidence,
+    search,
+    direction,
+    amount_cents,
+    currency,
+  }) {
+    if (!this._config.jevApiKey) return { category_id: null, reason: "disabled" };
+    try {
+      const categories = await this._get("/categories", budget_id);
+      const result = await classifyCategory({
+        config: this._config,
+        merchant,
+        payee,
+        direction,
+        amountCents: amount_cents,
+        currency,
+        evidence,
+        categories,
+        search,
+      });
+      return result.category_id ? { ...result, source: "jev" } : result;
+    } catch (error) {
+      logger.warn({ event: "jev_category_tier_failed", error: error.message });
+      return { category_id: null, reason: "error" };
+    }
   }
 
   // ── Learning that waits for the user (#720) ─────────────────
