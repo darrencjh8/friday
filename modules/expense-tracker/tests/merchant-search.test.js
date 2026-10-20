@@ -220,6 +220,8 @@ describe("classifyCategory", () => {
         ["low confidence", { ...confident, category: { ...confident.category, confidence: 0.8 } }, "low_confidence"],
         ["close runner-up", { ...confident, category: { ...confident.category, probabilities: { Food: 0.5, Insurance: 0.3 } } }, "close_runner_up"],
         ["weak evidence", { ...confident, evidence: { type: "noul", noul: 0.5 } }, "weak_evidence"],
+        // A category books with no offer, so it keeps the 0.8 bar, not the payee's 0.6.
+        ["evidence under the category bar", { ...confident, evidence: { type: "noul", noul: 0.7 } }, "weak_evidence"],
         ["none option", { ...confident, category: { ...confident.category, choice: NONE_OPTION } }, "none"],
         ["unknown name", { ...confident, category: { ...confident.category, choice: "Salary" } }, "unknown_category"],
     ])("leaves the category blank on %s", async (_label, answers, reason) => {

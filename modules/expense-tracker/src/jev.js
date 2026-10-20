@@ -22,12 +22,16 @@ export const JEV_DEFAULT_MODEL = "jev-latest";
  * was calibrated on a replay of real alerts, where correct picks scored
  * 0.69-0.79; a payee pick is only offered, never learned, until confirmed. A
  * category pick is booked with no offer, so it keeps the original 0.85 bar.
+ * The payee evidence bar was lowered to 0.6 after a v2 replay of 32 booked
+ * alerts, where the 0.8 bar refused right picks (most scored 0.52-0.79) and
+ * no accepted pick was wrong; a category keeps 0.8.
  */
 export const JEV_THRESHOLDS = Object.freeze({
     confidence: 0.65,
     categoryConfidence: 0.85,
     margin: 0.3,
     evidence: 0.8,
+    payeeEvidence: 0.6,
 });
 
 /**
@@ -238,7 +242,7 @@ const round3 = (value) => Math.round(value * 1000) / 1000;
  * reason}` when any gate fails. `scores` reports what the model said even on
  * a refusal, for calibration logs; it never carries the email.
  */
-async function pick({ config, fetchImpl, state, key, instructions, names, criteriaFor, noneCriterion, evidenceQuestion, unknownReason, minConfidence, fullScores = false }) {
+async function pick({ config, fetchImpl, state, key, instructions, names, criteriaFor, noneCriterion, evidenceQuestion, unknownReason, minConfidence, minEvidence = JEV_THRESHOLDS.evidence, fullScores = false }) {
     const scores = {};
     // `fullScores` (calibration only) still asks every question after a failed
     // gate, so the log shows what each gate would have seen; the first failed
@@ -283,7 +287,7 @@ async function pick({ config, fetchImpl, state, key, instructions, names, criter
     });
     const evidenceScore = Number(second?.evidence?.noul);
     scores.evidence = evidenceScore;
-    if (!(evidenceScore >= JEV_THRESHOLDS.evidence) && gate("weak_evidence")) return none(failed);
+    if (!(evidenceScore >= minEvidence) && gate("weak_evidence")) return none(failed);
     if (failed) return none(failed);
     return {
         choice: best,
@@ -377,6 +381,7 @@ export async function classifyPayee({
             state,
             key: "payee",
             minConfidence: JEV_THRESHOLDS.confidence,
+            minEvidence: JEV_THRESHOLDS.payeeEvidence,
             names,
             fullScores,
             ...(v2 ? { criteriaFor: (name) => v2Criterion(history?.byName.get(name)) } : {}),

@@ -177,9 +177,14 @@ describe("classifyPayee validation", () => {
         expect(below).toMatchObject({ payee: null, reason: "close_runner_up" });
     });
 
-    it("applies the evidence threshold at its boundary", async () => {
-        const at = await run(stubFetch({ second: { type: "noul", noul: JEV_THRESHOLDS.evidence } }));
-        const below = await run(stubFetch({ second: { type: "noul", noul: JEV_THRESHOLDS.evidence - 0.01 } }));
+    it("checks a payee's evidence at 0.6, the calibrated payee bar", () => {
+        expect(JEV_THRESHOLDS.payeeEvidence).toBe(0.6);
+        expect(JEV_THRESHOLDS.evidence).toBe(0.8);
+    });
+
+    it("applies the payee evidence threshold at its boundary", async () => {
+        const at = await run(stubFetch({ second: { type: "noul", noul: JEV_THRESHOLDS.payeeEvidence } }));
+        const below = await run(stubFetch({ second: { type: "noul", noul: JEV_THRESHOLDS.payeeEvidence - 0.01 } }));
         expect(at.payee).toBe("Bank Interest");
         expect(below).toMatchObject({ payee: null, reason: "weak_evidence" });
     });
