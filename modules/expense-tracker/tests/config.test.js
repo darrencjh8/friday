@@ -32,6 +32,12 @@ describe("Config", () => {
         expect(new Config({}).llmApiKey).toBe("");
     });
 
+    it("runs the v2 Jev payee prompt unless JEV_PROMPT_VARIANT=v1", () => {
+        expect(new Config(requiredEnv).jevPromptVariant).toBe("v2");
+        expect(new Config({ ...requiredEnv, JEV_PROMPT_VARIANT: "v1" }).jevPromptVariant).toBe("v1");
+        expect(new Config({ ...requiredEnv, JEV_PROMPT_VARIANT: "v9" }).jevPromptVariant).toBe("v2");
+    });
+
     it("uses defaults for optional variables", () => {
         const config = new Config(requiredEnv);
         expect(config.imapPort).toBe(993);
