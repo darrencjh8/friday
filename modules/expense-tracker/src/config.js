@@ -77,8 +77,10 @@ export class Config {
     this.jevEndpoint = env.JEV_ENDPOINT || "";
     this.jevModel = env.JEV_MODEL || "";
     // Which Jev payee prompt runs live (jev.js JEV_PROMPT_VARIANTS); a
-    // calibration dry run measures every variant whatever this says.
-    this.jevPromptVariant = env.JEV_PROMPT_VARIANT === "v2" ? "v2" : "v1";
+    // calibration dry run measures every variant whatever this says. v2 runs
+    // live after a replay of booked alerts (29/32 first choices right against
+    // 22/32 for v1); JEV_PROMPT_VARIANT=v1 rolls back.
+    this.jevPromptVariant = env.JEV_PROMPT_VARIANT === "v1" ? "v1" : "v2";
     // Web search for a merchant memory does not know, as Jev evidence.
     this.firecrawlApiKey = env.FIRECRAWL_API_KEY || "";
     this.pendingLearningPath = env.PENDING_LEARNING_PATH || "state/pending-learning.json";
