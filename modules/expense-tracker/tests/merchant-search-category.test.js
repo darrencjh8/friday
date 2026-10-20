@@ -188,3 +188,21 @@ describe("merchant-keyed category and confirmable offers", () => {
         expect(named(calls, "propose_learning")).toHaveLength(0);
     });
 });
+
+describe("person transactions are never web-searched", () => {
+    it("an outgoing PayNow to a person reaches Jev with no search", async () => {
+        const { orch, calls } = orchestrator({ resolve: { payee: "Misc", source: "fallback" } });
+        await orch._resolvePhase2(phase1({ merchant: "ACME PERSON", raw_description: "PayNow to ACME PERSON", _is_paynow: true }));
+        const [call] = named(calls, "resolve_merchant");
+        expect(call.args).toMatchObject({ merchant: "ACME PERSON", no_search: true });
+    });
+
+    it("a PayNow to a UEN merchant and a card purchase still search", async () => {
+        const uen = orchestrator();
+        await uen.orch._resolvePhase2(phase1({ _is_paynow: true, _paynow_merchant: true }));
+        expect(named(uen.calls, "resolve_merchant")[0].args.no_search).toBeUndefined();
+        const card = orchestrator();
+        await card.orch._resolvePhase2(phase1());
+        expect(named(card.calls, "resolve_merchant")[0].args.no_search).toBeUndefined();
+    });
+});

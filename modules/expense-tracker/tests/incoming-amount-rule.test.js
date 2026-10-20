@@ -40,7 +40,7 @@ beforeAll(async () => {
     await import("../src/orchestrator.js");
 }, 60000);
 
-async function book(amount, { facts = RULES, reference } = {}) {
+async function book(amount, { facts = RULES, reference, resolved = { payee: null } } = {}) {
     const { AgentOrchestrator } = await import("../src/orchestrator.js");
     const calls = [];
     const tools = {
@@ -56,12 +56,13 @@ async function book(amount, { facts = RULES, reference } = {}) {
                         { id: "cat-rent", name: "Rent" },
                         { id: "cat-food", name: "Food" },
                     ],
-                    payees: [{ id: "p-rent", name: "Rent" }],
+                    payees: [{ id: "p-rent", name: "Rent" }, { id: "p-sal", name: "Salary" }],
                 };
             if (name === "list_facts") return { facts: facts.map((text) => ({ text })) };
             if (name === "search_memory")
                 return { results: [{ text: "Account ending 166600 belongs to OCBC 111", score: 1 }] };
-            if (name === "resolve_merchant") return { payee: null };
+            if (name === "resolve_merchant") return resolved;
+            if (name === "propose_learning") return { offered: true, id: "AB23CD45", key: "k" };
             if (name === "classify_category") return { category_id: "cat-food" };
             if (name === "notify_user") return true;
             if (name === "check_duplicate" || name === "check_schedule_collision") return false;
@@ -143,8 +144,50 @@ describe("incoming credit keyed by sender and amount", () => {
         expect(notice(calls)).not.toContain("→");
     });
 
+    it("asks Jev, with no web search and no plain-name memory, for another amount", async () => {
+        const calls = await book("50.00");
+        const [call] = calls.filter((c) => c.name === "resolve_merchant");
+        expect(call.args).toMatchObject({ merchant: "ACME PERSON", no_search: true, no_memory: true, direction: "incoming" });
+    });
+
     it("asks Jev for no category when the payee is Misc", async () => {
         const calls = await book("50.00");
         expect(calls.some((c) => c.name === "classify_category")).toBe(false);
+    });
+});
+
+describe("incoming credit from a person with no amount rule", () => {
+    const PLAIN = ["Account ending 166600 belongs to OCBC 111", "ACME PERSON maps to Salary payee"];
+
+    it("uses the plain name fact when the sender has no amount rule", async () => {
+        const calls = await book("50.00", { facts: PLAIN });
+        expect(insert(calls).imported_description).toBe("Salary");
+        expect(calls.some((c) => c.name === "resolve_merchant")).toBe(false);
+    });
+
+    it("an unknown sender goes to Jev without a web search, and its pick is not paired as a transfer", async () => {
+        const calls = await book("50.00", {
+            facts: ["Account ending 166600 belongs to OCBC 111"],
+            resolved: { payee: "Salary", source: "jev", confidence: 0.8 },
+        });
+        const [call] = calls.filter((c) => c.name === "resolve_merchant");
+        expect(call.args).toMatchObject({ no_search: true, direction: "incoming" });
+        expect(insert(calls).imported_description).toBe("Salary");
+        expect(calls.some((c) => c.name === "find_link_candidate")).toBe(false);
+    });
+
+    it("offers to remember the sender and amount, never the name alone", async () => {
+        const calls = await book("50.00", {
+            facts: ["Account ending 166600 belongs to OCBC 111"],
+            resolved: { payee: "Salary", source: "jev", confidence: 0.8 },
+        });
+        const offer = calls.find((c) => c.name === "propose_learning");
+        expect(offer.args).toMatchObject({ descriptor: "ACME PERSON", payee: "Salary", incoming: { currency: "SGD", amount_cents: 5000 } });
+    });
+
+    it("Jev declining leaves Misc, still offered to a waiting transfer debit", async () => {
+        const calls = await book("50.00", { facts: ["Account ending 166600 belongs to OCBC 111"] });
+        expect(insert(calls).imported_description).toBe("Misc");
+        expect(calls.some((c) => c.name === "find_link_candidate")).toBe(true);
     });
 });

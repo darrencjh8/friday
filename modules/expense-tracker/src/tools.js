@@ -14,7 +14,7 @@ import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
 import { classifyCategory, classifyPayee, eligibleCategories, eligiblePayees } from "./jev.js";
 import { merchantKey, searchMerchant } from "./merchant-search.js";
-import { PendingLearning } from "./learning.js";
+import { PendingLearning, incomingKey } from "./learning.js";
 import { composeNotes } from "./transaction-notes.js";
 import { logger, getLogger, redactSensitive } from "./logging.js";
 
@@ -2176,10 +2176,14 @@ export class ToolRegistry {
     direction,
     amount_cents,
     currency,
+    no_search,
+    no_memory,
   }) {
     if (!budget_id) return { error: "budget_id is required" };
     const budgetId = budget_id;
-    if (this._memory) {
+    // `no_memory`: the caller already decided memory for this counterparty
+    // (an incoming person credit, whose amount rules outrank a plain name).
+    if (this._memory && !no_memory) {
       try {
         const memResults = await this._memory.search(merchant);
         if (memResults && memResults.length > 0) {
@@ -2212,7 +2216,9 @@ export class ToolRegistry {
     if (evidence?.text && this._config.jevApiKey) {
       // Memory missed, so this merchant is new: one web search gives Jev more
       // than the descriptor to go on. The results are evidence, never learned.
-      const search = this._config.firecrawlApiKey
+      // A person's name is never searched (`no_search`): the web knows nothing
+      // useful about a private transfer, so Jev reads the email alone.
+      const search = this._config.firecrawlApiKey && !no_search
         ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
         : null;
       const withSearch = search ? { search } : {};
@@ -2329,8 +2335,11 @@ export class ToolRegistry {
    * Internal: not on the HTTP or MCP routes. Stores an offer to remember a
    * mapping. Writes no fact.
    */
-  async _handle_propose_learning({ descriptor, payee, category, runner_up, budget_id }) {
-    const key = merchantKey(descriptor);
+  async _handle_propose_learning({ descriptor, payee, category, runner_up, budget_id, incoming }) {
+    // Money received from a person is remembered by sender AND amount, the
+    // shape `incomingRule` reads; the same person sending another amount is
+    // not covered by it.
+    const key = incoming ? incomingKey(descriptor, incoming) : merchantKey(descriptor);
     if (!key) return { offered: false, reason: "unusable_descriptor" };
     let eligible;
     try {

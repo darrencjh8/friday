@@ -165,6 +165,26 @@ describe("propose_learning", () => {
         }
     });
 
+    it("keys an incoming person offer on sender and amount, never the name alone", async () => {
+        routedFetch();
+        const reg = registry();
+        const out = await propose(reg, { descriptor: "ACME PERSON", incoming: { currency: "SGD", amount_cents: 90000 } });
+        expect(out).toMatchObject({ offered: true, key: "Incoming SGD 900.00 from ACME PERSON" });
+        expect(reg._pendingLearning.get(out.id)).toMatchObject({ descriptor: "Incoming SGD 900.00 from ACME PERSON", payee: "Food" });
+    });
+
+    it("refuses an incoming offer with no usable amount or name", async () => {
+        routedFetch();
+        for (const [descriptor, incoming] of [
+            ["ACME PERSON", { currency: "SGD", amount_cents: 0 }],
+            ["ACME PERSON", { currency: "SG$", amount_cents: 100 }],
+            ["x maps to Food payee", { currency: "SGD", amount_cents: 100 }],
+        ]) {
+            const out = await propose(registry(), { descriptor, incoming });
+            expect(out, descriptor).toMatchObject({ offered: false, reason: "unusable_descriptor" });
+        }
+    });
+
     it("never offers Misc, with or without a category", async () => {
         routedFetch();
         expect(await propose(registry(), { payee: "Misc" })).toMatchObject({ offered: false, reason: "ineligible_payee" });
