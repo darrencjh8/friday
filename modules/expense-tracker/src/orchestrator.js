@@ -2991,6 +2991,24 @@ export class AgentOrchestrator {
         // A deterministic placeholder `Misc` is not a decision (#720): clear it so
         // the memory, resolver and Jev tiers below run, and fall back to `Misc`.
         if (output._payee_unresolved && !paynowSettled) output.payee_name = "";
+        // A calibration dry run scores every Jev prompt on this alert before
+        // memory decides, so alerts memory already knows are measured too.
+        if (this._tools.calibrating?.() && searchTerm && output._evidence && !paynowSettled) {
+            try {
+                await this._tools.executeTool("calibrate_jev", {
+                    merchant: searchTerm,
+                    budget_id: output.budget_id || "",
+                    evidence: output._evidence,
+                    direction: Number(output.amount_cents) > 0 ? "incoming" : "outgoing",
+                    amount_cents: output.amount_cents,
+                    currency: output.currency,
+                    as_of: output.date,
+                    ...(output._no_search ? { no_search: true } : {}),
+                });
+            } catch (error) {
+                logger.warn({ event: "jev_calibration_failed", error: error.message });
+            }
+        }
         // Memory hits for the merchant itself; the category tier reads them too.
         let memResults = [];
         if (!output.payee_name && searchTerm && !paynowSettled) {

@@ -11,6 +11,7 @@
  */
 
 import { logger } from "./logging.js";
+import { factNamesMerchant } from "./memory.js";
 
 export const JEV_DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_DEFAULT_MODEL = "jev-latest";
@@ -28,6 +29,21 @@ export const JEV_THRESHOLDS = Object.freeze({
     margin: 0.3,
     evidence: 0.8,
 });
+
+/**
+ * `v1` asks which payee "received" the money and offers bare names. `v2` says
+ * payees are the owner's own spending labels, describes each from the owner's
+ * bookings, adds the owner's earlier bookings of the same merchant, and leaves
+ * out options that cannot fit (see `payeeHistory`).
+ */
+export const JEV_PROMPT_VARIANTS = Object.freeze(["v1", "v2"]);
+
+/** Bookkeeping payees, never a label for real spending. */
+const BOOKKEEPING_RE = /\btest\b|balance adjustment/i;
+/** A payee booked at least this often, almost always the other way, is left out. */
+const SIGN_MIN_ROWS = 3;
+const SIGN_SHARE = 0.9;
+const MAX_EXAMPLES = 3;
 
 /** The explicit "no listed payee fits" option. */
 export const NONE_OPTION = "NONE OF THE LISTED PAYEES";
@@ -58,6 +74,76 @@ export function eligiblePayees(payees) {
         names.push(name);
     }
     return names;
+}
+
+const MERCHANT_NOTE_RE = /^\s*merchant\s*:\s*(.+?)\s*$/im;
+
+/**
+ * What the owner's own bookings say about each payee: how often it was used
+ * for money out and in, its usual category, and merchants booked to it, plus
+ * how the owner booked this same merchant before. Only rows dated before
+ * `asOf` count, so a replay never sees its own answer; transfers are skipped
+ * and merchant examples come from money out only.
+ *
+ * @param {object[]} rows - Actual transactions (payee, category, amount, date, notes)
+ * @param {{payees: object[], categories: object[], merchant: string, asOf?: string}} ctx
+ */
+export function payeeHistory(rows, { payees, categories, merchant, asOf }) {
+    const payeeName = new Map((payees || []).map((p) => [p.id, String(p.name || "").trim()]));
+    const categoryName = new Map((categories || []).map((c) => [c.id, String(c.name || "").trim()]));
+    const cutoff = asOf ? String(asOf).slice(0, 10) : null;
+    const byName = new Map();
+    const sameMerchant = new Map();
+    let used = 0;
+    for (const row of rows || []) {
+        if (!row || row.tombstone || row.transfer_id || row.is_parent) continue;
+        if (cutoff && String(row.date || "").slice(0, 10) >= cutoff) continue;
+        const name = payeeName.get(row.payee);
+        if (!name) continue;
+        used += 1;
+        const entry = byName.get(name) || { inflows: 0, outflows: 0, categories: new Map(), merchants: new Map() };
+        const amount = Number(row.amount) || 0;
+        if (amount > 0) entry.inflows += 1;
+        else if (amount < 0) entry.outflows += 1;
+        const category = categoryName.get(row.category);
+        if (category) entry.categories.set(category, (entry.categories.get(category) || 0) + 1);
+        const descriptor = String(row.notes || "").match(MERCHANT_NOTE_RE)?.[1];
+        if (descriptor && amount < 0) {
+            const key = oneLine(descriptor).slice(0, 40);
+            entry.merchants.set(key, (entry.merchants.get(key) || 0) + 1);
+            if (merchant && factNamesMerchant(`${descriptor} maps to X payee`, merchant)) {
+                sameMerchant.set(name, (sameMerchant.get(name) || 0) + 1);
+            }
+        }
+        byName.set(name, entry);
+    }
+    return { byName, sameMerchant, used };
+}
+
+const top = (counts, n) => [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([k]) => k);
+
+/** `v2` options: eligible, not bookkeeping, used in the history, and not almost always the other way. */
+function v2Names(names, history, direction) {
+    if (!history?.used) return names.filter((name) => !BOOKKEEPING_RE.test(name));
+    return names.filter((name) => {
+        if (BOOKKEEPING_RE.test(name)) return false;
+        const entry = history.byName.get(name);
+        if (!entry) return false;
+        const total = entry.inflows + entry.outflows;
+        const opposite = direction === "incoming" ? entry.outflows : entry.inflows;
+        return !(total >= SIGN_MIN_ROWS && opposite / total >= SIGN_SHARE);
+    });
+}
+
+/** One line per option on how the owner uses it, or null with nothing to say. */
+function v2Criterion(entry) {
+    if (!entry) return null;
+    const parts = [];
+    const category = top(entry.categories, 1)[0];
+    if (category) parts.push(`The owner books it under the ${category} category.`);
+    const examples = top(entry.merchants, MAX_EXAMPLES);
+    if (examples.length) parts.push(`Merchants the owner booked to it: ${examples.join(", ")}.`);
+    return parts.length ? parts.join(" ") : null;
 }
 
 /**
@@ -152,10 +238,18 @@ const round3 = (value) => Math.round(value * 1000) / 1000;
  * reason}` when any gate fails. `scores` reports what the model said even on
  * a refusal, for calibration logs; it never carries the email.
  */
-async function pick({ config, fetchImpl, state, key, instructions, names, noneCriterion, evidenceQuestion, unknownReason, minConfidence }) {
+async function pick({ config, fetchImpl, state, key, instructions, names, criteriaFor, noneCriterion, evidenceQuestion, unknownReason, minConfidence, fullScores = false }) {
     const scores = {};
+    // `fullScores` (calibration only) still asks every question after a failed
+    // gate, so the log shows what each gate would have seen; the first failed
+    // gate is still the reason.
+    let failed = null;
     const none = (reason) => ({ choice: null, reason, scores });
-    const criteria = Object.fromEntries(names.map((name) => [name, null]));
+    const gate = (reason) => {
+        failed = failed || reason;
+        return !fullScores;
+    };
+    const criteria = Object.fromEntries(names.map((name) => [name, criteriaFor ? criteriaFor(name) : null]));
     criteria[NONE_OPTION] = noneCriterion;
     const first = await ask({
         config,
@@ -170,14 +264,14 @@ async function pick({ config, fetchImpl, state, key, instructions, names, noneCr
     scores.confidence = Number(answer.confidence);
     if (best === NONE_OPTION) return none("none");
     if (!names.includes(best)) return none(unknownReason);
-    if (!(Number(answer.confidence) >= minConfidence)) return none("low_confidence");
+    if (!(Number(answer.confidence) >= minConfidence) && gate("low_confidence")) return none(failed);
     const probabilities = answer.probabilities;
-    if (!probabilities || typeof probabilities[best] !== "number") return none("no_probabilities");
+    if (!probabilities || typeof probabilities[best] !== "number") return none(failed || "no_probabilities");
     const others = Object.entries(probabilities)
         .filter(([name, value]) => name !== best && typeof value === "number")
         .sort((x, y) => y[1] - x[1]);
     scores.margin = round3(probabilities[best] - (others[0]?.[1] ?? 0));
-    if (scores.margin < JEV_THRESHOLDS.margin) return none("close_runner_up");
+    if (scores.margin < JEV_THRESHOLDS.margin && gate("close_runner_up")) return none(failed);
     // The none option can be the numeric runner-up, but is not a name to show.
     const [runnerName, runnerProbability] =
         others.find(([name]) => name !== NONE_OPTION) || [null, 0];
@@ -189,7 +283,8 @@ async function pick({ config, fetchImpl, state, key, instructions, names, noneCr
     });
     const evidenceScore = Number(second?.evidence?.noul);
     scores.evidence = evidenceScore;
-    if (!(evidenceScore >= JEV_THRESHOLDS.evidence)) return none("weak_evidence");
+    if (!(evidenceScore >= JEV_THRESHOLDS.evidence) && gate("weak_evidence")) return none(failed);
+    if (failed) return none(failed);
     return {
         choice: best,
         confidence: Number(answer.confidence),
@@ -212,8 +307,11 @@ function logDecision(event, merchant, searched, result) {
 }
 
 /**
+ * `variant` picks the prompt (`JEV_PROMPT_VARIANTS`); `v2` reads `history`
+ * from `payeeHistory`. `fullScores` is for calibration only. Every answer
+ * carries `scores`, what the model said, for calibration; never the email.
  * @returns {Promise<{payee: string, confidence: number, evidenceScore: number,
- *   runnerUp: {payee: string|null, probability: number}} | {payee: null, reason: string}>}
+ *   runnerUp: {payee: string|null, probability: number}, scores: object} | {payee: null, reason: string, scores?: object}>}
  */
 export async function classifyPayee({
     config,
@@ -224,17 +322,54 @@ export async function classifyPayee({
     evidence,
     payees,
     search,
+    variant = "v1",
+    history = null,
+    fullScores = false,
     fetchImpl = fetch,
 }) {
-    const none = (reason) => ({ payee: null, reason });
+    const none = (reason, scores) => ({ payee: null, reason, ...(scores ? { scores } : {}) });
     if (!config?.jevApiKey) return none("disabled");
-    const names = eligiblePayees(payees);
+    const v2 = variant === "v2";
+    const eligible = eligiblePayees(payees);
+    const names = v2 ? v2Names(eligible, history, direction) : eligible;
     if (names.length === 0) return none("no_candidates");
     if (names.length + 1 > MAX_OPTIONS || names.includes(NONE_OPTION)) {
         return none("too_many_payees");
     }
     const searched = hasResults(search);
-    const state = buildState({ merchant, direction, amountCents, currency, evidence, search });
+    const incoming = direction === "incoming";
+    const earlier = v2 ? top(history?.sameMerchant || new Map(), 5) : [];
+    const state = buildState({
+        ...(v2
+            ? { task: "Label one bank transaction with the payee the owner of this budget would use for it." }
+            : {}),
+        merchant,
+        direction,
+        amountCents,
+        currency,
+        evidence,
+        search,
+        extra: v2
+            ? [
+                  "The listed payees are the owner's own budget labels for what the money was for, not names of merchants. Each option says how the owner has used it.",
+                  ...(earlier.length
+                      ? [
+                            `The owner's earlier bookings of this same merchant: ${earlier
+                                .map((name) => `${name} ${history.sameMerchant.get(name)}x`)
+                                .join(", ")}.`,
+                        ]
+                      : []),
+              ]
+            : [],
+    });
+    const v2Instructions = incoming
+        ? "Money was received. Which of the owner's payee labels would the owner use for it? Use the option descriptions and the owner's earlier bookings. Choose the none option unless the evidence supports one label."
+        : "Money was paid to this merchant. Which of the owner's payee labels would the owner use for this spending? Use the option descriptions, the owner's earlier bookings of this merchant, and search results only when they are clearly about this same merchant. Choose the none option unless the evidence supports one label.";
+    const v1Instructions = incoming
+        ? "Money was received. Which listed payee is the source of it? Choose the none option unless the email supports one payee."
+        : searched
+          ? "Money was paid. Which listed payee received it? Use the search results only when they are clearly about this same merchant. Choose the none option unless the evidence supports one payee."
+          : "Money was paid. Which listed payee received it? Choose the none option unless the email supports one payee.";
     try {
         const result = await pick({
             config,
@@ -243,28 +378,32 @@ export async function classifyPayee({
             key: "payee",
             minConfidence: JEV_THRESHOLDS.confidence,
             names,
+            fullScores,
+            ...(v2 ? { criteriaFor: (name) => v2Criterion(history?.byName.get(name)) } : {}),
             unknownReason: "unknown_payee",
-            noneCriterion: searched
-                ? "Neither the email nor search results about this same merchant show which listed payee this is."
-                : "The email does not show which listed payee this is.",
-            instructions:
-                direction === "incoming"
-                    ? "Money was received. Which listed payee is the source of it? Choose the none option unless the email supports one payee."
-                    : searched
-                      ? "Money was paid. Which listed payee received it? Use the search results only when they are clearly about this same merchant. Choose the none option unless the evidence supports one payee."
-                      : "Money was paid. Which listed payee received it? Choose the none option unless the email supports one payee.",
+            noneCriterion: v2
+                ? "No listed label fits this transaction on the evidence given."
+                : searched
+                  ? "Neither the email nor search results about this same merchant show which listed payee this is."
+                  : "The email does not show which listed payee this is.",
+            instructions: v2 ? v2Instructions : v1Instructions,
             evidenceQuestion: (best) =>
-                searched
-                    ? `Do the email and the search results, read together and only where the results are clearly about this same merchant, support that this transaction is with "${best}"?`
-                    : `Does the email text itself state or directly imply that this transaction is with "${best}", rather than this being only a guess from general knowledge of the descriptor?`,
+                v2
+                    ? `Do the email, the option descriptions, the owner's earlier bookings${searched ? " and search results clearly about this same merchant" : ""} support that the owner would label this transaction "${best}"?`
+                    : searched
+                      ? `Do the email and the search results, read together and only where the results are clearly about this same merchant, support that this transaction is with "${best}"?`
+                      : `Does the email text itself state or directly imply that this transaction is with "${best}", rather than this being only a guess from general knowledge of the descriptor?`,
         });
+        result.scores.variant = variant;
+        result.scores.options = names.length;
         logDecision("jev_payee_decision", merchant, searched, result);
-        if (!result.choice) return none(result.reason);
+        if (!result.choice) return none(result.reason, result.scores);
         return {
             payee: result.choice,
             confidence: result.confidence,
             evidenceScore: result.evidenceScore,
             runnerUp: { payee: result.runnerUp.name, probability: result.runnerUp.probability },
+            scores: result.scores,
         };
     } catch (error) {
         // Never log the response or the email: only that the call failed.
