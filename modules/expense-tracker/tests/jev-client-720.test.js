@@ -158,6 +158,10 @@ describe("classifyPayee validation", () => {
         expect(second.questions.evidence.instructions).toContain("Bank Interest");
     });
 
+    it("accepts a pick at 0.65 confidence, the calibrated bar", () => {
+        expect(JEV_THRESHOLDS.confidence).toBe(0.65);
+    });
+
     it("applies the confidence threshold at its boundary", async () => {
         const at = await run(stubFetch({ first: choice({ confidence: JEV_THRESHOLDS.confidence }) }));
         const below = await run(stubFetch({ first: choice({ confidence: JEV_THRESHOLDS.confidence - 0.001 }) }));

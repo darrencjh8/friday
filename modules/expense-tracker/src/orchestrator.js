@@ -418,6 +418,38 @@ export function counterpartyIsRememberedEntity(name, facts) {
 }
 
 /**
+ * The owner's rule for an incoming credit of exactly this amount from this
+ * sender, from the wiki people page's "Incoming amount" column:
+ *   `Incoming SGD 900.00 from NAME maps to PAYEE (payee|category)`
+ * The sender is compared whole after normalisation, and the currency and cents
+ * exactly, so the same sender sending any other amount gets no rule. A plain
+ * `NAME maps to …` fact never yields one.
+ *
+ * @param {Array<{text?: string}|string>} facts the full fact list
+ * @param {{name: string, currency: string, amountCents: number}} credit
+ * @returns {{payee: string, category: string|null}|null}
+ */
+export function incomingRule(facts, { name, currency, amountCents }) {
+    const who = normalizeIdentityName(name);
+    const cur = String(currency || "").trim().toUpperCase();
+    const cents = Math.abs(Number(amountCents));
+    if (!who || !cur || !Number.isFinite(cents) || cents === 0) return null;
+    let payee = null;
+    let category = null;
+    for (const fact of facts || []) {
+        const text = typeof fact === "string" ? fact : fact?.text || "";
+        const m = text.match(
+            /^Incoming\s+([A-Za-z]{3})\s+(\d+(?:\.\d{1,2})?)\s+from\s+(.+?)\s+maps\s+to\s+(.+?)\s+(payee|category)\s*$/i,
+        );
+        if (!m || m[1].toUpperCase() !== cur || normalizeIdentityName(m[3]) !== who) continue;
+        if (Math.round(Number(m[2]) * 100) !== cents) continue;
+        if (m[5].toLowerCase() === "payee") payee ??= m[4].trim();
+        else category ??= m[4].trim();
+    }
+    return payee ? { payee, category } : null;
+}
+
+/**
  * True when the destination a transfer names cannot be pinned to exactly one
  * open account.
  *
@@ -1339,6 +1371,16 @@ export class AgentOrchestrator {
             (movement.person_transfer !== true || ownCreditDebit)
         ) {
             const namedFrom = movement.counterparty?.name || "an unverified counterparty";
+            // An owner rule for this sender AND this amount names the payee and
+            // category; the credit is then income, not a transfer leg, so it is
+            // not offered to a waiting debit. Any other credit stays Misc.
+            const rule = ownCreditDebit
+                ? null
+                : incomingRule(await this._personEntityFacts(), {
+                      name: movement.counterparty?.name,
+                      currency: movement.currency,
+                      amountCents: movement.amount_cents,
+                  });
             return {
                 merchant: namedFrom,
                 amount_cents: Math.abs(movement.amount_cents),
@@ -1357,11 +1399,20 @@ export class AgentOrchestrator {
                 notify_message: "",
                 _suffix_mappings: suffixMappings,
                 _structured_movement: true,
+                ...(rule
+                    ? {
+                          payee_name: rule.payee,
+                          payee_source: "incoming_rule",
+                          _incoming_rule_category: rule.category,
+                      }
+                    : {}),
                 // A masked self-transfer debit booked first waits for this credit
                 // (see `_resolveMaskedSelfTransfer`).
                 _pair_other_accounts: ownCreditDebit
                     ? [ownCreditDebit.account_id]
-                    : accounts.filter((a) => !a.closed && a.id !== destination.id).map((a) => a.id),
+                    : rule
+                      ? []
+                      : accounts.filter((a) => !a.closed && a.id !== destination.id).map((a) => a.id),
                 // The own-name credit's debit was found untagged (#796).
                 ...(ownCreditDebit ? { _pair_untagged: true } : {}),
             };
@@ -3175,13 +3226,22 @@ export class AgentOrchestrator {
                 }
             } catch {}
 
+            // Tier 0: the owner's sender-and-amount rule names its category.
+            if (output._incoming_rule_category) {
+                const ruled = matchCategory(liveCategories, output._incoming_rule_category, { exact: true });
+                if (ruled) {
+                    output.category_id = ruled.id;
+                    output.category_name = ruled.name;
+                }
+            }
+
             // Tier 1: Memory lookup (payee_name → category, matches auto-learn key)
             // Query by payee name only (not "payee + ' category'") so substring
             // search can reach facts like "Maxis Fibre maps to Malaysia Utilities
             // category" (the "X category" suffix is not contiguous in the fact).
             // Tier 1a: a category fact keyed on this merchant (a confirmed offer
             // or a wiki "Category override") outranks the payee's category.
-            for (const r of memResults) {
+            for (const r of output.category_id ? [] : memResults) {
                 if (!searchTerm || !factNamesMerchant(r.text, searchTerm)) continue;
                 const m = (r.text || "").match(/maps to (.+?) category/i);
                 const matched = m ? matchCategory(liveCategories, m[1]) : null;
@@ -3225,8 +3285,9 @@ export class AgentOrchestrator {
             }
 
             // Tier 1b: Jev, only when memory had no category. It reads the email
-            // and the search results that found the payee, and may categorise a
-            // Misc row too. Its pick is validated here and never learned.
+            // and the search results that found the payee. Its pick is validated
+            // here and never learned. A Misc row is booked without a category
+            // (Phase 3), so Jev is not asked for one.
             if (!output.category_id && output._pending_category && !output._is_transfer) {
                 const pending = matchCategory(liveCategories, output._pending_category, { exact: true });
                 if (pending) {
@@ -3235,7 +3296,12 @@ export class AgentOrchestrator {
                     output.category_source = "jev";
                 }
             }
-            if (!output.category_id && output._evidence?.text && !output._is_transfer) {
+            if (
+                !output.category_id &&
+                output._evidence?.text &&
+                !output._is_transfer &&
+                output.payee_name.trim().toLowerCase() !== "misc"
+            ) {
                 try {
                     const jev = await this._tools.executeTool("classify_category", {
                         merchant: output.merchant || searchTerm || "",
@@ -3703,7 +3769,8 @@ export class AgentOrchestrator {
                     payeeName.trim().toLowerCase() === "misc"
                         ? llmOutput.merchant || payeeName
                         : payeeName;
-                const cat = llmOutput.category_name
+                // Only the category actually booked: a Misc row carries none.
+                const cat = categoryId && llmOutput.category_name
                     ? ` → ${llmOutput.category_name}`
                     : "";
                 const offer = await this._jevOffer(llmOutput, payeeName);

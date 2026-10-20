@@ -66,10 +66,12 @@ Intro text with a [[entities/accounts/payee-categories]] link.
   "people-transfers.md": `${FM("People and transfers")}
 # People and transfers
 
-| Name in descriptor | Payee | Category | Note | Source |
-|---|---|---|---|---|
+| Name in descriptor | Payee | Category | Note | Source | Incoming amount |
+|---|---|---|---|---|---|
 | PERSON ONE | Rent | Rent | rent | L30 |
 | PERSON TWO | Misc |  | transfer | person-rules.json |
+| PERSON THREE | Rent | Rent | rent, this amount only | owner | SGD 1,200.5 |
+| PERSON FOUR | Rent | Rent | bad amount | owner | about 900 |
 `,
   "card-suffix-mappings.md": `${FM("Card suffix mappings")}
 # Card suffix mappings
@@ -148,6 +150,12 @@ describe("WikiKnowledgeStore", () => {
     expect(facts).toContain("PERSON ONE maps to Rent payee");
     expect(facts).toContain("PERSON ONE maps to Rent category");
     expect(facts).toContain("PERSON TWO maps to Misc payee");
+    // A row with an incoming amount is a rule for that amount only.
+    expect(facts).toContain("Incoming SGD 1200.50 from PERSON THREE maps to Rent payee");
+    expect(facts).toContain("Incoming SGD 1200.50 from PERSON THREE maps to Rent category");
+    expect(facts).not.toContain("PERSON THREE maps to Rent payee");
+    // An amount that does not parse adds nothing.
+    expect(facts.some((f) => f.includes("PERSON FOUR"))).toBe(false);
     expect(facts).toContain("Card ending 1111 belongs to Zeta Card");
     expect(facts).toContain("Account ending 2222 belongs to Omega Bank");
     expect(facts).toContain("Account ending 333333 belongs to Omega Bank");

@@ -91,11 +91,12 @@ describe("category order after a Jev payee pick", () => {
         expect(out.category_id).not.toBe("cat-gone");
     });
 
-    it("a Misc payee can still get a Jev category, but the LLM picker stays off", async () => {
+    it("a Misc payee gets no Jev category, since Misc is booked without one, and the LLM picker stays off", async () => {
         const { orch, calls, chat } = orchestrator({ resolve: { payee: "Misc", source: "fallback", search: SEARCH } });
         const out = await orch._resolvePhase2(phase1());
-        expect(named(calls, "classify_category")[0].args).toMatchObject({ payee: "Misc", search: SEARCH });
-        expect(out).toMatchObject({ payee_name: "Misc", category_id: "cat-food" });
+        expect(named(calls, "classify_category")).toHaveLength(0);
+        expect(out).toMatchObject({ payee_name: "Misc" });
+        expect(out.category_id ?? null).toBeNull();
         expect(chat).not.toHaveBeenCalled();
     });
 
