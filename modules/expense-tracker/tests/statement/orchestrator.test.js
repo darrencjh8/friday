@@ -15,6 +15,7 @@ import {
   StatementProcessor,
   DeepSeekClient,
   extractPasswordFromFacts,
+  zeroDueSummary,
 } from "../../src/statement/orchestrator.js";
 import { STATEMENT_PROMPT } from "../../src/statement/prompts.js";
 import { extractEmailContent } from "../../src/extractors.js";
@@ -463,6 +464,105 @@ describe("StatementProcessor", () => {
       );
       expect(messages[1].content).toContain("[PDF_ENCRYPTED");
     });
+  });
+});
+
+describe("zero-due statements", () => {
+  const NO_PDF = Buffer.from(
+    "From: bank@example.com\r\nSubject: Your statement\r\nContent-Type: text/html\r\n\r\n<p>Total Due: RM0.00</p>",
+  );
+  const WITH_PDF = Buffer.from(
+    "From: bank@example.com\r\nSubject: Your statement\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: application/pdf\r\n\r\nJVBERi0=\r\n--b--",
+  );
+  const OCTET_PDF = Buffer.from(
+    "From: bank@example.com\r\nSubject: Your statement\r\nContent-Type: multipart/mixed; boundary=b\r\n\r\n--b\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"statement.pdf\"\r\n\r\nJVBERi0=\r\n--b--",
+  );
+  let mockTools;
+  let processor;
+  let chat;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockTools = {
+      setEmailContext: vi.fn(),
+      getToolSchemas: vi.fn(() => []),
+      executeTool: vi.fn(() => Promise.resolve(true)),
+    };
+    processor = new StatementProcessor(makeConfig(), mockTools);
+    chat = vi.fn().mockResolvedValue({
+      choices: [{ finish_reason: "stop", message: { content: "LLM ran." } }],
+    });
+    processor._llm.chat = chat;
+  });
+
+  const calls = (name) =>
+    mockTools.executeTool.mock.calls.filter(([n]) => n === name);
+
+  it("skips the LLM and notifies when no PDF and total due is zero", async () => {
+    extractEmailContent.mockResolvedValue(
+      "Here is your monthly statement. Total Due: RM0.00 Due Date: 24/10/2026 Pay in full.",
+    );
+    const result = await processor.processStatement("msg-1", NO_PDF, null);
+    expect(chat).not.toHaveBeenCalled();
+    expect(calls("notify_user")).toHaveLength(1);
+    const msg = calls("notify_user")[0][1].message;
+    expect(msg).toContain("RM0.00");
+    expect(msg).toContain("24/10/2026");
+    expect(calls("mark_email_read")).toHaveLength(1);
+    expect(result.action).toBe("completed");
+    expect(result.details).toBe(msg);
+  });
+
+  it("omits the due date clause when none is present", async () => {
+    extractEmailContent.mockResolvedValue("Total Amount Due: SGD 0.00");
+    const result = await processor.processStatement("msg-1", NO_PDF, null);
+    expect(chat).not.toHaveBeenCalled();
+    expect(result.details).toContain("SGD 0.00");
+    expect(result.details.toLowerCase()).not.toContain("due date");
+  });
+
+  it("does not mark read and returns error when the notice fails", async () => {
+    extractEmailContent.mockResolvedValue("Total Due: RM0.00");
+    mockTools.executeTool.mockImplementation((name) =>
+      Promise.resolve(name === "notify_user" ? false : true),
+    );
+    const result = await processor.processStatement("msg-1", NO_PDF, null);
+    expect(chat).not.toHaveBeenCalled();
+    expect(calls("mark_email_read")).toHaveLength(0);
+    expect(result.action).toBe("error");
+  });
+
+  it("uses the LLM when a PDF is attached", async () => {
+    extractEmailContent.mockResolvedValue("Total Due: RM0.00");
+    await processor.processStatement("msg-1", WITH_PDF, null);
+    await processor.processStatement("msg-2", OCTET_PDF, null);
+    expect(chat).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "Total Due: RM0.50",
+    "Total Due: RM10.00",
+    "Total Due: RM1,000.00",
+    "Total Due: RM0.001",
+    "Past Due: RM0.00 Total Due: RM1,500.00",
+    "Minimum Due: RM0.00 Total Due: RM250.00",
+    "Minimum Due: RM0.00",
+    "Here is your monthly statement.",
+  ])("returns null for %j", (text) => {
+    expect(zeroDueSummary(NO_PDF, text)).toBeNull();
+  });
+
+  it.each([
+    "Total Due: RM0.00",
+    "Amount Due: $0",
+    "Statement Balance: 0,00",
+    "Total Due: RM0.00 Minimum Due: RM0.00 Due Date: 24/10/2026",
+  ])("returns a summary for %j", (text) => {
+    expect(zeroDueSummary(NO_PDF, text)).not.toBeNull();
+  });
+
+  it("returns null when a PDF is attached", () => {
+    expect(zeroDueSummary(WITH_PDF, "Total Due: RM0.00")).toBeNull();
   });
 });
 

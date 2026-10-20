@@ -136,6 +136,31 @@ export function extractPasswordFromFacts(facts, opts = {}) {
   return extractPasswordCandidates(facts, opts)[0] || null;
 }
 
+// Every amount after a "due" or "balance" label ("Due Date" is not an amount).
+const DUE_AMOUNT_RE =
+  /\b([a-z ]{0,20}?(?:due|balance))\b(?!\s*date)[^0-9a-z]{0,6}((?:RM|MYR|SGD|S\$|USD|\$)?\s*\d(?:[\d,.]*\d)?)/gi;
+const TOTAL_LABEL_RE =
+  /\b(?:total(?: amount| payment)? due|amount due|(?:statement|new|outstanding) balance)$/i;
+const DUE_DATE_RE = /\bdue date\b\W{0,4}(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2} [a-z]{3,9} \d{4})/i;
+
+/**
+ * A summary-only statement email: no PDF attached, a total-type due/balance
+ * label, and every due/balance amount exactly zero. Returns { amount, dueDate }
+ * or null; null keeps the LLM reconciliation path, so any doubt falls back.
+ */
+export function zeroDueSummary(raw, text) {
+  const rawText = Buffer.isBuffer(raw) ? raw.toString("latin1") : String(raw || "");
+  if (/application\/pdf|\.pdf\b/i.test(rawText)) return null;
+  const matches = [...String(text || "").matchAll(DUE_AMOUNT_RE)];
+  if (!matches.some((m) => TOTAL_LABEL_RE.test(m[1].trim()))) return null;
+  if (!matches.every((m) => /^[^\d]*0+(?:[.,]0{1,2})?$/.test(m[2].trim()))) return null;
+  const total = matches.find((m) => TOTAL_LABEL_RE.test(m[1].trim()));
+  return {
+    amount: total[2].trim(),
+    dueDate: String(text).match(DUE_DATE_RE)?.[1] || null,
+  };
+}
+
 export class StatementProcessor {
   /**
    * Orchestrates the LLM conversation loop for processing bank statements.
@@ -202,6 +227,19 @@ export class StatementProcessor {
       } catch {
         // Password didn't work; next iteration tries another candidate
       }
+    }
+
+    const zeroDue = zeroDueSummary(raw, emailText);
+    if (zeroDue) {
+      const notice =
+        `Statement email arrived: ${zeroDue.amount} due` +
+        (zeroDue.dueDate ? `, due date ${zeroDue.dueDate}` : "") +
+        ". No PDF attached, nothing to reconcile.";
+      if (!(await this._tools.executeTool("notify_user", { message: notice }))) {
+        return { action: "error", details: "zero-due statement notice not delivered" };
+      }
+      await this._ensureEmailRead();
+      return { action: "completed", details: notice };
     }
 
     const messages = this._buildMessages(emailText);
