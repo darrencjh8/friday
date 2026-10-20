@@ -12,7 +12,14 @@ import { DedupJournal } from "./dedup.js";
 import { isBookableAmountCents } from "./amounts.js";
 import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
-import { classifyCategory, classifyPayee, eligibleCategories, eligiblePayees } from "./jev.js";
+import {
+  JEV_PROMPT_VARIANTS,
+  classifyCategory,
+  classifyPayee,
+  eligibleCategories,
+  eligiblePayees,
+  payeeHistory,
+} from "./jev.js";
 import { merchantKey, searchMerchant } from "./merchant-search.js";
 import { PendingLearning, incomingKey } from "./learning.js";
 import { composeNotes } from "./transaction-notes.js";
@@ -1019,6 +1026,8 @@ export class ToolRegistry {
     this._statementJournal = null;
     this._orchestrator = null;
     this._dryRunScope = new AsyncLocalStorage();
+    this._calibrationScope = new AsyncLocalStorage();
+    this._jevRowsCache = new Map();
   }
 
   setStatementJournal(journal) {
@@ -1083,12 +1092,20 @@ export class ToolRegistry {
    * Run `fn` with every write recorded instead of executed (#796). Returns
    * fn's result and the recorded calls, in order.
    */
-  async dryRun(fn) {
+  async dryRun(fn, { calibrate = false } = {}) {
     const calls = [];
     // Scoped to fn's own async context: the IMAP watcher shares this registry,
     // and a booking it makes meanwhile must never be stubbed out.
-    const result = await this._dryRunScope.run(calls, fn);
+    const scoped = () => this._dryRunScope.run(calls, fn);
+    const result = calibrate
+      ? await this._calibrationScope.run({ searches: new Map() }, scoped)
+      : await scoped();
     return { result, calls };
+  }
+
+  /** True inside a dry run that asked for Jev calibration scores. */
+  calibrating() {
+    return Boolean(this._calibrationScope.getStore() && this._dryRunScope.getStore());
   }
 
   async _dryRunTool(name, handler, args, calls) {
@@ -1104,6 +1121,13 @@ export class ToolRegistry {
       return handler.call(this, { ...args, alert_id: null });
     }
     if (DRY_RUN_READ_TOOLS.has(name)) return handler.call(this, args);
+    if (name === "calibrate_jev") {
+      // Read-only, but its answer is the point of the run: record it. The
+      // email stays out of the record.
+      const result = await handler.call(this, args);
+      calls.push({ tool: name, args: { merchant: args?.merchant, as_of: args?.as_of }, result });
+      return result;
+    }
     calls.push({ tool: name, args });
     return DRY_RUN_STUBS[name] ? DRY_RUN_STUBS[name]() : { dry_run: true };
   }
@@ -2218,12 +2242,19 @@ export class ToolRegistry {
       // than the descriptor to go on. The results are evidence, never learned.
       // A person's name is never searched (`no_search`): the web knows nothing
       // useful about a private transfer, so Jev reads the email alone.
-      const search = this._config.firecrawlApiKey && !no_search
-        ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
-        : null;
+      // A calibration run already searched this merchant: reuse it.
+      const searched = this.calibrating() ? this._calibrationScope.getStore().searches.get(merchant) : undefined;
+      const search = searched !== undefined
+        ? searched
+        : this._config.firecrawlApiKey && !no_search
+          ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
+          : null;
       const withSearch = search ? { search } : {};
       try {
         const payees = await this._get("/payees", budgetId);
+        const variant = this._config.jevPromptVariant || "v1";
+        const history =
+          variant === "v2" ? await this._jevHistory({ budgetId, payees, merchant }) : null;
         const result = await classifyPayee({
           config: this._config,
           merchant,
@@ -2232,6 +2263,8 @@ export class ToolRegistry {
           currency,
           evidence,
           payees,
+          variant,
+          history,
           ...withSearch,
         });
         if (result.payee) {
@@ -2250,6 +2283,74 @@ export class ToolRegistry {
       return { payee: "Misc", source: "fallback", ...withSearch };
     }
     return { payee: "Misc", source: "fallback" };
+  }
+
+  /**
+   * The owner's bookings as Jev `v2` context (jev.js payeeHistory). A year of
+   * rows is read once per budget every ten minutes; a failed read gives no
+   * history, which `v2` treats as nothing known.
+   */
+  async _jevHistory({ budgetId, payees, merchant, asOf }) {
+    try {
+      const cached = this._jevRowsCache.get(budgetId);
+      let rows = cached && Date.now() - cached.at < 10 * 60 * 1000 ? cached.rows : null;
+      let categories = cached?.categories;
+      if (!rows) {
+        const since = new Date();
+        since.setDate(since.getDate() - 365);
+        [rows, categories] = await Promise.all([
+          this._get("/transactions", budgetId, { since_date: since.toISOString().slice(0, 10) }),
+          this._get("/categories", budgetId),
+        ]);
+        if (!Array.isArray(rows)) return null;
+        this._jevRowsCache.set(budgetId, { at: Date.now(), rows, categories });
+      }
+      return payeeHistory(rows, {
+        payees,
+        categories: Array.isArray(categories) ? categories : [],
+        merchant,
+        asOf,
+      });
+    } catch (error) {
+      logger.warn({ event: "jev_history_failed", error: error.message });
+      return null;
+    }
+  }
+
+  /**
+   * Calibration dry runs only: what every Jev prompt variant answers for this
+   * merchant, with every score, ignoring memory. `as_of` (the alert's date)
+   * hides the owner's bookings from that day on, so a replay cannot see the
+   * row it is being scored against. One search serves every variant.
+   */
+  async _handle_calibrate_jev({ merchant, budget_id, evidence, direction, amount_cents, currency, no_search, as_of }) {
+    if (!this.calibrating()) return { error: "calibration_only" };
+    if (!budget_id || !merchant || !evidence?.text) return { error: "missing_input" };
+    if (!this._config.jevApiKey) return { error: "jev_disabled" };
+    const search = this._config.firecrawlApiKey && !no_search
+      ? await searchMerchant({ config: this._config, descriptor: merchant, currency })
+      : null;
+    this._calibrationScope.getStore().searches.set(merchant, search);
+    const payees = await this._get("/payees", budget_id);
+    const history = await this._jevHistory({ budgetId: budget_id, payees, merchant, asOf: as_of });
+    const out = { searched: Boolean(search?.results?.length), earlier: Object.fromEntries(history?.sameMerchant || []) };
+    for (const variant of JEV_PROMPT_VARIANTS) {
+      const result = await classifyPayee({
+        config: this._config,
+        merchant,
+        direction,
+        amountCents: amount_cents,
+        currency,
+        evidence,
+        payees,
+        variant,
+        history,
+        fullScores: true,
+        ...(search ? { search } : {}),
+      });
+      out[variant] = { payee: result.payee, reason: result.reason || "accepted", scores: result.scores || {} };
+    }
+    return out;
   }
 
   /**

@@ -158,12 +158,16 @@ export class ProcessingService {
     return run;
   }
 
-  async _process(kind, { request_id: requestId, evidence, dry_run: dryRun } = {}) {
+  async _process(kind, { request_id: requestId, evidence, dry_run: dryRun, jev_calibration: calibrate } = {}) {
     if (typeof requestId !== "string" || !REQUEST_ID_RE.test(requestId)) {
       return { status: STATUS.INVALID, reason: "bad_request_id" };
     }
     if (dryRun !== undefined && typeof dryRun !== "boolean") {
       return { request_id: requestId, status: STATUS.INVALID, reason: "bad_dry_run" };
+    }
+    // Calibration only adds Jev scores to a dry run; it never books.
+    if (calibrate !== undefined && (typeof calibrate !== "boolean" || (calibrate && dryRun !== true))) {
+      return { request_id: requestId, status: STATUS.INVALID, reason: "bad_jev_calibration" };
     }
     const decoded = decodeEvidence(evidence);
     if (!decoded.bytes) return { request_id: requestId, status: STATUS.INVALID, reason: decoded.reason };
@@ -171,7 +175,7 @@ export class ProcessingService {
       if (kind !== "transaction") {
         return { request_id: requestId, status: STATUS.INVALID, reason: "dry_run_unsupported" };
       }
-      return this._dryRun(requestId, decoded.bytes);
+      return this._dryRun(requestId, decoded.bytes, { calibrate: calibrate === true });
     }
 
     const prior = this._journal.get(requestId);
@@ -254,7 +258,7 @@ export class ProcessingService {
    * parity replay). Nothing is journaled, so the same request can still be
    * booked for real later.
    */
-  async _dryRun(requestId, bytes) {
+  async _dryRun(requestId, bytes, { calibrate = false } = {}) {
     try {
       const { result: outcome, calls } = await this._tools.dryRun(() =>
         this._orchestrator.processEmail(
@@ -264,6 +268,7 @@ export class ProcessingService {
           headerOf(bytes, "From"),
           headerOf(bytes, "Subject"),
         ),
+        { calibrate },
       );
       return {
         request_id: requestId,

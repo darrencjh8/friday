@@ -195,6 +195,12 @@ When `TELEGRAM_BOT_TOKEN` and `TELEGRAM_HOME_CHANNEL` are set (the same values H
 
 A `Misc` row is booked with no category, so Jev is not asked for one and the notification shows none.
 
+#### Jev payee prompt variants and calibration
+
+`v1` (the live default) asks which listed payee "received" the money and offers bare payee names. The owner's payees are spending labels (Food, Snack, Hangout), not merchants, so that question splits a clear merchant across near-synonym labels. `v2` (`JEV_PROMPT_VARIANT=v2`) says the options are the owner's labels, describes each one from the owner's own bookings in Actual (usual category, up to three merchants booked to it from money out, read from the `Merchant:` notes line), adds the owner's earlier bookings of the same merchant, and leaves out bookkeeping payees (`test`, balance adjustments), payees unused in the last year and payees almost always used the other way (at least 3 rows, 90% opposite sign). Transfers never count.
+
+A dry run with `jev_calibration: true` scores every variant on each replayed alert before memory decides, with every score even after a failed gate, and hides the owner's bookings from the alert's own date on so a replay cannot see the row it is scored against. The result is recorded as a `calibrate_jev` entry in the dry run's `writes`, without the email. The live variant and payee bar are set from that replay, against the payee each row holds in Actual.
+
 #### Incoming credits keyed by sender and amount
 
 A named incoming credit (for example OCBC `Reference: from NAME`, DBS `From: NAME`) books `Misc` by default: bank alerts for received money carry the sender's name but no payer remark, so the name alone does not say what the money is for. The wiki page `entities/accounts/people-transfers.md` may carry an optional `Incoming amount` column (`SGD 900.00`). A row with it becomes the facts `Incoming SGD 900.00 from NAME maps to PAYEE payee` and `… maps to CATEGORY category`, and only those: the plain `NAME maps to …` facts come from rows without an amount. `incomingRule` in `src/orchestrator.js` reads the full fact list (`list_facts`) and matches the whole normalised sender name, the currency and the exact cents; then the credit books that payee and category and is not offered to a waiting debit as a transfer leg. An amount cell that does not parse adds no fact.
