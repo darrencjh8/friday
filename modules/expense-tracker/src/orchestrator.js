@@ -2448,6 +2448,11 @@ export class AgentOrchestrator {
                         if (relevant.length > 0) {
                             const mentionsDifferent = relevant.some((r) => {
                                 const text = (r.text || "").toLowerCase();
+                                // A payee/category mapping names where the money
+                                // goes (a transfer payee such as a loan account),
+                                // not the account it left, so it is no evidence
+                                // of a wrong source pick.
+                                if (/\smaps\s+to\s.+\s(?:payee|category)\b/.test(text)) return false;
                                 return liveAccounts.some(
                                     (a) =>
                                         a.id !== output.account_id &&
