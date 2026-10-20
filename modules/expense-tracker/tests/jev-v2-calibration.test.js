@@ -295,7 +295,7 @@ describe("orchestrator calibration hook", () => {
         "",
     ].join("\r\n");
 
-    async function run(calibrating) {
+    async function run(calibrating, facts = ["Account ending 166600 belongs to OCBC 111"]) {
         const { AgentOrchestrator } = await import("../src/orchestrator.js");
         const calls = [];
         const tools = {
@@ -308,7 +308,7 @@ describe("orchestrator calibration hook", () => {
                         categories: [{ id: "cat-food", name: "Food" }],
                         payees: [{ id: "p-sal", name: "Salary" }],
                     };
-                if (name === "list_facts") return { facts: [{ text: "Account ending 166600 belongs to OCBC 111" }] };
+                if (name === "list_facts") return { facts: facts.map((text) => ({ text })) };
                 if (name === "search_memory")
                     return { results: [{ text: "Account ending 166600 belongs to OCBC 111", score: 1 }] };
                 if (name === "resolve_merchant") return { payee: null };
@@ -342,6 +342,15 @@ describe("orchestrator calibration hook", () => {
         const [cal] = calls.filter((c) => c.name === "calibrate_jev");
         expect(cal.args).toMatchObject({ merchant: "ACME PERSON", direction: "incoming", amount_cents: 5000, as_of: "2026-10-09", no_search: true });
         expect(cal.args.evidence.text).toContain("ACME PERSON");
+    });
+
+    it("never searches a person, even one whose credit matched an amount rule", async () => {
+        const calls = await run(true, [
+            "Account ending 166600 belongs to OCBC 111",
+            "Incoming SGD 50.00 from ACME PERSON maps to Salary payee",
+        ]);
+        const [cal] = calls.filter((c) => c.name === "calibrate_jev");
+        expect(cal.args).toMatchObject({ merchant: "ACME PERSON", no_search: true });
     });
 
     it("does nothing outside a calibration run", async () => {

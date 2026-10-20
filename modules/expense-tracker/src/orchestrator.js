@@ -3003,7 +3003,9 @@ export class AgentOrchestrator {
                     amount_cents: output.amount_cents,
                     currency: output.currency,
                     as_of: output.date,
-                    ...(output._no_search ? { no_search: true } : {}),
+                    // A person is never searched, including one whose credit an
+                    // amount rule already settled (and so carries no `_no_search`).
+                    ...(output._no_search || output._incoming_person ? { no_search: true } : {}),
                 });
             } catch (error) {
                 logger.warn({ event: "jev_calibration_failed", error: error.message });
