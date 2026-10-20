@@ -16,11 +16,15 @@ export const JEV_DEFAULT_ENDPOINT = "https://api.typesafe.ai/v1/systemone";
 export const JEV_DEFAULT_MODEL = "jev-latest";
 
 /**
- * Initial values, to be calibrated against real traffic. A model score alone is
- * not ground truth: the answer is also validated against the eligible list.
+ * A model score alone is not ground truth: the answer is also validated
+ * against the eligible list, the margin and the evidence check. The payee bar
+ * was calibrated on a replay of real alerts, where correct picks scored
+ * 0.69-0.79; a payee pick is only offered, never learned, until confirmed. A
+ * category pick is booked with no offer, so it keeps the original 0.85 bar.
  */
 export const JEV_THRESHOLDS = Object.freeze({
-    confidence: 0.85,
+    confidence: 0.65,
+    categoryConfidence: 0.85,
     margin: 0.3,
     evidence: 0.8,
 });
@@ -148,7 +152,7 @@ const round3 = (value) => Math.round(value * 1000) / 1000;
  * reason}` when any gate fails. `scores` reports what the model said even on
  * a refusal, for calibration logs; it never carries the email.
  */
-async function pick({ config, fetchImpl, state, key, instructions, names, noneCriterion, evidenceQuestion, unknownReason }) {
+async function pick({ config, fetchImpl, state, key, instructions, names, noneCriterion, evidenceQuestion, unknownReason, minConfidence }) {
     const scores = {};
     const none = (reason) => ({ choice: null, reason, scores });
     const criteria = Object.fromEntries(names.map((name) => [name, null]));
@@ -166,7 +170,7 @@ async function pick({ config, fetchImpl, state, key, instructions, names, noneCr
     scores.confidence = Number(answer.confidence);
     if (best === NONE_OPTION) return none("none");
     if (!names.includes(best)) return none(unknownReason);
-    if (!(Number(answer.confidence) >= JEV_THRESHOLDS.confidence)) return none("low_confidence");
+    if (!(Number(answer.confidence) >= minConfidence)) return none("low_confidence");
     const probabilities = answer.probabilities;
     if (!probabilities || typeof probabilities[best] !== "number") return none("no_probabilities");
     const others = Object.entries(probabilities)
@@ -237,6 +241,7 @@ export async function classifyPayee({
             fetchImpl,
             state,
             key: "payee",
+            minConfidence: JEV_THRESHOLDS.confidence,
             names,
             unknownReason: "unknown_payee",
             noneCriterion: searched
@@ -332,6 +337,7 @@ export async function classifyCategory({
             fetchImpl,
             state,
             key: "category",
+            minConfidence: JEV_THRESHOLDS.categoryConfidence,
             names,
             unknownReason: "unknown_category",
             noneCriterion: "The evidence does not show what kind of purchase this is.",

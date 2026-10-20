@@ -166,3 +166,27 @@ describe("classify_category", () => {
         expect(calls).toHaveLength(0);
     });
 });
+
+describe("resolve_merchant for a person transaction", () => {
+    const PERSON = { ...ARGS, merchant: "ACME PERSON", direction: "incoming", amount_cents: 50000 };
+
+    it("never searches the web for a person, but Jev still reads the email", async () => {
+        const seen = routedFetch();
+        const out = await registry().executeTool("resolve_merchant", { ...PERSON, no_search: true });
+        expect(seen.firecrawl).toBe(0);
+        expect(seen.jev.length).toBeGreaterThan(0);
+        expect(out).toMatchObject({ payee: "Food", source: "jev" });
+        expect(out.search).toBeUndefined();
+    });
+
+    it("skips a plain name fact when told memory was already decided", async () => {
+        const seen = routedFetch();
+        const out = await registry({}, ["ACME PERSON maps to Groceries payee"]).executeTool("resolve_merchant", {
+            ...PERSON,
+            no_search: true,
+            no_memory: true,
+        });
+        expect(out).toMatchObject({ payee: "Food", source: "jev" });
+        expect(seen.firecrawl).toBe(0);
+    });
+});

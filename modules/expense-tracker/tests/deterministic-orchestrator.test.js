@@ -1517,6 +1517,42 @@ describe("Phase 1: LLM-directed retrieval (multi-round tools)", () => {
     expect(feedbackText).toContain("BUS/MRT transactions belong to DBS Nova Card");
   });
 
+  it("does not force a retry when the only hint is a payee mapping naming an account", async () => {
+    // "Loan instalment maps to DBS Loan payee" names the account the money goes
+    // TO (a transfer payee), not the account it left. Treating it as evidence of
+    // a wrong source pick retried until Phase 1 gave up. Synthetic fixture.
+    const { AgentOrchestrator } = await import("../src/orchestrator.js");
+    const config = makeConfig();
+    const tools = multiRoundTools({
+      executeTool: vi.fn(async (name, args) => {
+        if (name === "fetch_context")
+          return {
+            accounts: [
+              { id: "acc-dbs", name: "DBS Account", closed: false },
+              { id: "acc-loan", name: "DBS Loan", closed: false },
+            ],
+            categories: [],
+            payees: [],
+          };
+        if (name === "search_memory") {
+          if (args && String(args.query).includes("Loan instalment"))
+            return { results: [{ text: "Loan instalment maps to DBS Loan payee", score: 1 }] };
+          return { results: [] };
+        }
+        return true;
+      }),
+    });
+    const orch = new AgentOrchestrator(config, tools);
+    orch._llm.chat = vi.fn().mockResolvedValue({
+      choices: [{ message: jsonMsg({ ...novaResult, merchant: "Loan instalment", account_id: "acc-dbs", account_name: "DBS Account" }) }],
+    });
+
+    const result = await orch._runPhase1("To: Loan instalment SGD 50.00", { senderBank: "DBS" });
+
+    expect(result?.account_id).toBe("acc-dbs");
+    expect(orch._llm.chat).toHaveBeenCalledTimes(1);
+  });
+
   it("does not force a retry when the merchant is a legitimate cross-bank transfer destination (transfer-shaped email)", async () => {
     // Regression test: a UOB FAST transfer alert to an OCBC account. The LLM
     // correctly keeps account_id on the UOB source account per rule 4b

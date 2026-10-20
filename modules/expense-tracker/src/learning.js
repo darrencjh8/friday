@@ -35,6 +35,21 @@ export function descriptorOf(value) {
     return text;
 }
 
+/**
+ * The memory key for money received from a person: `Incoming SGD 900.00 from
+ * NAME`, the shape the wiki's people page emits for its "Incoming amount"
+ * column and `incomingRule` in the orchestrator reads. Null unless the name is
+ * a learnable label and the amount is a positive count of cents in a
+ * three-letter currency.
+ */
+export function incomingKey(name, { currency, amount_cents } = {}) {
+    const who = descriptorOf(name);
+    const cur = String(currency || "").trim().toUpperCase();
+    const cents = Math.abs(Number(amount_cents));
+    if (!who || !/^[A-Z]{3}$/.test(cur) || !Number.isInteger(cents) || cents === 0) return null;
+    return `Incoming ${cur} ${(cents / 100).toFixed(2)} from ${who}`;
+}
+
 export class PendingLearning {
     constructor(path, { ttlMs = 7 * DAY_MS, cap = 50, now = Date.now } = {}) {
         this._path = path;

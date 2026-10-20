@@ -91,11 +91,12 @@ describe("category order after a Jev payee pick", () => {
         expect(out.category_id).not.toBe("cat-gone");
     });
 
-    it("a Misc payee can still get a Jev category, but the LLM picker stays off", async () => {
+    it("a Misc payee gets no Jev category, since Misc is booked without one, and the LLM picker stays off", async () => {
         const { orch, calls, chat } = orchestrator({ resolve: { payee: "Misc", source: "fallback", search: SEARCH } });
         const out = await orch._resolvePhase2(phase1());
-        expect(named(calls, "classify_category")[0].args).toMatchObject({ payee: "Misc", search: SEARCH });
-        expect(out).toMatchObject({ payee_name: "Misc", category_id: "cat-food" });
+        expect(named(calls, "classify_category")).toHaveLength(0);
+        expect(out).toMatchObject({ payee_name: "Misc" });
+        expect(out.category_id ?? null).toBeNull();
         expect(chat).not.toHaveBeenCalled();
     });
 
@@ -185,5 +186,23 @@ describe("merchant-keyed category and confirmable offers", () => {
         await orch._jevOffer({ ...base, _is_paynow: true }, "Food");
         await orch._jevOffer({ ...base, _is_transfer: true }, "Food");
         expect(named(calls, "propose_learning")).toHaveLength(0);
+    });
+});
+
+describe("person transactions are never web-searched", () => {
+    it("an outgoing PayNow to a person reaches Jev with no search", async () => {
+        const { orch, calls } = orchestrator({ resolve: { payee: "Misc", source: "fallback" } });
+        await orch._resolvePhase2(phase1({ merchant: "ACME PERSON", raw_description: "PayNow to ACME PERSON", _is_paynow: true }));
+        const [call] = named(calls, "resolve_merchant");
+        expect(call.args).toMatchObject({ merchant: "ACME PERSON", no_search: true });
+    });
+
+    it("a PayNow to a UEN merchant and a card purchase still search", async () => {
+        const uen = orchestrator();
+        await uen.orch._resolvePhase2(phase1({ _is_paynow: true, _paynow_merchant: true }));
+        expect(named(uen.calls, "resolve_merchant")[0].args.no_search).toBeUndefined();
+        const card = orchestrator();
+        await card.orch._resolvePhase2(phase1());
+        expect(named(card.calls, "resolve_merchant")[0].args.no_search).toBeUndefined();
     });
 });
