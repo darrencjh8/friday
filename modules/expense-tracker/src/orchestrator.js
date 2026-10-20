@@ -418,6 +418,68 @@ export function counterpartyIsRememberedEntity(name, facts) {
 }
 
 /**
+ * The owner's rule for an incoming credit of exactly this amount from this
+ * sender, from the wiki people page's "Incoming amount" column:
+ *   `Incoming SGD 900.00 from NAME maps to PAYEE (payee|category)`
+ * The sender is compared whole after normalisation, and the currency and cents
+ * exactly, so the same sender sending any other amount gets no rule. A plain
+ * `NAME maps to …` fact never yields one.
+ *
+ * @param {Array<{text?: string}|string>} facts the full fact list
+ * @param {{name: string, currency: string, amountCents: number}} credit
+ * @returns {{payee: string, category: string|null}|null}
+ */
+export function incomingRule(facts, { name, currency, amountCents }) {
+    const who = normalizeIdentityName(name);
+    const cur = String(currency || "").trim().toUpperCase();
+    const cents = Math.abs(Number(amountCents));
+    if (!who || !cur || !Number.isFinite(cents) || cents === 0) return null;
+    let payee = null;
+    let category = null;
+    for (const fact of facts || []) {
+        const text = typeof fact === "string" ? fact : fact?.text || "";
+        const m = text.match(
+            /^Incoming\s+([A-Za-z]{3})\s+(\d+(?:\.\d{1,2})?)\s+from\s+(.+?)\s+maps\s+to\s+(.+?)\s+(payee|category)\s*$/i,
+        );
+        if (!m || m[1].toUpperCase() !== cur || normalizeIdentityName(m[3]) !== who) continue;
+        if (Math.round(Number(m[2]) * 100) !== cents) continue;
+        if (m[5].toLowerCase() === "payee") payee ??= m[4].trim();
+        else category ??= m[4].trim();
+    }
+    return payee ? { payee, category } : null;
+}
+
+/**
+ * How memory answers an incoming credit from a named person, after
+ * `incomingRule` found no rule for this exact amount:
+ * - `amountOnly`: the sender has some amount rule, so only an exact amount
+ *   counts and their plain name fact does not apply to this credit;
+ * - `payee`: otherwise, the payee of a plain `NAME maps to PAYEE payee` fact
+ *   naming the whole sender, or null.
+ *
+ * @param {Array<{text?: string}|string>} facts the full fact list
+ * @param {string} name the sender
+ * @returns {{amountOnly: boolean, payee: string|null}}
+ */
+export function incomingPersonMemory(facts, name) {
+    const who = normalizeIdentityName(name);
+    let amountOnly = false;
+    let payee = null;
+    if (!who) return { amountOnly, payee };
+    for (const fact of facts || []) {
+        const text = typeof fact === "string" ? fact : fact?.text || "";
+        const ruled = text.match(/^Incoming\s+[A-Za-z]{3}\s+[\d.]+\s+from\s+(.+?)\s+maps\s+to\s/i);
+        if (ruled) {
+            if (normalizeIdentityName(ruled[1]) === who) amountOnly = true;
+            continue;
+        }
+        const plain = text.match(/^(.+?)\s+maps\s+to\s+(.+?)\s+payee\s*$/i);
+        if (plain && !payee && normalizeIdentityName(plain[1]) === who) payee = plain[2].trim();
+    }
+    return { amountOnly, payee: amountOnly ? null : payee };
+}
+
+/**
  * True when the destination a transfer names cannot be pinned to exactly one
  * open account.
  *
@@ -1339,6 +1401,30 @@ export class AgentOrchestrator {
             (movement.person_transfer !== true || ownCreditDebit)
         ) {
             const namedFrom = movement.counterparty?.name || "an unverified counterparty";
+            // Money from a person: memory first, then Jev reading the email
+            // alone (a person's name is never web-searched). An owner rule for
+            // this sender AND this amount names the payee and category. A sender
+            // with any amount rule gets nothing from their plain name fact;
+            // otherwise that fact names the payee. With neither, Jev decides and
+            // `Misc` is the answer when it cannot. A credit that is the far leg
+            // of the holder's own transfer keeps its Misc pairing shape.
+            const person = !ownCreditDebit && !knownOwnIdentity && movement.counterparty?.name;
+            const personFacts = person ? await this._personEntityFacts() : [];
+            const rule = person
+                ? incomingRule(personFacts, {
+                      name: movement.counterparty.name,
+                      currency: movement.currency,
+                      amountCents: movement.amount_cents,
+                  })
+                : null;
+            const remembered = person && !rule ? incomingPersonMemory(personFacts, movement.counterparty.name) : null;
+            const resolvedPerson = rule
+                ? { payee_name: rule.payee, payee_source: "incoming_rule", _incoming_rule_category: rule.category }
+                : remembered?.payee
+                  ? { payee_name: remembered.payee, payee_source: "memory" }
+                  : person
+                    ? { _payee_unresolved: true, _no_search: true, _no_memory: true }
+                    : {};
             return {
                 merchant: namedFrom,
                 amount_cents: Math.abs(movement.amount_cents),
@@ -1357,11 +1443,15 @@ export class AgentOrchestrator {
                 notify_message: "",
                 _suffix_mappings: suffixMappings,
                 _structured_movement: true,
+                ...resolvedPerson,
+                ...(person ? { _incoming_person: true } : {}),
                 // A masked self-transfer debit booked first waits for this credit
                 // (see `_resolveMaskedSelfTransfer`).
                 _pair_other_accounts: ownCreditDebit
                     ? [ownCreditDebit.account_id]
-                    : accounts.filter((a) => !a.closed && a.id !== destination.id).map((a) => a.id),
+                    : rule || remembered?.payee
+                      ? []
+                      : accounts.filter((a) => !a.closed && a.id !== destination.id).map((a) => a.id),
                 // The own-name credit's debit was found untagged (#796).
                 ...(ownCreditDebit ? { _pair_untagged: true } : {}),
             };
@@ -2397,6 +2487,11 @@ export class AgentOrchestrator {
                         if (relevant.length > 0) {
                             const mentionsDifferent = relevant.some((r) => {
                                 const text = (r.text || "").toLowerCase();
+                                // A payee/category mapping names where the money
+                                // goes (a transfer payee such as a loan account),
+                                // not the account it left, so it is no evidence
+                                // of a wrong source pick.
+                                if (/\smaps\s+to\s.+\s(?:payee|category)\b/.test(text)) return false;
                                 return liveAccounts.some(
                                     (a) =>
                                         a.id !== output.account_id &&
@@ -2875,6 +2970,9 @@ export class AgentOrchestrator {
                     }
                 }
             }
+            // A PayNow counterparty that is not a UEN merchant is a person: its
+            // merchant tiers below still run, but never a web search.
+            if (unresolved && !credit && !output._paynow_merchant) output._no_search = true;
             if (selfMasked || (unresolved && credit)) {
                 // A masked self identity is a person, not a merchant key, and a
                 // held credit must not be booked: both are Misc with no category.
@@ -2896,15 +2994,18 @@ export class AgentOrchestrator {
         // Memory hits for the merchant itself; the category tier reads them too.
         let memResults = [];
         if (!output.payee_name && searchTerm && !paynowSettled) {
-            try {
-                const memResult = await this._tools.executeTool(
-                    "search_memory",
-                    {
-                        query: searchTerm,
-                    },
-                );
-                memResults = memResult?.results || [];
-            } catch {}
+            // An incoming person credit had its memory decided upstream.
+            if (!output._no_memory) {
+                try {
+                    const memResult = await this._tools.executeTool(
+                        "search_memory",
+                        {
+                            query: searchTerm,
+                        },
+                    );
+                    memResults = memResult?.results || [];
+                } catch {}
+            }
 
             let payeeMatch = null;
             for (const r of memResults) {
@@ -2929,6 +3030,8 @@ export class AgentOrchestrator {
                         {
                             merchant: searchTerm,
                             budget_id: output.budget_id || "",
+                            ...(output._no_search ? { no_search: true } : {}),
+                            ...(output._no_memory ? { no_memory: true } : {}),
                             // The email is untrusted evidence for the Jev tier
                             // only; the tool never learns from it (#720).
                             ...(output._evidence
@@ -3175,13 +3278,22 @@ export class AgentOrchestrator {
                 }
             } catch {}
 
+            // Tier 0: the owner's sender-and-amount rule names its category.
+            if (output._incoming_rule_category) {
+                const ruled = matchCategory(liveCategories, output._incoming_rule_category, { exact: true });
+                if (ruled) {
+                    output.category_id = ruled.id;
+                    output.category_name = ruled.name;
+                }
+            }
+
             // Tier 1: Memory lookup (payee_name → category, matches auto-learn key)
             // Query by payee name only (not "payee + ' category'") so substring
             // search can reach facts like "Maxis Fibre maps to Malaysia Utilities
             // category" (the "X category" suffix is not contiguous in the fact).
             // Tier 1a: a category fact keyed on this merchant (a confirmed offer
             // or a wiki "Category override") outranks the payee's category.
-            for (const r of memResults) {
+            for (const r of output.category_id ? [] : memResults) {
                 if (!searchTerm || !factNamesMerchant(r.text, searchTerm)) continue;
                 const m = (r.text || "").match(/maps to (.+?) category/i);
                 const matched = m ? matchCategory(liveCategories, m[1]) : null;
@@ -3225,8 +3337,9 @@ export class AgentOrchestrator {
             }
 
             // Tier 1b: Jev, only when memory had no category. It reads the email
-            // and the search results that found the payee, and may categorise a
-            // Misc row too. Its pick is validated here and never learned.
+            // and the search results that found the payee. Its pick is validated
+            // here and never learned. A Misc row is booked without a category
+            // (Phase 3), so Jev is not asked for one.
             if (!output.category_id && output._pending_category && !output._is_transfer) {
                 const pending = matchCategory(liveCategories, output._pending_category, { exact: true });
                 if (pending) {
@@ -3235,7 +3348,12 @@ export class AgentOrchestrator {
                     output.category_source = "jev";
                 }
             }
-            if (!output.category_id && output._evidence?.text && !output._is_transfer) {
+            if (
+                !output.category_id &&
+                output._evidence?.text &&
+                !output._is_transfer &&
+                output.payee_name.trim().toLowerCase() !== "misc"
+            ) {
                 try {
                     const jev = await this._tools.executeTool("classify_category", {
                         merchant: output.merchant || searchTerm || "",
@@ -3623,7 +3741,13 @@ export class AgentOrchestrator {
                     if (inserted.code) refused.code = inserted.code;
                     throw refused;
                 }
-                if (llmOutput._pair_other_accounts?.length && inserted?.id) {
+                // Only a Misc credit is a transfer leg waiting for its debit; one
+                // memory or Jev named is income (#680 pairing shape).
+                if (
+                    llmOutput._pair_other_accounts?.length &&
+                    inserted?.id &&
+                    (payeeName.trim().toLowerCase() === "misc" || llmOutput._pair_untagged)
+                ) {
                     const paired = await this._pairWaitingDebit({ llmOutput, creditRowId: inserted.id });
                     if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer debit)`;
                 }
@@ -3703,7 +3827,8 @@ export class AgentOrchestrator {
                     payeeName.trim().toLowerCase() === "misc"
                         ? llmOutput.merchant || payeeName
                         : payeeName;
-                const cat = llmOutput.category_name
+                // Only the category actually booked: a Misc row carries none.
+                const cat = categoryId && llmOutput.category_name
                     ? ` → ${llmOutput.category_name}`
                     : "";
                 const offer = await this._jevOffer(llmOutput, payeeName);
@@ -3824,6 +3949,15 @@ export class AgentOrchestrator {
             const offered = await this._tools.executeTool("propose_learning", {
                 descriptor,
                 payee: payeeName,
+                // Money from a person is remembered by sender and amount.
+                ...(llmOutput._incoming_person
+                    ? {
+                          incoming: {
+                              currency: llmOutput.currency,
+                              amount_cents: Math.abs(Number(llmOutput.amount_cents)),
+                          },
+                      }
+                    : {}),
                 ...(category ? { category } : {}),
                 runner_up: runnerUp || "",
                 budget_id: llmOutput.budget_id || "",

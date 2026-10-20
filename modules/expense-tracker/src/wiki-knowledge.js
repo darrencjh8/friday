@@ -75,6 +75,41 @@ function tableRows(text, firstHeader) {
   return rows;
 }
 
+/**
+ * Rows of every table whose header starts with `firstHeader`, as objects keyed
+ * by the lower-cased header text, so an optional column can sit anywhere and a
+ * row written before the column existed simply lacks it.
+ */
+function tableRecords(text, firstHeader) {
+  const out = [];
+  let header = null;
+  for (const line of text.split("\n")) {
+    if (!line.trim().startsWith("|")) {
+      header = null;
+      continue;
+    }
+    const c = cells(line);
+    if (!header) {
+      header = c || [];
+      continue;
+    }
+    if (!c || header[0]?.toLowerCase() !== firstHeader.toLowerCase()) continue;
+    out.push(Object.fromEntries(header.map((h, i) => [h.toLowerCase(), c[i] ?? ""])));
+  }
+  return out;
+}
+
+/**
+ * `SGD 1,200.5` -> `SGD 1200.50`; null for anything else. The fact keeps two
+ * decimals so `incomingRule` in the orchestrator can compare it to cents.
+ */
+function incomingAmount(cell) {
+  const m = String(cell || "").trim().match(/^([A-Za-z]{3})\s*([\d,]+(?:\.\d{1,2})?)$/);
+  if (!m) return null;
+  const value = Number(m[2].replace(/,/g, ""));
+  return Number.isFinite(value) && value > 0 ? `${m[1].toUpperCase()} ${value.toFixed(2)}` : null;
+}
+
 /** Bullets in a `## heading` section, with markdown emphasis removed. */
 function sectionBullets(text, heading) {
   const out = [];
@@ -125,10 +160,22 @@ export function wikiFacts(wikiDir) {
     if (active(status) && payee && category) facts.push(`${payee} maps to ${category} category`);
   }
 
-  for (const [name, payee, category] of tableRows(read("people-transfers.md"), "Name in descriptor")) {
+  // A row with an "Incoming amount" is a rule for a credit of exactly that
+  // amount from that sender, and nothing else: the same sender sending another
+  // amount stays Misc. An amount that does not parse adds no fact at all.
+  for (const row of tableRecords(read("people-transfers.md"), "Name in descriptor")) {
+    const name = row["name in descriptor"];
+    const { payee, category } = row;
     if (!name || !payee) continue;
-    facts.push(`${name} maps to ${payee} payee`);
-    if (category) facts.push(`${name} maps to ${category} category`);
+    const amountCell = row["incoming amount"];
+    let subject = name;
+    if (amountCell) {
+      const amount = incomingAmount(amountCell);
+      if (!amount) continue;
+      subject = `Incoming ${amount} from ${name}`;
+    }
+    facts.push(`${subject} maps to ${payee} payee`);
+    if (category) facts.push(`${subject} maps to ${category} category`);
   }
 
   const suffix = read("card-suffix-mappings.md");
