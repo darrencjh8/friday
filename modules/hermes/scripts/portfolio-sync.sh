@@ -53,8 +53,23 @@ try:
     # the same way and on their own token expiry. `or '?'` and `or ''` cover an
     # explicit null as well as a missing key, so a null never prints `None`.
     for leg in ('pull', 'push', 'flex_pull', 'flex_import', 'taxonomy_export',
-                'portfolio_status'):
+                'portfolio_status', 'deposit_matches'):
         r = data.get(leg)
+        if leg == 'deposit_matches':
+            # A list, one entry per flex deposit handed to the expense tracker;
+            # empty on a run with no deposit, which is not worth a line.
+            entries = [d for d in (r if isinstance(r, list) else []) if isinstance(d, dict)]
+            failed = [d for d in entries if d.get('error')]
+            if failed:
+                parts = []
+                for d in failed:
+                    amount = (d.get('amount_cents') or 0) / 100
+                    parts.append(f"{d.get('currency', '?')} {amount:.2f} on {d.get('date', '?')}: {d['error']}")
+                print(f'  {leg}: error ({"; ".join(parts)})')
+            elif entries:
+                n = sum(1 for d in entries if d.get('matched') == 1)
+                print(f'  {leg}: ok ({n} of {len(entries)} rebooked)')
+            continue
         if leg == 'portfolio_status' and isinstance(r, dict) and r.get('error'):
             # tools.js stores a failed status fetch as {error: msg} and no other
             # leg or consumer reads it, so surface it here too or the run is clean.

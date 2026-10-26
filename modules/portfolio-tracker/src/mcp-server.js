@@ -144,6 +144,18 @@ export function formatSyncResult(raw) {
         legErrs.push(`⚠️ Portfolio status: ${status.error}`);
     }
 
+    // deposit_matches is a list, one entry per IBKR flex deposit handed to the
+    // expense tracker's broker-deposit matcher. A failed call leaves the bank's
+    // Misc withdrawal unmatched, so it is reported; a match is announced by the
+    // expense tracker itself, and an empty list means there was no deposit.
+    const deposits = Array.isArray(raw.deposit_matches) ? raw.deposit_matches : [];
+    for (const d of deposits) {
+        if (d && d.error) {
+            const amount = ((d.amount_cents || 0) / 100).toFixed(2);
+            legErrs.push(`⚠️ IBKR deposit match: ${d.currency || "?"} ${amount} on ${d.date || "?"}: ${d.error}`);
+        }
+    }
+
     // The sync aborted before it assembled a payload (an Actual Budget outage
     // throws out of fetchBudget). Without this the operator got the empty string
     // and the aborting error was lost, which is what let a dead grant look clean

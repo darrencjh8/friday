@@ -727,6 +727,41 @@ describe("ToolRegistry — _computeSyncAll with flex pull", () => {
         expect(result.flex_import.trades_imported).toBe(1);
     });
 
+    it("hands each flex deposit to the expense tracker's broker-deposit matcher", async () => {
+        pullFlexXml.mockResolvedValue({
+            success: true,
+            xml: `<FlexQueryResponse><FlexStatements><FlexStatement><CashTransactions>
+<CashTransaction type="Deposits/Withdrawals" currency="SGD" amount="3930" dateTime="20261026" levelOfDetail="DETAIL" />
+</CashTransactions></FlexStatement></FlexStatements></FlexQueryResponse>`,
+        });
+        const budgetFetch = global.fetch;
+        global.fetch = vi.fn(async (url, init) =>
+            String(url).includes("/tools/match-broker-deposit")
+                ? { ok: true, status: 200, json: async () => ({ matched: 1, id: "row-1" }) }
+                : budgetFetch(url, init),
+        );
+
+        const result = await registry._computeSyncAll();
+
+        const call = global.fetch.mock.calls.find(([u]) => String(u).includes("/tools/match-broker-deposit"));
+        expect(call).toBeTruthy();
+        expect(JSON.parse(call[1].body)).toMatchObject({
+            budget_id: "test-budget",
+            amount_cents: 393000,
+            on_date: "2026-10-26",
+        });
+        expect(result.deposit_matches).toEqual([
+            { currency: "SGD", amount_cents: 393000, date: "2026-10-26", matched: 1 },
+        ]);
+    });
+
+    it("does not call the matcher when the flex pull fails", async () => {
+        pullFlexXml.mockResolvedValue({ success: false, error: "Network error" });
+        const result = await registry._computeSyncAll();
+        expect(global.fetch.mock.calls.some(([u]) => String(u).includes("match-broker-deposit"))).toBe(false);
+        expect(result.deposit_matches ?? []).toEqual([]);
+    });
+
     it("skips flex import when pullFlexXml fails", async () => {
         pullFlexXml.mockResolvedValue({
             success: false,

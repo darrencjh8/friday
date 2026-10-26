@@ -257,6 +257,17 @@ STATUS_ERR='{"sync_targets":[],
   "portfolio_status":{"error":"Portfolio.app unreachable"}}'
 check "a failed status fetch is reported" "$STATUS_ERR" "portfolio_status: error (Portfolio.app unreachable)"
 
+# deposit_matches is a list, one entry per IBKR flex deposit handed to the
+# expense tracker. A failed hand-off leaves the bank's Misc withdrawal unmatched.
+DEPOSIT_FAILED='{"sync_targets":[{"name":"Warchest","status":"updated","delta":0}],
+  "deposit_matches":[{"currency":"SGD","amount_cents":393000,"date":"2026-10-26","matched":0,"error":"HTTP 500"}]}'
+check "a failed deposit match is reported" "$DEPOSIT_FAILED" "deposit_matches: error (SGD 3930.00 on 2026-10-26: HTTP 500)"
+check "a failed deposit match is never reported as ok" "$DEPOSIT_FAILED" "" "deposit_matches: ok"
+DEPOSIT_MATCHED='{"sync_targets":[],"deposit_matches":[{"currency":"SGD","amount_cents":393000,"date":"2026-10-26","matched":1}]}'
+check "a matched deposit is reported" "$DEPOSIT_MATCHED" "deposit_matches: ok (1 of 1 rebooked)"
+DEPOSIT_NONE='{"sync_targets":[],"deposit_matches":[]}'
+check "a run with no deposit prints no deposit line" "$DEPOSIT_NONE" "" "deposit_matches:"
+
 if [ -n "$SENTINEL_FROM_JS" ] && [ "$PARSER_SENTINEL" != "$SENTINEL_FROM_JS" ]; then
     echo "FAIL: the shell parser matches on '$PARSER_SENTINEL' but NOT_CONFIGURED_ERROR is '$SENTINEL_FROM_JS'" >&2
     echo "      the M4 not-configured guard would silently stop working" >&2

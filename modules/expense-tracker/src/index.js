@@ -168,6 +168,7 @@ async function main() {
         "decline_learning",
         "update_transaction",
         "extract_inbox_pdf",
+        "match_broker_deposit",
     ];
 
     // With commands on, the user's /remember is the only confirm (#723). The

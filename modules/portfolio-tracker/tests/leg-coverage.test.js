@@ -46,7 +46,15 @@ const NOT_LEGS = new Set([
 ]);
 
 /** Every leg the renderer and the shell parser must mention by name. */
-const REQUIRED = ["pull", "push", "flex_pull", "flex_import", "taxonomy_export", "portfolio_status"];
+const REQUIRED = [
+    "pull",
+    "push",
+    "flex_pull",
+    "flex_import",
+    "taxonomy_export",
+    "portfolio_status",
+    "deposit_matches",
+];
 
 describe("the renderer covers every remote leg the payload carries", () => {
     it("finds the payload literal it is checking", () => {
@@ -83,6 +91,9 @@ describe("the renderer covers every remote leg the payload carries", () => {
             // status fetch as {error}. A generic status:"error" shape here would
             // not match what the producer emits, so the test would prove nothing.
             portfolio_status: { error: "Portfolio.app unreachable" },
+            // A list, not a dict: one entry per flex deposit, with `error` when
+            // the expense tracker could not be reached.
+            deposit_matches: [{ currency: "SGD", amount_cents: 100, date: "2026-10-26", matched: 0, error: "HTTP 500" }],
         };
         for (const leg of REQUIRED) {
             const out = formatSyncResult({
