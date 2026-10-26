@@ -348,10 +348,10 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
         const orch = await makeOrchestrator(tools);
         const result = await orch.processEmail("uid-1028", HOLDER_CREDIT, null, "no-reply@dbs",
             "digibank Alerts - You've received a transfer");
-        expect(result.action).toBe("notified");
+        expect(result.action).not.toBe("skipped");
     });
 
-    it("holds a holder-named credit when several debits could be its other leg (#796)", async () => {
+    it("books a holder-named credit as Misc, unlinked, when several debits could be its other leg (#796, owner ruling)", async () => {
         const calls = [];
         const hit = (id, account_id) => ({ candidate: { id, account_id }, matches: 1 });
         const tools = withCandidates(makeTools(calls, { holderFacts: true }), calls, {
@@ -361,17 +361,23 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
         const orch = await makeOrchestrator(tools);
         const result = await orch.processEmail("uid-1028", HOLDER_CREDIT, null, "no-reply@dbs",
             "digibank Alerts - You've received a transfer");
-        expect(result.action).toBe("notified");
-        expect(names(calls)).not.toContain("insert_transaction");
+        // Which debit is the other leg is unknown, so neither is linked.
+        expect(result.action).not.toBe("notified");
+        const insert = calls.find((c) => c.name === "insert_transaction");
+        expect(insert?.args).toMatchObject({ account_id: "acc-dbs", imported_description: "Misc" });
+        expect(insert.args.category_id ?? null).toBe(null);
+        expect(names(calls)).not.toContain("link_transfer_pair");
     });
 
-    it("holds a holder-named credit with no other leg yet, so it never reads as income (#585)", async () => {
+    it("books a holder-named credit with no other leg yet as Misc with no category, never as income (#585, owner ruling)", async () => {
         const calls = [];
         const orch = await makeOrchestrator(makeTools(calls, { holderFacts: true }));
         const result = await orch.processEmail("uid-1028", HOLDER_CREDIT, null, "no-reply@dbs",
             "digibank Alerts - You've received a transfer");
-        expect(result.action).toBe("notified");
-        expect(names(calls)).not.toContain("insert_transaction");
+        expect(result.action).not.toBe("notified");
+        const insert = calls.find((c) => c.name === "insert_transaction");
+        expect(insert?.args).toMatchObject({ account_id: "acc-dbs", imported_description: "Misc" });
+        expect(insert.args.category_id ?? null).toBe(null);
         expect(names(calls)).toContain("mark_email_read");
     });
 

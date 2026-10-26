@@ -371,6 +371,13 @@ function matchCategory(categories, name, { exact = false } = {}) {
 }
 
 /** Normalize a holder name for equality without turning a partial match into one. */
+/** The why for an own-name row booked as Misc (owner ruling); "" otherwise. */
+function ownNameNote(output) {
+    return output?._own_name_misc
+        ? " as Misc: a transfer in your own name, and I couldn't tell which of your accounts is the other side"
+        : "";
+}
+
 function normalizeIdentityName(value) {
     return String(value || "")
         .normalize("NFKD")
@@ -1162,9 +1169,10 @@ export class AgentOrchestrator {
             const holder = match[1].split(/\s*(?:->|→|=>)\s*/, 1)[0];
             return normalizeIdentityName(holder) === normalizeIdentityName(counterparty);
         });
-        // Two independent reasons to hold a person-shaped movement. The own-identity arm
-        // is unchanged: the holder's legal name recalled from memory, AND the name
-        // must not resolve to a tracked account. The person-transfer arm is new: the
+        // Two person-shaped cases. The own-identity case (the holder's legal name
+        // recalled from memory, and the name does not resolve to a tracked
+        // account) is booked as Misc below, by owner ruling; it used to be held.
+        // The person-transfer case still holds: the
         // PARSER already decided this is a person-to-person movement
         // (bank-movement.js person_transfer, set from `looksLikePersonName`), and
         // an unremembered person name is unverifiable without consulting accounts.
@@ -1220,12 +1228,45 @@ export class AgentOrchestrator {
         }
         const personNamed =
             movement.person_transfer === true && !personCounterpartyReleased && !ownCreditDebit;
-        const unverifiablePersonMovement =
+        const ownNameUnresolved =
             !resolved.internal &&
-            ((knownOwnIdentity &&
-                !ownCreditDebit &&
-                !matchAccountByName(counterparty, accounts, mappings.aliases).matched) ||
-                personNamed);
+            knownOwnIdentity &&
+            !ownCreditDebit &&
+            !matchAccountByName(counterparty, accounts, mappings.aliases).matched;
+        // Owner ruling: the holder's own legal name is never a stranger, so an
+        // own-name movement whose other side no account identifies is booked as
+        // Misc with no category instead of held (it used to be held under #569 /
+        // #585 / #592). The purpose varies, so no payee or category is guessed,
+        // and the notification says why. A stranger's name still holds below.
+        if (ownNameUnresolved) {
+            const incoming = movement.direction === "incoming";
+            const namedParty = incoming
+                ? (movement.own_account?.name || counterparty)
+                : counterparty;
+            return {
+                merchant: namedParty || "Own transfer",
+                amount_cents: incoming
+                    ? Math.abs(movement.amount_cents)
+                    : -Math.abs(movement.amount_cents),
+                date,
+                currency: movement.currency,
+                account_id: source.id,
+                account_name: source.name,
+                budget_id: budgetId,
+                action: "insert",
+                payee_name: "Misc",
+                category_id: null,
+                raw_description: `${incoming ? "Transfer from" : "Transfer to"} own name`,
+                raw_merchant_descriptor: "",
+                notes: movement.reference_number ? `Statement: ${movement.reference_number}` : "",
+                reasoning: "Own-name transfer; the other side is not an identified account, so Misc",
+                notify_message: "",
+                _suffix_mappings: suffixMappings,
+                _structured_movement: true,
+                _own_name_misc: true,
+            };
+        }
+        const unverifiablePersonMovement = !resolved.internal && personNamed;
         if (unverifiablePersonMovement) {
             // Name the OTHER party to the money. On this route `counterparty` is
             // the destination field and `own_account` the source field, and the
@@ -3853,7 +3894,7 @@ export class AgentOrchestrator {
                     : "";
                 const offer = await this._jevOffer(llmOutput, payeeName);
                 const notified = await this._tools.executeTool("notify_user", {
-                    message: `${amountPrefix}at ${displayPayee} via ${acct} on ${dt}${cat}, logged${offer.text}`,
+                    message: `${amountPrefix}at ${displayPayee} via ${acct} on ${dt}${cat}, logged${ownNameNote(llmOutput)}${offer.text}`,
                 });
                 if (!notified) {
                     // An offer the user was never told about must not linger.

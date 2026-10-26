@@ -297,9 +297,9 @@ const RYT_SCHEDULED_TRANSFER =
     "Ryt Bank App and head to Scheduled Transfers.";
 
 describe("a Ryt scheduled transfer is never booked as an external expense", () => {
-    it("holds instead of inserting when the destination is the holder", async () => {
-        // Production shape: the alert names the holder, and the tracker holds a
-        // person-to-person movement whose other leg it cannot verify. The
+    it("books Misc with no category, never an expense, when the destination is the holder (owner ruling)", async () => {
+        // Production shape: the alert names the holder, and no account identifies
+        // the other leg, so the owner's ruling books it as Misc. The
         // placeholder name needs the matching legal-name fact that production
         // carries, otherwise it stops being an own identity at all.
         const { phase2, calls } = await orchestrate(RYT_SCHEDULED_TRANSFER, {
@@ -313,9 +313,11 @@ describe("a Ryt scheduled transfer is never booked as an external expense", () =
         });
 
         expect(phase2).toBeTruthy();
-        expect(phase2._hold_unresolved_transfer).toBe(true);
-        expect(phase2._hold_cause).toBe("person_identity_unverified");
+        expect(phase2._hold_unresolved_transfer).toBeUndefined();
+        expect(phase2.payee_name).toBe("Misc");
         expect(phase2.category_id).toBeNull();
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        const insert = calls.find((c) => c.name === "insert_transaction");
+        expect(insert?.args?.imported_description).toBe("Misc");
+        expect(insert.args.category_id ?? null).toBe(null);
     });
 });
