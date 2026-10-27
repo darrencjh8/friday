@@ -14,6 +14,7 @@ import { extractPdfFromBuffer, extractEmailContent } from "./extractors.js";
 import { factNamesMerchant } from "./memory.js";
 import {
   JEV_PROMPT_VARIANTS,
+  alertContext,
   classifyCategory,
   classifyPayee,
   eligibleCategories,
@@ -2335,6 +2336,7 @@ export class ToolRegistry {
           payees,
           variant,
           history,
+          context: this._jevContext(merchant),
           ...withSearch,
         });
         if (result.payee) {
@@ -2353,6 +2355,17 @@ export class ToolRegistry {
       return { payee: "Misc", source: "fallback", ...withSearch };
     }
     return { payee: "Misc", source: "fallback" };
+  }
+
+  /** Jev's lines about this alert: an Amaze location, the owner's home (jev.js alertContext). */
+  _jevContext(merchant) {
+    let facts = [];
+    try {
+      facts = this._memory?.listFacts?.() || [];
+    } catch {
+      // No facts read: Jev still gets the Amaze line.
+    }
+    return alertContext({ merchant, facts });
   }
 
   /**
@@ -2415,6 +2428,7 @@ export class ToolRegistry {
         payees,
         variant,
         history,
+        context: this._jevContext(merchant),
         fullScores: true,
         ...(search ? { search } : {}),
       });
@@ -2476,6 +2490,7 @@ export class ToolRegistry {
         evidence,
         categories,
         search,
+        context: this._jevContext(merchant),
       });
       return result.category_id ? { ...result, source: "jev" } : result;
     } catch (error) {

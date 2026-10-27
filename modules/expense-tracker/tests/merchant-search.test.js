@@ -29,7 +29,8 @@ describe("merchantQuery", () => {
         ["ACME CHICKEN@T9", "SGD", "ACME CHICKEN Singapore"],
         ["ACME BREAD_301 SOMEWHERE", "SGD", "ACME BREAD Singapore"],
         ["ClEAN_CNP", "SGD", "ClEAN Singapore"],
-        ["AMAZE* ACMEINSURE", "SGD", "ACMEINSURE Singapore"],
+        // Amaze's SGD and location are its own, not the merchant's (amaze.js).
+        ["AMAZE* ACMEINSURE", "SGD", "ACMEINSURE"],
         ["GRB*Acme Mochi Kamaku", "SGD", "Acme Mochi Kamaku Singapore"],
         ["CARDUP-ACME REVENUE +65", "SGD", "ACME REVENUE Singapore"],
         ["ACMEGREEN-B PTE. LT", "SGD", "ACMEGREEN-B Singapore"],

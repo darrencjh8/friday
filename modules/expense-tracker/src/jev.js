@@ -10,6 +10,7 @@
  * and nothing here ever learns or writes anything.
  */
 
+import { isAmaze } from "./amaze.js";
 import { logger } from "./logging.js";
 import { factNamesMerchant } from "./memory.js";
 
@@ -148,6 +149,39 @@ function v2Criterion(entry) {
     const examples = top(entry.merchants, MAX_EXAMPLES);
     if (examples.length) parts.push(`Merchants the owner booked to it: ${examples.join(", ")}.`);
     return parts.length ? parts.join(" ") : null;
+}
+
+/** `Home location: Johor Bahru` -> `Johor Bahru` (wiki-knowledge.js). */
+const HOME_FACT_RE = /^Home location:\s*(.+)$/i;
+
+/**
+ * Lines about the alert that the email does not say plainly: an Amaze
+ * charge's location is Amaze's own, and where the owner lives, so spending
+ * the evidence places elsewhere reads as travel. Facts are strings or
+ * `{text}` records; the home locations are the owner's, kept in the wiki.
+ * @returns {string[]}
+ */
+export function alertContext({ merchant, facts = [] } = {}) {
+    const lines = [];
+    if (isAmaze(merchant)) {
+        lines.push(
+            "This is an Amaze card charge. Every Amaze alert gives the location as SINGAPORE SGP, which is Amaze's own, so the alert does not show where the money was spent.",
+        );
+    }
+    const homes = [
+        ...new Set(
+            facts
+                .map((fact) => String(typeof fact === "string" ? fact : fact?.text || "").trim().match(HOME_FACT_RE)?.[1])
+                .filter(Boolean)
+                .map((place) => oneLine(place)),
+        ),
+    ];
+    if (homes.length) {
+        lines.push(
+            `The owner lives in ${homes.join(" and ")}. Spending that the merchant or the evidence clearly places outside ${homes.length > 1 ? "these places" : "this place"} is usually travel.`,
+        );
+    }
+    return lines;
 }
 
 /**
@@ -312,7 +346,9 @@ function logDecision(event, merchant, searched, result) {
 
 /**
  * `variant` picks the prompt (`JEV_PROMPT_VARIANTS`); `v2` reads `history`
- * from `payeeHistory`. `fullScores` is for calibration only. Every answer
+ * from `payeeHistory`. `context` is extra lines about the alert the caller
+ * knows (an Amaze location, the owner's home locations). `fullScores` is for
+ * calibration only. Every answer
  * carries `scores`, what the model said, for calibration; never the email.
  * @returns {Promise<{payee: string, confidence: number, evidenceScore: number,
  *   runnerUp: {payee: string|null, probability: number}, scores: object} | {payee: null, reason: string, scores?: object}>}
@@ -328,6 +364,7 @@ export async function classifyPayee({
     search,
     variant = "v1",
     history = null,
+    context = [],
     fullScores = false,
     fetchImpl = fetch,
 }) {
@@ -363,8 +400,9 @@ export async function classifyPayee({
                                 .join(", ")}.`,
                         ]
                       : []),
+                  ...context,
               ]
-            : [],
+            : context,
     });
     const v2Instructions = incoming
         ? "Money was received. Which of the owner's payee labels would the owner use for it? Use the option descriptions and the owner's earlier bookings. Choose the none option unless the evidence supports one label."
@@ -452,6 +490,7 @@ export async function classifyCategory({
     evidence,
     categories,
     search,
+    context = [],
     fetchImpl = fetch,
 }) {
     const none = (reason) => ({ category_id: null, reason });
@@ -473,7 +512,7 @@ export async function classifyCategory({
         currency,
         evidence,
         search,
-        extra: payeeLine,
+        extra: [...payeeLine, ...context],
     });
     try {
         const result = await pick({

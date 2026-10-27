@@ -31,6 +31,7 @@ import {
     resolveFactAccount as resolveFactAccountShared,
 } from "./suffix-facts.js";
 import { factNamesMerchant } from "./memory.js";
+import { amazeDescriptor } from "./amaze.js";
 import { descriptorOf } from "./learning.js";
 import { offerSubject } from "./learning-notify.js";
 import {
@@ -2294,6 +2295,14 @@ export class AgentOrchestrator {
                 // `_alert_id` keys the transfer-leg claim (issue #578); only the
                 // email path sets it, after this sanitiser.
                 delete output._alert_id;
+                // An Amaze descriptor is fixed text, but the LLM reads it
+                // differently run to run ("AMAZE", "MAGAZINE63"), so memory and
+                // Jev saw a different merchant each time. Take it from the alert.
+                const amaze = amazeDescriptor(emailText);
+                if (amaze && !output.skip) {
+                    output.merchant = amaze;
+                    output.raw_merchant_descriptor = amaze;
+                }
 
                 // Date fallback: if the email body contains no recognisable
                 // date and the LLM returned a date that differs from the day

@@ -8,6 +8,7 @@
  * FIRECRAWL_API_KEY is set.
  */
 
+import { isAmaze, withoutAmazeLocation } from "./amaze.js";
 import { scrubEvidence } from "./jev.js";
 import { descriptorOf } from "./learning.js";
 import { logger } from "./logging.js";
@@ -27,12 +28,21 @@ const COUNTRY_BY_CURRENCY = {
 };
 
 /**
+ * The country to search in: the one the currency implies, except for an Amaze
+ * charge, whose SGD and Singapore location are Amaze's own (amaze.js).
+ */
+function searchCountry(descriptor, currency) {
+    if (isAmaze(descriptor)) return null;
+    return COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()] || null;
+}
+
+/**
  * The search query for a bank descriptor: the merchant's own name plus the
  * country its currency implies. Falls back to the descriptor when trimming
  * leaves nothing usable.
  */
 export function merchantQuery(descriptor, currency) {
-    const raw = String(descriptor || "").replace(/\s+/g, " ").trim();
+    const raw = withoutAmazeLocation(descriptor);
     if (!raw) return "";
     const name = raw
         // Payment wrappers name the processor, not the merchant: "AMAZE* X",
@@ -50,7 +60,7 @@ export function merchantQuery(descriptor, currency) {
         .replace(/\s+/g, " ")
         .trim();
     const base = name.replace(/[^A-Za-z]/g, "").length >= 2 ? name : raw;
-    const country = COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()];
+    const country = searchCountry(raw, currency);
     return country ? `${base} ${country.name}` : base;
 }
 
@@ -119,7 +129,7 @@ export async function searchMerchant({ config, descriptor, currency, fetchImpl =
     const query = merchantQuery(descriptor, currency);
     const empty = { query, results: [] };
     if (!config?.firecrawlApiKey || !query) return empty;
-    const country = COUNTRY_BY_CURRENCY[String(currency || "").toUpperCase()];
+    const country = searchCountry(descriptor, currency);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {

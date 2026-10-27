@@ -150,6 +150,8 @@ export function wikiFacts(wikiDir) {
 
   const merchants = read("merchant-payee-mappings.md");
   facts.push(...sectionBullets(merchants, "Routing rules"));
+  // Where the owner lives, so Jev can tell spending elsewhere is travel.
+  facts.push(...sectionBullets(merchants, "Home locations").map((place) => `Home location: ${place}`));
   for (const [k, payee, override, status] of tableRows(merchants, "Merchant key")) {
     if (!active(status) || !k || !payee) continue;
     facts.push(`${key(k)} maps to ${payee} payee`);
