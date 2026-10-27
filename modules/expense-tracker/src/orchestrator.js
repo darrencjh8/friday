@@ -3901,6 +3901,27 @@ export class AgentOrchestrator {
                     const paired = await this._pairWaitingDebit({ llmOutput, creditRowId: inserted.id });
                     if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer leg)`;
                 }
+                // A charge placed abroad shows the trip: the same card's Misc
+                // charges within a day of it are part of it, including the ones
+                // booked before it (tools.js rebook_trip_charges).
+                if (llmOutput.payee_source === "abroad" && inserted?.id && categoryId) {
+                    try {
+                        const rebooked = await this._tools.executeTool("rebook_trip_charges", {
+                            budget_id: llmOutput.budget_id || "",
+                            account_id: accountId,
+                            date: llmOutput.date,
+                            payee: payeeName,
+                            category_id: categoryId,
+                            exclude_id: inserted.id,
+                        });
+                        if (rebooked?.moved > 0) {
+                            const charges = rebooked.moved === 1 ? "charge" : "charges";
+                            llmOutput.reasoning = `${llmOutput.reasoning || ""} (also moved ${rebooked.moved} Misc ${charges} on this card within a day to ${payeeName})`;
+                        }
+                    } catch (error) {
+                        logger.warn({ event: "rebook_trip_charges_failed", error: error.message });
+                    }
+                }
                 if (transferReservation?.status === "reserved") {
                     await this._tools.executeTool("complete_transfer", {
                         id: transferReservation.entry.id,
