@@ -187,6 +187,97 @@ describe("judge_abroad", () => {
     });
 });
 
+describe("rebook_trip_charges", () => {
+    const MISC = { id: "p-misc", name: "Misc" };
+    const TRAVEL = { id: "p-travel", name: "Travel" };
+    const row = (id, extra = {}) => ({
+        id,
+        date: "2026-10-22",
+        account: "acc-card",
+        payee: "p-misc",
+        amount: -2000,
+        cleared: false,
+        notes: "Merchant: AMAZE* MPOSACME SINGAPORE SGP",
+        ...extra,
+    });
+
+    function registry(rows) {
+        const seen = { patches: [], transactions: [] };
+        vi.stubGlobal("fetch", vi.fn(async (url, init) => {
+            const u = String(url);
+            if (init?.method === "PATCH") {
+                seen.patches.push({ path: new URL(u).pathname, body: JSON.parse(init.body) });
+                return json({ ok: true });
+            }
+            if (u.includes("/payees")) return json([MISC, TRAVEL, { id: "p-card", name: "Acme Card", transfer_acct: "acc-card" }]);
+            if (u.includes("/categories")) return json([{ id: "c-travel", name: "Travel" }]);
+            if (u.includes("/transactions")) {
+                seen.transactions.push(new URL(u).searchParams);
+                return json(rows);
+            }
+            return json([]);
+        }));
+        const memory = { search: vi.fn(async () => []), add: vi.fn(), listFacts: vi.fn(() => []) };
+        const tools = new ToolRegistry({ dedupDbPath: ":memory:" }, memory);
+        const run = (extra = {}) =>
+            tools.executeTool("rebook_trip_charges", {
+                budget_id: "b1",
+                account_id: "acc-card",
+                date: "2026-10-22",
+                payee: "Travel",
+                category_id: "c-travel",
+                exclude_id: "row-abroad",
+                ...extra,
+            });
+        return { run, seen };
+    }
+
+    it("moves the card's Misc charges within a day of the abroad charge to Travel", async () => {
+        const { run, seen } = registry([
+            row("row-abroad", { payee: "p-travel", notes: "Abroad: placed outside the home locations" }),
+            row("before", { date: "2026-10-21" }),
+            row("after", { date: "2026-10-23", notes: "Merchant: AMAZE* PAYACME SINGAPORE SGP" }),
+        ]);
+        expect(await run()).toMatchObject({ moved: 2, ids: ["before", "after"] });
+        expect(seen.transactions[0].get("since_date")).toBe("2026-10-21");
+        expect(seen.transactions[0].get("until_date")).toBe("2026-10-23");
+        expect(seen.transactions[0].get("account_id")).toBe("acc-card");
+        expect(seen.patches).toHaveLength(2);
+        expect(seen.patches[0]).toMatchObject({
+            path: "/transactions/before",
+            body: {
+                payee: "p-travel",
+                category: "c-travel",
+                notes: "Merchant: AMAZE* MPOSACME SINGAPORE SGP\nTrip: within a day of a charge placed abroad (2026-10-22)",
+            },
+        });
+    });
+
+    it.each([
+        ["another account", { account: "acc-other" }],
+        ["a payee other than Misc", { payee: "p-travel" }],
+        ["money received", { amount: 2000 }],
+        ["a cleared row", { cleared: true }],
+        ["a transfer leg", { transfer_id: "t-1" }],
+        ["a deleted row", { tombstone: true }],
+        ["a row the tracker did not book from an alert", { notes: "" }],
+        ["a row already counted as a trip", { notes: "Merchant: X\nTrip: within a day of a charge placed abroad (2026-10-21)" }],
+        ["a row two days away", { date: "2026-10-24" }],
+        ["the abroad row itself", { id: "row-abroad" }],
+    ])("leaves %s alone", async (_label, extra) => {
+        const { run, seen } = registry([row(extra.id || "r", extra)]);
+        expect(await run()).toMatchObject({ moved: 0 });
+        expect(seen.patches).toHaveLength(0);
+    });
+
+    it("moves nothing without a category or a live Travel payee", async () => {
+        const { run, seen } = registry([row("r")]);
+        expect(await run({ category_id: undefined })).toMatchObject({ moved: 0, reason: "invalid_input" });
+        expect(await run({ payee: "Holidays" })).toMatchObject({ moved: 0, reason: "payee_missing" });
+        expect(seen.patches).toHaveLength(0);
+    });
+});
+
 describe("the orchestrator books spending abroad as Travel", () => {
     const citiBody = (details) =>
         [
@@ -217,7 +308,7 @@ describe("the orchestrator books spending abroad as Travel", () => {
         { id: "c-travel", name: "Travel" },
     ];
 
-    async function book({ details, merchant, memory = {}, verdict = { abroad: false, reason: "none" } }) {
+    async function book({ details, merchant, memory = {}, verdict = { abroad: false, reason: "none" }, rebooked = { moved: 0 } }) {
         const { AgentOrchestrator } = await import("../src/orchestrator.js");
         const calls = [];
         const accounts = [{ id: "acc-citi", name: "Citi Rewards", closed: false }];
@@ -243,6 +334,7 @@ describe("the orchestrator books spending abroad as Travel", () => {
                 if (name === "check_schedule_collision") return false;
                 if (name === "find_link_candidate") return { candidate: null, matches: 0 };
                 if (name === "insert_transaction") return { id: "row-1" };
+                if (name === "rebook_trip_charges") return rebooked;
                 return true;
             }),
             getPhase1ToolSchemas: vi.fn(() => []),
@@ -342,6 +434,35 @@ describe("the orchestrator books spending abroad as Travel", () => {
         expect(insert.args.category_id).toBe("c-travel");
         expect(insert.args.notes).toContain("Trip: within a day of a charge placed abroad (2026-10-21)");
         expect(insert.args.notes).not.toMatch(/^Abroad:/m);
+    });
+
+    it("moves the card's same-trip Misc charges once a charge is placed abroad", async () => {
+        const { calls, insert } = await book({
+            details: "AMAZE* ACMEMART HANOI    SINGAPORE     SGP",
+            merchant: DESCRIPTOR,
+            memory: RULES,
+            verdict: { abroad: true, payee: "Travel", source: "abroad" },
+            rebooked: { moved: 2, ids: ["a", "b"] },
+        });
+        const rebook = calls.find((c) => c.name === "rebook_trip_charges");
+        expect(calls.indexOf(rebook)).toBeGreaterThan(calls.indexOf(insert));
+        expect(rebook.args).toMatchObject({
+            account_id: "acc-citi",
+            date: "2026-10-22",
+            payee: "Travel",
+            category_id: "c-travel",
+            exclude_id: "row-1",
+        });
+    });
+
+    it("does not move other charges for one only counted as part of a trip", async () => {
+        const { calls } = await book({
+            details: "AMAZE* MPOSACME    SINGAPORE     SGP",
+            merchant: "AMAZE* MPOSACME SINGAPORE SGP",
+            memory: { Travel: RULES.Travel },
+            verdict: { abroad: true, payee: "Travel", source: "trip", trip_date: "2026-10-21" },
+        });
+        expect(calls.find((c) => c.name === "rebook_trip_charges")).toBeUndefined();
     });
 
     it("leaves a Misc fallback alone when it is not abroad", async () => {

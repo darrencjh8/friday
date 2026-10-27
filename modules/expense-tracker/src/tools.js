@@ -1012,6 +1012,8 @@ const DRY_RUN_STUBS = {
 
 /** The notes line a charge Jev judged abroad carries (orchestrator.js). */
 const ABROAD_NOTE_RE = /^Abroad:/m;
+// A row already counted as part of a trip, either way.
+const TRIP_NOTE_RE = /^(Abroad|Trip):/m;
 
 function shiftIsoDay(iso, days) {
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
@@ -2571,6 +2573,59 @@ export class ToolRegistry {
       logger.warn({ event: "judge_abroad_failed", error: error.message });
       return { abroad: false, reason: "error" };
     }
+  }
+
+  /**
+   * Internal: not on the HTTP or MCP routes. Once a charge is placed abroad,
+   * the same card's Misc charges within a day of it are part of the trip,
+   * including the ones booked before it that the trip window could not yet
+   * see. Only an uncleared, unlinked Misc debit this tracker booked from an
+   * alert (it carries a `Merchant:` line) and not already counted is moved; a
+   * moved row carries `Trip:`, never `Abroad:`, so it never starts a window.
+   */
+  async _handle_rebook_trip_charges({ budget_id, account_id, date, payee, category_id, exclude_id } = {}) {
+    if (!budget_id || !account_id || !date || !payee || !category_id) {
+      return { moved: 0, reason: "invalid_input" };
+    }
+    const day = String(date).slice(0, 10);
+    const since = shiftIsoDay(day, -1);
+    const until = shiftIsoDay(day, 1);
+    const [rows, payees] = await Promise.all([
+      this._get("/transactions", budget_id, { since_date: since, until_date: until, account_id }),
+      this._get("/payees", budget_id),
+    ]);
+    const list = Array.isArray(payees) ? payees : [];
+    const misc = list.find((p) => p.name === "Misc" && !p.transfer_acct);
+    const travel = list.find((p) => p.name === payee && !p.transfer_acct);
+    if (!misc || !travel) return { moved: 0, reason: "payee_missing" };
+    const candidates = (Array.isArray(rows) ? rows : []).filter(
+      (tx) =>
+        tx &&
+        !tx.tombstone &&
+        tx.id !== exclude_id &&
+        tx.account === account_id &&
+        tx.payee === misc.id &&
+        Number(tx.amount) < 0 &&
+        !tx.transfer_id &&
+        tx.cleared === false &&
+        /^Merchant:/m.test(String(tx.notes || "")) &&
+        !TRIP_NOTE_RE.test(String(tx.notes || "")) &&
+        (!tx.date || (tx.date >= since && tx.date <= until)),
+    );
+    const line = `Trip: within a day of a charge placed abroad (${day})`;
+    const ids = [];
+    for (const tx of candidates) {
+      const updated = await this._handle_update_transaction({
+        id: tx.id,
+        budget_id,
+        payee_id: travel.id,
+        category_id,
+        notes: [tx.notes, line].filter(Boolean).join("\n"),
+      });
+      if (updated && !updated.error) ids.push(tx.id);
+      else logger.warn({ event: "rebook_trip_charge_failed", id: tx.id, error: updated?.error || "no response" });
+    }
+    return { moved: ids.length, ids };
   }
 
   // ── Learning that waits for the user (#720) ─────────────────
