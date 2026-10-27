@@ -76,7 +76,7 @@ const clientVersion = () =>
 const server = require("../server");
 
 const SGD = { name: "test-budget", groupId: "sgd-sync" };
-const MYR = { name: "Darren MYR", groupId: "myr-sync" };
+const MYR = { name: "Alex MYR", groupId: "myr-sync" };
 const NO_BUDGET_OPEN = new Error("No budget file is open");
 
 function findHandler(method, path) {

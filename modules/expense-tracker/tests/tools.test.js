@@ -654,7 +654,7 @@ describe("reserve_transfer far-side reconciliation (#557)", () => {
     // as an unidentified deposit before the UOB transfer alert arrived, and the
     // counterpart Actual creates on transfer insert then doubled it.
     const args = {
-        budget_id: "Darren SGD",
+        budget_id: "Alex SGD",
         source_account_id: "uob-one",
         destination_account_id: "ocbc-360",
         currency: "SGD",

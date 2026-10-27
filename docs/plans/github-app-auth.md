@@ -2,7 +2,7 @@ QUESTIONS
 q: Should refresh scheduling run inside the Docker container rather than host cron? | a: Yes; use Hermes cron with a script-only job because Hermes cron state is persisted under /opt/data and the scheduler runs in the container.
 q: Should App credentials take precedence over FRIDAY_PAT at boot? | a: Yes; when all three GH_APP_* variables are present, App auth is authoritative; FRIDAY_PAT is fallback only when App configuration is incomplete.
 q: Should a stale existing gh credential block App refresh? | a: No; boot and refresh must replace the gh credential after successfully minting a new installation token.
-q: Which repositories should the installation cover? | a: All repositories in Darren's account, including the archived KTMB repository; GitHub may still enforce archived-repository write restrictions.
+q: Which repositories should the installation cover? | a: All repositories in the owner's account, including the archived KTMB repository; GitHub may still enforce archived-repository write restrictions.
 
 # Plan: Transparent GitHub App auth for `gh`
 

@@ -145,7 +145,7 @@ To: CITI CREDIT CARDS (Ref ending 2666)
 
   it("parses a redacted Ryt merchant payment written as paid to", () => {
     const movement = parseBankMovement(
-      "Hi Darren, You've paid RM255.00 to CLINIC MERCHANT on 19/9/2026, 10:50 AM (GMT+8) using your Ryt Credit.",
+      "Hi Alex, You've paid RM255.00 to CLINIC MERCHANT on 19/9/2026, 10:50 AM (GMT+8) using your Ryt Credit.",
       { senderBank: "Ryt", receivedAt: "2026-09-19T02:50:21.000Z" },
     );
 
@@ -162,7 +162,7 @@ To: CITI CREDIT CARDS (Ref ending 2666)
 
   it("parses a redacted Ryt own-name debit as a movement", () => {
     const movement = parseBankMovement(
-      "Hi Darren, You've sent RM100.00 to ACCOUNT HOLDER on 19/9/2026, 12:58 PM (GMT+8) using your Main Account.",
+      "Hi Alex, You've sent RM100.00 to ACCOUNT HOLDER on 19/9/2026, 12:58 PM (GMT+8) using your Main Account.",
       { senderBank: "Ryt", receivedAt: "2026-09-19T04:58:02.000Z" },
     );
 
@@ -179,7 +179,7 @@ To: CITI CREDIT CARDS (Ref ending 2666)
 
   it("parses a redacted Ryt own-name credit as a movement", () => {
     const movement = parseBankMovement(
-      "Hi Darren, Money's in! You've received RM62.00 from ACCOUNT HOLDER on 18/9/2026, 5:04 AM (GMT+8).",
+      "Hi Alex, Money's in! You've received RM62.00 from ACCOUNT HOLDER on 18/9/2026, 5:04 AM (GMT+8).",
       { senderBank: "Ryt", receivedAt: "2026-09-17T21:04:10.000Z" },
     );
 
@@ -373,7 +373,7 @@ Time : 10:00 AM SGT`,
   // The fixture is the real forwarded body, PII-redacted the way the repo does
   // it elsewhere (suffixes kept, names/addresses shortened) — see the header of
   // tests/ocbc-trust-transfer-hold.test.js.
-  const SC_FAST_ADVICE = `Regards, Darren ---------- Forwarded message --------- From: <OnlineBanking.SG@sc.com> Date: Mon, Sep 28, 2026, 10:08 AM Subject: Confirmation Advice for FAST Transaction To: <accountholder@example.com> Dear Valued Customer, Your FAST transaction has been successful, transaction details below: Transaction reference: SG26050277698692365980 From account: ******2555 To account: ******7222 Amount: 1,275.00 Currency: SGD Transaction due date: 28/09/2026 10:08:02 Transaction type: FAST Payee Name: Darren DBS Payee Bank: Transaction message: Please call Client Contact Centre for enquiries. Thank you for using Standard Chartered Online Banking. Yours Sincerely, Transaction Banking Consumer Banking`;
+  const SC_FAST_ADVICE = `Regards, Alex ---------- Forwarded message --------- From: <OnlineBanking.SG@sc.com> Date: Mon, Sep 28, 2026, 10:08 AM Subject: Confirmation Advice for FAST Transaction To: <accountholder@example.com> Dear Valued Customer, Your FAST transaction has been successful, transaction details below: Transaction reference: SG26050277698692365980 From account: ******2555 To account: ******7222 Amount: 1,275.00 Currency: SGD Transaction due date: 28/09/2026 10:08:02 Transaction type: FAST Payee Name: Alex DBS Payee Bank: Transaction message: Please call Client Contact Centre for enquiries. Thank you for using Standard Chartered Online Banking. Yours Sincerely, Transaction Banking Consumer Banking`;
 
   it("parses the SC FAST advice and resolves both legs of the transfer", () => {
     const movement = parseBankMovement(SC_FAST_ADVICE, {

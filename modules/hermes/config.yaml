@@ -73,7 +73,7 @@ memory:
         auto_sleep: true
         sleep_threshold: 20
         # Keep webhook push alerts and cron reply echoes out of working memory:
-        # they arrive as user turns but are machine text, not facts about Darren.
+        # they arrive as user turns but are machine text, not facts about the owner.
         ignore_patterns:
             - "System push alert"
             - '\[Replying to: "Cronjob'

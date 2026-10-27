@@ -68,7 +68,7 @@ MUST_FLAG = [
     ("own OCBC account number", "suffix: {v}"),
     ("own OCBC account number", "own account: OCBC, suffix {v}"),
     ("own OCBC account number", "From your account : 111 Account (-{v})"),
-    ("own POSB account number", "Darren POSB (-{v}) at DBS BANK LTD"),
+    ("own POSB account number", "Alex POSB (-{v}) at DBS BANK LTD"),
     ("own DBS card suffix", "Ref ending {v}"),
     ("own bank account suffix", "A/C ending {v}"),
     ("own card suffix (masked)", "ACCOUNT HOLDER (********{v})"),

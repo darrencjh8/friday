@@ -9,7 +9,7 @@ q: Can CI reach the sync-server? | a: Yes. GET <ACTUAL_BUDGET_URL>/info is publi
 
 ## Root cause (verified on production 2026-10-12)
 
-- The sync-server on fly.io reports `@actual-app/sync-server 26.10.0`. Its 26.10 web UI opened the Darren MYR budget and applied migration `…8782000` (the 26.10 migration).
+- The sync-server on fly.io reports `@actual-app/sync-server 26.10.0`. Its 26.10 web UI opened the MYR budget and applied migration `…8782000` (the 26.10 migration).
 - modules/actual-api runs `@actual-app/api` 26.9.0, whose newest migration is `…3118115`. `load-budget` returns `{ error: "out-of-sync-migrations" }` and closes the budget.
 - In 26.9.0's `api/download-budget`, the local-cache branch ignores that result and resolves. `server.js` sees a successful download, and every read then throws "No budget file is open".
 - The Dockerfile copies only package.json and runs `npm install`, so the lockfile is ignored and the deployed version floats with `^26.9.0`.

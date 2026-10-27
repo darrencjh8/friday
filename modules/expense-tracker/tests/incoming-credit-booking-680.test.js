@@ -27,7 +27,7 @@ import { OWN_LEGAL_NAME_FACT, OWN_LEGAL_NAME_UPPER } from "./helpers/own-name.js
  * The received money is the holder's OWN transfer, not income. uid 1030 (DBS
  * received SGD 1000.00 into …7222, ref 0126100100114350) and uid 1029 (OCBC
  * "We have processed your funds transfer request": 360 Account (-166600) ->
- * Darren DBS (-667222), SGD 1000.00, ref 2610010011435015) are the two legs of
+ * Alex DBS (-667222), SGD 1000.00, ref 2610010011435015) are the two legs of
  * one transfer in the same minute. So the credited leg books as a plain `Misc`
  * row on the credited account with NO transfer payee and NO `_transfer` — the
  * exact shape `find_link_candidate` matches — and the existing #598 machinery
@@ -56,7 +56,7 @@ Date of Transfer   : 01 Oct 2026
 Time of Transfer   : 09.14 PM SGT
 Amount             : SGD 1000.00
 From your account  : 360 Account (-166600)
-To account         : Darren DBS (-667222) at DBS BANK LTD
+To account         : Alex DBS (-667222) at DBS BANK LTD
 Reference number   : 2610010011435015
 `;
 
@@ -88,8 +88,8 @@ function makeOrchestrator(tools) {
             {
                 primaryCurrency: "SGD",
                 secondaryCurrency: "MYR",
-                primaryBudgetFile: "Darren SGD",
-                secondaryBudgetFile: "Darren MYR",
+                primaryBudgetFile: "Alex SGD",
+                secondaryBudgetFile: "Alex MYR",
                 llmProvider: "deepseek",
                 llmApiKey: "test-key",
                 deepseekApiKey: "test-key",

@@ -27,7 +27,7 @@ Date of Transfer   : 23 Sep 2026
 Time of Transfer   : 12.36 AM SGT
 Amount             : SGD 1000.00
 From your account  : 360 Account (-166600)
-To account         : Darren POSB (-155500) at DBS BANK LTD
+To account         : Alex POSB (-155500) at DBS BANK LTD
 Reference number   : 2609230000266880
 `;
 
@@ -111,7 +111,7 @@ describe("OCBC transfer-request destination resolution (#598)", () => {
             direction: "outgoing",
             amount_cents: -100000,
             own_account: { bank: "OCBC", suffix: "166600" },
-            counterparty: { name: "Darren POSB", bank: "DBS", suffix: "155500" },
+            counterparty: { name: "Alex POSB", bank: "DBS", suffix: "155500" },
             reference_number: "2609230000266880",
         });
     });
@@ -136,11 +136,11 @@ describe("the two legs become one transfer pair (#598)", () => {
         { id: "p-sc", name: "SC Bonus Saver", transfer_acct: "sc-bonus" },
     ];
     // 5500 is POSB Cashback's own suffix, learned from this very alert; the
-    // alias names the "Darren POSB" product the OCBC alert writes.
+    // alias names the "Alex POSB" product the OCBC alert writes.
     const facts = [
         { text: "Account ending 166600 belongs to OCBC 360", score: 1 },
         { text: "Account ending 5500 belongs to POSB Cashback", score: 1 },
-        { text: "Darren POSB is a POSB Cashback account", score: 1 },
+        { text: "Alex POSB is a POSB Cashback account", score: 1 },
         { text: "Legal name: ACCOUNT HOLDER", score: 1 },
     ];
 
@@ -317,7 +317,7 @@ describe("books the pair and links the existing row on the far side (#598)", () 
     const facts = [
         { text: "Account ending 166600 belongs to OCBC 360", score: 1 },
         { text: "Account ending 5500 belongs to POSB Cashback", score: 1 },
-        { text: "Darren POSB is a POSB Cashback account", score: 1 },
+        { text: "Alex POSB is a POSB Cashback account", score: 1 },
     ];
     // Both rows as Actual holds them in the incident.
     const OUTGOING_ROW = "cb446e1b-d5ea-4e55-9d03-ad6e8d681f57";
