@@ -201,6 +201,17 @@ A `Misc` row is booked with no category, so Jev is not asked for one and the not
 
 A dry run with `jev_calibration: true` scores every variant on each replayed alert before memory decides, with every score even after a failed gate, and hides the owner's bookings from the alert's own date on so a replay cannot see the row it is scored against. The result is recorded as a `calibrate_jev` entry in the dry run's `writes`, without the email. The live variant and payee bar are set from that replay, against the payee each row holds in Actual. On 32 booked card and merchant alerts, v2's first choice matched Actual 29 times against 22 for v1, and no pick v2 accepted was wrong at any bar tried. The 0.8 evidence check was then what refused most right v2 picks (these mostly scored 0.52-0.79), so the payee evidence bar is 0.6 (23 accepted, all right, against 13 at 0.8); a category is booked with no offer and keeps 0.8.
 
+#### Amaze charges and the owner's home locations
+
+An Amaze charge reaches the bank as `AMAZE* <merchant>`, the merchant cut to 12 characters. On a Citi alert every one ends with Amaze's own location, `SINGAPORE SGP`, even when the money was spent abroad (all 72 real Amaze alerts checked, Vietnam and Malaysia charges included). The Standard Chartered debit alert has no location. The Phase 1 LLM read the same line differently from run to run (`AMAZE` on one, `MAGAZINE63` on the next), so memory and Jev saw a different merchant each time.
+
+- `src/amaze.js` reads the descriptor from the alert text: `AMAZE* MAGAZINE63 S SINGAPORE SGP` (Citi) or `AMAZE* GREATEASTERN` (SC). Phase 1 sets `merchant` and `raw_merchant_descriptor` to it. The Citi form keeps its `SINGAPORE SGP` tail, so a remembered key with or without the tail still matches.
+- The web search drops the Amaze location and searches no country (`MAGAZINE63 S`, not `MAGAZINE63 S SINGAPORE Singapore`).
+- Jev's payee and category prompts get `alertContext` lines (`src/jev.js`): one says an Amaze alert's location is Amaze's own, and one names the owner's home locations and says spending the evidence places elsewhere is usually travel.
+- The home locations are the owner's, so they live in the wiki, never in this repository: a `## Home locations` section of bullets in `entities/accounts/merchant-payee-mappings.md` becomes `Home location: <place>` facts. With no section, Jev gets no home line.
+
+Pinned by `tests/amaze-descriptor.test.js`.
+
 #### Incoming credits keyed by sender and amount
 
 A named incoming credit (for example OCBC `Reference: from NAME`, DBS `From: NAME`) books `Misc` by default: bank alerts for received money carry the sender's name but no payer remark, so the name alone does not say what the money is for. The wiki page `entities/accounts/people-transfers.md` may carry an optional `Incoming amount` column (`SGD 900.00`). A row with it becomes the facts `Incoming SGD 900.00 from NAME maps to PAYEE payee` and `… maps to CATEGORY category`, and only those: the plain `NAME maps to …` facts come from rows without an amount. `incomingRule` in `src/orchestrator.js` reads the full fact list (`list_facts`) and matches the whole normalised sender name, the currency and the exact cents; then the credit books that payee and category and is not offered to a waiting debit as a transfer leg. An amount cell that does not parse adds no fact.
