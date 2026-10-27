@@ -22,7 +22,7 @@ const FACTS = ["Account ending 7222 belongs to DBS Account"];
 // suffix is kept so suffix-to-account pairing still resolves, names and amounts
 // are shortened.
 const BODY =
-    "digibank Alerts - You have received a transfer Transaction Ref: 0126100100114350 " +
+    "digibank Alerts - You have received a transfer Transaction Ref: 0173500420188350 " +
     "Dear Customer, You have received SGD 1000.00 via FAST transfer on 01 Oct 2026 21:14 SGT. " +
     "From: ACCOUNT HOLDER To: Your DBS/ POSB account ending 7222 ";
 

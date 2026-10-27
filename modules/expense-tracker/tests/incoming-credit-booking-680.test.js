@@ -25,9 +25,9 @@ import { OWN_LEGAL_NAME_FACT, OWN_LEGAL_NAME_UPPER } from "./helpers/own-name.js
  * never marked read, re-fetched on every poll.
  *
  * The received money is the holder's OWN transfer, not income. uid 1030 (DBS
- * received SGD 1000.00 into …7222, ref 0126100100114350) and uid 1029 (OCBC
+ * received SGD 1000.00 into …7222, ref 0173500420188350) and uid 1029 (OCBC
  * "We have processed your funds transfer request": 360 Account (-166600) ->
- * Alex DBS (-667222), SGD 1000.00, ref 2610010011435015) are the two legs of
+ * Alex DBS (-667222), SGD 1000.00, ref 7350042018835015) are the two legs of
  * one transfer in the same minute. So the credited leg books as a plain `Misc`
  * row on the credited account with NO transfer payee and NO `_transfer` — the
  * exact shape `find_link_candidate` matches — and the existing #598 machinery
@@ -41,7 +41,7 @@ import { OWN_LEGAL_NAME_FACT, OWN_LEGAL_NAME_UPPER } from "./helpers/own-name.js
 /** uid 1030 — DBS "digibank Alerts - You've received a transfer". */
 const DBS_RECEIVED_7222 =
     "digibank Alerts - You've received a transfer Problems viewing this email? " +
-    'Select "always display images" Transaction Ref: 0126100100114350 ' +
+    'Select "always display images" Transaction Ref: 0173500420188350 ' +
     "Dear Customer, You have received SGD 1000.00 via FAST transfer on 01 Oct 2026 21:14 SGT. " +
     "From: ACCOUNT HOLDER To: Your DBS/ POSB account ending 7222 " +
     "Didn't expect these funds? If this is a joint account, it may be for your joint " +
@@ -57,7 +57,7 @@ Time of Transfer   : 09.14 PM SGT
 Amount             : SGD 1000.00
 From your account  : 360 Account (-166600)
 To account         : Alex DBS (-667222) at DBS BANK LTD
-Reference number   : 2610010011435015
+Reference number   : 7350042018835015
 `;
 
 // The live accounts and suffix facts, copied from Actual Budget / the fact
@@ -187,7 +187,7 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
 
         // A credit with no counterparty keeps the deterministic deposit path.
         const ocbcDeposit =
-            "Transaction Ref: 0126100100114400 " +
+            "Transaction Ref: 0173500420188400 " +
             "You have received SGD 20.00 via FAST transfer on 02 Oct 2026 09:00 SGT. " +
             "To: Your DBS/ POSB account ending 7222";
         const result = await orch._runStructuredMovement(
@@ -212,7 +212,7 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
 
         const external =
             "digibank Alerts - You've received a transfer Problems viewing this email? " +
-            'Select "always display images" Transaction Ref: 0126100100114450 ' +
+            'Select "always display images" Transaction Ref: 0173500420188450 ' +
             "Dear Customer, You have received SGD 250.00 via FAST transfer on 03 Oct 2026 11:00 SGT. " +
             "From: JANE VENDOR PTE LTD To: Your DBS/ POSB account ending 7222 " +
             "Didn't expect these funds?";
@@ -269,7 +269,7 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
     });
 
     const HOLDER_CREDIT =
-        "digibank Alerts - You've received a transfer Transaction Ref: 0126100100114460 " +
+        "digibank Alerts - You've received a transfer Transaction Ref: 0173500420188460 " +
         "Dear Customer, You have received SGD 1557.24 via FAST transfer on 03 Oct 2026 09:00 SGT. " +
         `From: ${OWN_LEGAL_NAME_UPPER} To: Your DBS/ POSB account ending 7222 ` +
         "Didn't expect these funds?";
@@ -404,7 +404,7 @@ describe("incoming credit into a resolvable account (issue #680)", () => {
 
         const result = await orch.processEmail(
             "uid-1029",
-            "digibank Alerts - You've received a transfer Transaction Ref: 0126100100114460 " +
+            "digibank Alerts - You've received a transfer Transaction Ref: 0173500420188460 " +
                 "Dear Customer, You have received SGD 1557.24 via FAST transfer on 03 Oct 2026 09:00 SGT. " +
                 `From: ${OWN_LEGAL_NAME_UPPER} To: Your DBS/ POSB account ending 7222 `,
             null,

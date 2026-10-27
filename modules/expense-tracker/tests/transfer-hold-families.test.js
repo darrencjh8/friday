@@ -128,7 +128,7 @@ const OCBC_TRANSFER_REQUEST_FLAT =
     "Dear Valued CustomerWe have received your request to make the following transfer:" +
     "Date of Transfer:01 Oct 2026Time of Transfer:09.14 PM SGTAmount:SGD 1000.00" +
     "From your account:360 Account (-166600)To account:Alex DBS (-667222) at DBS BANK LTD" +
-    "Reference number:26100100114You can log in to OCBC Online Banking and select Customer " +
+    "Reference number:73500420188You can log in to OCBC Online Banking and select Customer " +
     "Service > Check internet transaction status to check the status of this transfer.";
 
 describe("a bill payment into the holder's own card account books as a transfer", () => {
