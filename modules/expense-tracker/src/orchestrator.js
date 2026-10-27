@@ -2299,7 +2299,7 @@ export class AgentOrchestrator {
                 // email path sets it, after this sanitiser.
                 delete output._alert_id;
                 // An Amaze descriptor is fixed text, but the LLM reads it
-                // differently run to run ("AMAZE", "MAGAZINE63"), so memory and
+                // differently run to run ("AMAZE", "ACMESHOP63"), so memory and
                 // Jev saw a different merchant each time. Take it from the alert.
                 const amaze = amazeDescriptor(emailText);
                 if (amaze && !output.skip) {

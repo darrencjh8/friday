@@ -2362,7 +2362,7 @@ describe("Phase 2: Resolution (3-phase)", () => {
             return {
               results: [
                 {
-                  text: "AMAZE* GREATEASTERN maps to Insurance payee",
+                  text: "AMAZE* ACMEINSURERS maps to Insurance payee",
                   score: 1.0,
                 },
               ],
@@ -2381,7 +2381,7 @@ describe("Phase 2: Resolution (3-phase)", () => {
     // Simulate Phase 1 LLM omitting merchant but populating raw_description
     const phase1Output = {
       merchant: "",
-      raw_description: "S\u0024120.45 at AMAZE* GREATEASTERN raw desc",
+      raw_description: "S\u0024120.45 at AMAZE* ACMEINSURERS raw desc",
       amount_cents: -12045,
       date: "2026-07-23",
       currency: "SGD",
@@ -2767,7 +2767,7 @@ describe("Phase 2: Sign correction", () => {
       const orch = new AgentOrchestrator(config, tools);
 
       const phase1Output = {
-        merchant: "AMAZE* GREATEASTERN",
+        merchant: "AMAZE* ACMEINSURERS",
         amount_cents: 5000,
         date: "2026-06-19",
         currency: "SGD",
@@ -2821,7 +2821,7 @@ describe("Phase 2: Sign correction", () => {
       const orch = new AgentOrchestrator(config, tools);
 
       const phase1Output = {
-        merchant: "AMAZE* GREATEASTERN",
+        merchant: "AMAZE* ACMEINSURERS",
         amount_cents: "1e3",
         date: "2026-06-19",
         currency: "SGD",
@@ -2857,7 +2857,7 @@ describe("Phase 2: Sign correction", () => {
       const orch = new AgentOrchestrator(config, tools);
 
       const phase1Output = {
-        merchant: "AMAZE* GREATEASTERN",
+        merchant: "AMAZE* ACMEINSURERS",
         amount_cents: -5000,
         date: "2026-06-19",
         currency: "SGD",

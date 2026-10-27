@@ -1,13 +1,13 @@
 /**
  * Amaze card charges. Every Citi alert for an Amaze charge ends its descriptor
  * with Amaze's own location, `SINGAPORE SGP`, even for spending abroad, and the
- * Phase 1 LLM read the same line as "AMAZE" on one run and "MAGAZINE63" on the
+ * Phase 1 LLM read the same line as "AMAZE" on one run and "ACMESHOP63" on the
  * next. The descriptor now comes from the alert text, the web search and Jev
  * ignore the Amaze location, and Jev is told where the owner lives so spending
  * elsewhere reads as travel.
  *
- * The alert bodies are real alerts with the card number and company number
- * redacted. The home locations are synthetic.
+ * The alert bodies keep the real alerts' layout; every merchant, amount,
+ * time and account number is synthetic, and so are the home locations.
  */
 import { describe, it, expect, vi, afterEach } from "vitest";
 
@@ -34,7 +34,7 @@ import { join } from "path";
 afterEach(() => vi.unstubAllGlobals());
 
 /** A real Citi alert body, as the bank lays it out, redacted. */
-const citiBody = (details, { date = "22/10/26", amount = "SGD48.00" } = {}) =>
+const citiBody = (details, { date = "22/10/26", amount = "SGD12.34" } = {}) =>
     [
         "Dear Customer,",
         "We would like to inform you that there is a charge made on your Citi Rewards Card:",
@@ -42,7 +42,7 @@ const citiBody = (details, { date = "22/10/26", amount = "SGD48.00" } = {}) =>
         "",
         "Account Number           : XXXX-XXXX-XXXX-0000",
         `Transaction date         : ${date}`,
-        "Transaction time         : 23:18:05",
+        "Transaction time         : 12:00:05",
         `Transaction amount       : ${amount}`,
         `Transaction  details     : ${details}`,
         "",
@@ -56,27 +56,27 @@ const citiBody = (details, { date = "22/10/26", amount = "SGD48.00" } = {}) =>
 
 /** A real Standard Chartered debit card alert line, redacted. */
 const scBody = (merchant, tail = "") =>
-    `Dear Valued Customer, Transaction Alert Debit Card Thank you for charging +SGD 94.03 to yr debit card ****0000 on 20-Jun-2026 04:59 AM at ${merchant}${tail}. To modify these alerts, please logon to your Online Banking account.`;
+    `Dear Valued Customer, Transaction Alert Debit Card Thank you for charging +SGD 10.00 to yr debit card ****0000 on 01-Jan-2026 09:00 AM at ${merchant}${tail}. To modify these alerts, please logon to your Online Banking account.`;
 
 /** The tracker's email text: whitespace collapsed (extractors.js). */
 const collapsed = (text) => text.replace(/\s+/g, " ").trim();
 
 describe("amazeDescriptor", () => {
     it.each([
-        ["AMAZE* MAGAZINE63 S    SINGAPORE     SGP", "AMAZE* MAGAZINE63 S SINGAPORE SGP"],
-        ["AMAZE* AEON DA NANG    SINGAPORE     SGP", "AMAZE* AEON DA NANG SINGAPORE SGP"],
-        ["AMAZE* 2CAPTCHA.COM    SINGAPORE     SGP", "AMAZE* 2CAPTCHA.COM SINGAPORE SGP"],
-        ["AMAZE* GOOGLEWHERE     SINGAPORE     SGP", "AMAZE* GOOGLEWHERE SINGAPORE SGP"],
-        ["AMAZE* CIMB - RESTA    SINGAPORE     SGP", "AMAZE* CIMB - RESTA SINGAPORE SGP"],
+        ["AMAZE* ACMESHOP63 S    SINGAPORE     SGP", "AMAZE* ACMESHOP63 S SINGAPORE SGP"],
+        ["AMAZE* ACME HA LONG    SINGAPORE     SGP", "AMAZE* ACME HA LONG SINGAPORE SGP"],
+        ["AMAZE* 2EXAMPLE.COM    SINGAPORE     SGP", "AMAZE* 2EXAMPLE.COM SINGAPORE SGP"],
+        ["AMAZE* ACMEWHERE     SINGAPORE     SGP", "AMAZE* ACMEWHERE SINGAPORE SGP"],
+        ["AMAZE* ACME - RESTA    SINGAPORE     SGP", "AMAZE* ACME - RESTA SINGAPORE SGP"],
     ])("reads the Citi line %s, laid out or collapsed", (details, expected) => {
         expect(amazeDescriptor(citiBody(details))).toBe(expected);
         expect(amazeDescriptor(collapsed(citiBody(details)))).toBe(expected);
     });
 
     it.each([
-        ["AMAZE* GREATEASTERN", "", "AMAZE* GREATEASTERN"],
-        ["AMAZE* FOUR BEANS V", "", "AMAZE* FOUR BEANS V"],
-        ["AMAZE* GRAB A-9KO6C", " has been reversed", "AMAZE* GRAB A-9KO6C"],
+        ["AMAZE* ACMEINSURERS", "", "AMAZE* ACMEINSURERS"],
+        ["AMAZE* ACME BEANS V", "", "AMAZE* ACME BEANS V"],
+        ["AMAZE* RIDECO A-0AB1C", " has been reversed", "AMAZE* RIDECO A-0AB1C"],
     ])("reads the Standard Chartered line %s%s", (merchant, tail, expected) => {
         expect(amazeDescriptor(scBody(merchant, tail))).toBe(expected);
     });
@@ -88,35 +88,35 @@ describe("amazeDescriptor", () => {
 
     it("keeps every remembered Amaze key matching, with or without the location", () => {
         // Live keys take both shapes; a key only ever matches inside a longer merchant.
-        expect(factNamesMerchant("AMAZE* YANGGUOFU SINGAPORE SGP maps to Food payee",
-            amazeDescriptor(citiBody("AMAZE* YANGGUOFU       SINGAPORE     SGP")))).toBe(true);
-        expect(factNamesMerchant("AMAZE* GREATEASTERN maps to Insurance payee",
-            amazeDescriptor(citiBody("AMAZE* GREATEASTERN    SINGAPORE     SGP")))).toBe(true);
-        expect(factNamesMerchant("AMAZE* GREATEASTERN maps to Insurance payee",
-            amazeDescriptor(scBody("AMAZE* GREATEASTERN")))).toBe(true);
+        expect(factNamesMerchant("AMAZE* ACMENOODLE SINGAPORE SGP maps to Food payee",
+            amazeDescriptor(citiBody("AMAZE* ACMENOODLE       SINGAPORE     SGP")))).toBe(true);
+        expect(factNamesMerchant("AMAZE* ACMEINSURERS maps to Insurance payee",
+            amazeDescriptor(citiBody("AMAZE* ACMEINSURERS    SINGAPORE     SGP")))).toBe(true);
+        expect(factNamesMerchant("AMAZE* ACMEINSURERS maps to Insurance payee",
+            amazeDescriptor(scBody("AMAZE* ACMEINSURERS")))).toBe(true);
     });
 
     it("tells an Amaze descriptor apart and drops only its own location", () => {
-        expect(isAmaze("AMAZE* MAGAZINE63 S SINGAPORE SGP")).toBe(true);
+        expect(isAmaze("AMAZE* ACMESHOP63 S SINGAPORE SGP")).toBe(true);
         expect(isAmaze("ACME AMAZE* X")).toBe(false);
-        expect(withoutAmazeLocation("AMAZE* MAGAZINE63 S SINGAPORE SGP")).toBe("AMAZE* MAGAZINE63 S");
+        expect(withoutAmazeLocation("AMAZE* ACMESHOP63 S SINGAPORE SGP")).toBe("AMAZE* ACMESHOP63 S");
     });
 });
 
 describe("Amaze web search", () => {
     it.each([
-        ["AMAZE* MAGAZINE63 S SINGAPORE SGP", "MAGAZINE63 S"],
-        ["AMAZE* AEON DA NANG SINGAPORE SGP", "AEON DA NANG"],
-        ["AMAZE* GREATEASTERN", "GREATEASTERN"],
+        ["AMAZE* ACMESHOP63 S SINGAPORE SGP", "ACMESHOP63 S"],
+        ["AMAZE* ACME HA LONG SINGAPORE SGP", "ACME HA LONG"],
+        ["AMAZE* ACMEINSURERS", "ACMEINSURERS"],
     ])("searches %s as %s, with no country", (descriptor, query) => {
         expect(merchantQuery(descriptor, "SGD")).toBe(query);
     });
 
     it("sends no country to Firecrawl for an Amaze charge", async () => {
         const fetchImpl = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: { web: [] } }) }));
-        await searchMerchant({ config: { firecrawlApiKey: "fc" }, descriptor: "AMAZE* AEON DA NANG SINGAPORE SGP", currency: "SGD", fetchImpl });
+        await searchMerchant({ config: { firecrawlApiKey: "fc" }, descriptor: "AMAZE* ACME HA LONG SINGAPORE SGP", currency: "SGD", fetchImpl });
         const body = JSON.parse(fetchImpl.mock.calls[0][1].body);
-        expect(body).toMatchObject({ query: "AEON DA NANG" });
+        expect(body).toMatchObject({ query: "ACME HA LONG" });
         expect(body.country).toBeUndefined();
     });
 });
@@ -148,8 +148,8 @@ const AMAZE_LINE = /Amaze card charge.*SINGAPORE SGP, which is Amaze's own/;
 describe("alertContext", () => {
     it("explains an Amaze location and names the owner's home locations", () => {
         const lines = alertContext({
-            merchant: "AMAZE* MAGAZINE63 S SINGAPORE SGP",
-            facts: ["Home location: Springfield", "AMAZE* GRAB maps to Travel payee", { text: "Home location: Shelbyville" }],
+            merchant: "AMAZE* ACMESHOP63 S SINGAPORE SGP",
+            facts: ["Home location: Springfield", "AMAZE* RIDECO maps to Travel payee", { text: "Home location: Shelbyville" }],
         });
         expect(lines).toHaveLength(2);
         expect(lines[0]).toMatch(AMAZE_LINE);
@@ -167,7 +167,7 @@ describe("Jev sees the context", () => {
         { id: "p-travel", name: "Travel" },
         { id: "p-food", name: "Food" },
     ];
-    const EVIDENCE = { text: collapsed(citiBody("AMAZE* MAGAZINE63 S    SINGAPORE     SGP")), subject: "Citi Alerts - Credit Card/Ready Credit Transaction", sender: "alerts@citi.example" };
+    const EVIDENCE = { text: collapsed(citiBody("AMAZE* ACMESHOP63 S    SINGAPORE     SGP")), subject: "Citi Alerts - Credit Card/Ready Credit Transaction", sender: "alerts@citi.example" };
 
     function jevStub() {
         const bodies = [];
@@ -186,9 +186,9 @@ describe("Jev sees the context", () => {
         const { fn, bodies } = jevStub();
         await classifyPayee({
             config: { jevApiKey: "k" },
-            merchant: "AMAZE* MAGAZINE63 S SINGAPORE SGP",
+            merchant: "AMAZE* ACMESHOP63 S SINGAPORE SGP",
             direction: "outgoing",
-            amountCents: -4800,
+            amountCents: -1234,
             currency: "SGD",
             evidence: EVIDENCE,
             payees: PAYEES,
@@ -224,14 +224,14 @@ describe("Jev sees the context", () => {
         };
         const tools = new ToolRegistry({ dedupDbPath: ":memory:", jevApiKey: "k", firecrawlApiKey: "fc" }, memory);
         await tools.executeTool("resolve_merchant", {
-            merchant: "AMAZE* MAGAZINE63 S SINGAPORE SGP",
+            merchant: "AMAZE* ACMESHOP63 S SINGAPORE SGP",
             budget_id: "b1",
             evidence: EVIDENCE,
             direction: "outgoing",
-            amount_cents: -4800,
+            amount_cents: -1234,
             currency: "SGD",
         });
-        expect(seen.firecrawl[0]).toMatchObject({ query: "MAGAZINE63 S" });
+        expect(seen.firecrawl[0]).toMatchObject({ query: "ACMESHOP63 S" });
         expect(seen.firecrawl[0].country).toBeUndefined();
         const state = JSON.stringify(seen.jev[0]);
         expect(state).toMatch(AMAZE_LINE);
@@ -245,7 +245,7 @@ describe("Phase 1 takes the Amaze descriptor from the alert", () => {
             "From: Citi Alerts <alerts@citi.example>",
             "To: holder@example.com",
             "Subject: Citi Alerts - Credit Card/Ready Credit Transaction",
-            "Date: Thu, 22 Oct 2026 23:18:30 +0800",
+            "Date: Thu, 22 Oct 2026 12:00:30 +0800",
             "MIME-Version: 1.0",
             "Content-Type: text/plain; charset=utf-8",
             "",
@@ -288,12 +288,12 @@ describe("Phase 1 takes the Amaze descriptor from the alert", () => {
         // What the LLM returned on a real run: the merchant read loosely.
         const phase1 = {
             merchant: llmMerchant,
-            amount_cents: -4800,
+            amount_cents: -1234,
             date: "2026-10-22",
             currency: "SGD",
             account_id: "acc-citi",
             account_name: "Citi Rewards",
-            raw_description: `SGD48.00 at ${llmMerchant}`,
+            raw_description: `SGD12.34 at ${llmMerchant}`,
             raw_merchant_descriptor: llmMerchant,
             notes: "",
             skip: false,
@@ -301,24 +301,24 @@ describe("Phase 1 takes the Amaze descriptor from the alert", () => {
             notify_message: "",
         };
         orch._llm.chat = vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(phase1) } }] });
-        await orch.processEmail(1152, Buffer.from(RAW(details)), null, "Citi Alerts <alerts@citi.example>",
+        await orch.processEmail(1001, Buffer.from(RAW(details)), null, "Citi Alerts <alerts@citi.example>",
             "Citi Alerts - Credit Card/Ready Credit Transaction");
         return calls;
     }
 
-    it.each(["AMAZE", "MAGAZINE63", "AMAZE* MAGAZINE63"])("uses the alert's descriptor when the LLM read %s", async (llmMerchant) => {
-        const calls = await book({ details: "AMAZE* MAGAZINE63 S    SINGAPORE     SGP", llmMerchant });
+    it.each(["AMAZE", "ACMESHOP63", "AMAZE* ACMESHOP63"])("uses the alert's descriptor when the LLM read %s", async (llmMerchant) => {
+        const calls = await book({ details: "AMAZE* ACMESHOP63 S    SINGAPORE     SGP", llmMerchant });
         const resolve = calls.find((c) => c.name === "resolve_merchant");
-        expect(resolve.args.merchant).toBe("AMAZE* MAGAZINE63 S SINGAPORE SGP");
+        expect(resolve.args.merchant).toBe("AMAZE* ACMESHOP63 S SINGAPORE SGP");
         const insert = calls.find((c) => c.name === "insert_transaction");
-        expect(insert.args.notes).toContain("AMAZE* MAGAZINE63 S SINGAPORE SGP");
+        expect(insert.args.notes).toContain("AMAZE* ACMESHOP63 S SINGAPORE SGP");
     });
 
     it("books a remembered Amaze merchant whose key keeps the location", async () => {
         const calls = await book({
-            details: "AMAZE* YANGGUOFU       SINGAPORE     SGP",
-            llmMerchant: "YANGGUOFU",
-            facts: ["AMAZE* YANGGUOFU SINGAPORE SGP maps to Food payee"],
+            details: "AMAZE* ACMENOODLE       SINGAPORE     SGP",
+            llmMerchant: "ACMENOODLE",
+            facts: ["AMAZE* ACMENOODLE SINGAPORE SGP maps to Food payee"],
         });
         expect(calls.some((c) => c.name === "resolve_merchant")).toBe(false);
         const insert = calls.find((c) => c.name === "insert_transaction");
