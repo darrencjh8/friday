@@ -82,7 +82,7 @@ function containsWord(haystack, needle) {
 
 /**
  * The lowercased key of a fact that maps a merchant to a payee or category
- * (`amaze* alipayprogra` in `AMAZE* ALIPAYPROGRA maps to Misc payee, no
+ * (`amaze* acmepayprogr` in `AMAZE* ACMEPAYPROGR maps to Misc payee, no
  * category (middle-man processor — varies)`), or null for a free-form fact.
  *
  * Deliberately looser than `_parseStructured`, which indexes dedup keys: a
@@ -113,10 +113,10 @@ function isMaskedKey(entity) {
 /**
  * True when `fact` is the mapping for `merchant`. The test is anchored to the
  * fact's own key, never to arbitrary text: a partial query must not select a
- * neighbour's mapping, so `AMAZE` does not match `AMAZE* GREATEASTERN`. The key
+ * neighbour's mapping, so `AMAZE` does not match `AMAZE* ACMEINSURERS`. The key
  * may still sit inside a longer alert merchant, because a bank alert carries
- * words the stored key does not — `AMAZE* ALIPAYPROGRA SINGAPORE SGP` versus the
- * stored key `AMAZE* ALIPAYPROGRA`. Issue #471.
+ * words the stored key does not — `AMAZE* ACMEPAYPROGR SINGAPORE SGP` versus the
+ * stored key `AMAZE* ACMEPAYPROGR`. Issue #471.
  */
 export function factNamesMerchant(fact, merchant) {
   const query = String(merchant || "").toLowerCase().trim();
@@ -899,8 +899,8 @@ export class MemoryStore {
   /**
    * The semantic path exists for free-form notes, not for merchant mappings.
    * Measured against the live fact set, similarity puts a different merchant
-   * first for 68 of 159 structured facts, and `AMAZE* GREATEASTERN` scores
-   * 0.623 against the `AMAZE* ALIPAYPROGRA SINGAPORE SGP` alert — the wrong
+   * first for 68 of 159 structured facts, and `AMAZE* ACMEINSURERS` scores
+   * 0.623 against the `AMAZE* ACMEPAYPROGR SINGAPORE SGP` alert — the wrong
    * booking in #471. A structured fact is therefore never reachable by
    * similarity, and a free-form hit must clear the floor. Issues #420, #471.
    * #472 accepts that a misspelled key can no longer reach its mapping this

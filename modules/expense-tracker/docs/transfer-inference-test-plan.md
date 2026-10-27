@@ -368,7 +368,7 @@ For ordinary payments, payee resolution order is:
 4. `resolve_merchant` fallback.
 5. `Misc` or review.
 
-This must reject `AMAZE* OPENCODE` mapping to `Wallet` from a low-score (`0.427`) `AMAZE* ALIPAYPROGRA` result.
+This must reject `AMAZE* OPENCODE` mapping to `Wallet` from a low-score (`0.427`) `AMAZE* ACMEPAYPROGR` result.
 
 Remove or replace the unsafe generic fact:
 
@@ -529,7 +529,7 @@ PASS: recovery of every stale `pending` journal entry checks Actual before retry
 PASS: journal failure after Actual success reconciles with Actual and prevents duplicate insert.
 PASS: multiple counterpart candidates do not silently deduplicate.
 PASS: low-score `AMAZE* OPENCODE` -> Wallet mapping is rejected.
-PASS: exact `AMAZE* ALIPAYPROGRA` -> Wallet mapping remains accepted.
+PASS: exact `AMAZE* ACMEPAYPROGR` -> Wallet mapping remains accepted.
 PASS: a merchant/payee memory result cannot override source or destination account identity for a structured bank movement.
 ```
 
