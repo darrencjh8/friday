@@ -122,7 +122,7 @@ describe("merchantKey", () => {
     });
 
     it("refuses ids, memory grammar and empty text", () => {
-        for (const bad of ["0126100100114400", "x maps to Groceries payee", "", null, "@T3", "two\nlines", "ACME\tCHICK"]) {
+        for (const bad of ["0173500420188400", "x maps to Groceries payee", "", null, "@T3", "two\nlines", "ACME\tCHICK"]) {
             expect(merchantKey(bad), String(bad)).toBeNull();
         }
     });

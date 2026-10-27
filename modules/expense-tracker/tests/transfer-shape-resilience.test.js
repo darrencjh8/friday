@@ -48,7 +48,7 @@ const OCBC_TRANSFER_REQUEST_FLAT =
     "Dear Valued CustomerWe have received your request to make the following transfer:" +
     "Date of Transfer:01 Oct 2026Time of Transfer:09.14 PM SGTAmount:SGD 1000.00" +
     "From your account:360 Account (-166600)To account:Alex DBS (-667222) at DBS BANK LTD" +
-    "Reference number:26100100114You can log in to OCBC Online Banking and select Customer " +
+    "Reference number:73500420188You can log in to OCBC Online Banking and select Customer " +
     "Service > Check internet transaction status to check the status of this transfer." +
     "If you have any questions, please call our Personal Banking Hotline: OCBC website > " +
     "Contact Us.Thank you for banking with us. We look forward to serving you again." +
@@ -61,7 +61,7 @@ const OCBC_TRANSFER_REQUEST_FLAT =
  */
 const DBS_RECEIVED_TRANSFER_FLAT =
     "digibank Alerts - You've received a transfer Problems viewing this email? " +
-    'Select "always display images" Transaction Ref: 0126100100114350 ' +
+    'Select "always display images" Transaction Ref: 0173500420188350 ' +
     "Dear Customer, You have received SGD 1000.00 via FAST transfer on 01 Oct 2026 21:14 SGT. " +
     "From: ACCOUNT HOLDER To: Your DBS/ POSB account ending 7222 " +
     "Didn't expect these funds? If this is a joint account, it may be for your joint " +

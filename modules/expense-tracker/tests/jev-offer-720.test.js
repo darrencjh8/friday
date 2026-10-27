@@ -141,11 +141,11 @@ describe("Phase 3 offer for a Jev payee (#720)", () => {
     });
 
     it("never offers the placeholder descriptor of a deposit with no usable reference", async () => {
-        const { calls } = await book({ raw: DEPOSIT("0126100100114400") });
+        const { calls } = await book({ raw: DEPOSIT("0173500420188400") });
         expect(calls.some((c) => c.name === "propose_learning")).toBe(false);
         expect(notice(calls)).not.toContain("Remember");
         const insert = calls.find((c) => c.name === "insert_transaction");
-        expect(insert.args.notes).toContain("0126100100114400");
+        expect(insert.args.notes).toContain("0173500420188400");
     });
 
     it("sends the resolver no evidence and offers nothing for a Telegram text", async () => {
