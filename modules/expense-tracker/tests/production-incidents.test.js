@@ -254,7 +254,7 @@ Reference :
 
 describe("hold behaviour for person-name movements (#584 / #585)", () => {
     /** Orchestrator over a single Ryt/OCBC account and no matching payee. */
-    async function orchestrate(body, { senderBank, receivedAt, accounts, payees = [], extraFacts = [], legalFact = "Legal name: ACCOUNT HOLDER", listFacts = [] }) {
+    async function orchestrate(body, { senderBank, receivedAt, accounts, payees = [], extraFacts = [], legalFact = "Legal name: ACCOUNT HOLDER", listFacts = [], linkCandidates = {} }) {
         const { AgentOrchestrator } = await import("../src/orchestrator.js");
         const calls = [];
         const tools = {
@@ -278,7 +278,8 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
                 // is pre-booked in Actual for these fixtures, so there is no
                 // candidate and the insert path stays unchanged.
                 if (name === "find_link_candidate")
-                    return { candidate: null, matches: 0 };
+                    return linkCandidates[args.account_id] || { candidate: null, matches: 0 };
+                if (name === "insert_transaction") return { id: "booked-1" };
                 return true;
             }),
             getPhase1ToolSchemas: vi.fn(() => []),
@@ -319,6 +320,23 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
         { id: "p-ocbc-360", name: "OCBC 360", transfer_acct: "ocbc-360" },
         { id: "p-ryt-bank", name: "Ryt Bank", transfer_acct: "ryt-bank" },
     ];
+
+    // Owner ruling: a movement to or from the holder's own legal name whose
+    // other side no account identifies books as Misc with no category, and
+    // the notification says why. It is no longer held.
+    function expectOwnNameMisc({ phase2, result, calls }, accountId) {
+        expect(phase2).toMatchObject({ payee_name: "Misc", account_id: accountId });
+        expect(phase2.category_id ?? null).toBe(null);
+        expect(phase2._hold_unresolved_transfer).toBeUndefined();
+        expect(result.action).not.toBe("notified");
+        const insert = calls.find((c) => c.name === "insert_transaction");
+        expect(insert).toBeTruthy();
+        expect(insert.args.category_id ?? null).toBe(null);
+        const text = calls.find((c) => c.name === "notify_user")?.args?.message || "";
+        expect(text).toMatch(/own name/i);
+        expect(text).toMatch(/Misc/);
+        expect(text).not.toMatch(/^Held/);
+    }
 
     // Standard Chartered savings accounts and their transfer payees, for the
     // DBS FAST / SC PayNow reconciliation cases (#592).
@@ -363,27 +381,69 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
         expect(calls.some((c) => c.name === "insert_transaction")).toBe(true);
     });
 
-    it("holds the same own-name debit as Misc with no category when neither account is known (#569)", async () => {
-        const { phase2, result, calls } = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+    it("books the same own-name debit as Misc with no category when neither account is known (#569, owner ruling)", async () => {
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
             senderBank: "OCBC",
             receivedAt: "2026-09-17T21:04:12.000Z",
             accounts: ownAccountTransferAccounts,
             payees: ownAccountTransferPayees,
         });
 
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            account_id: "ocbc-360",
-            _hold_unresolved_transfer: true,
-        });
-        expect(phase2.category_id ?? null).toBe(null);
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
-        expect(calls.some((c) => c.name === "notify_user")).toBe(true);
+        expectOwnNameMisc(run, "ocbc-360");
     });
 
-    it("holds the uid 919 own-name debit as Misc with no category (#585)", async () => {
-        const { phase2, result, calls, llm } = await orchestrate(
+    // The credit can arrive first: it books as own-name Misc and waits. The
+    // later own-name debit must find it and link the pair, the mirror of the
+    // debit-first #796 case, or the two rows stay unlinked Misc.
+    it("links an own-name debit to its one waiting own-name Misc credit (owner ruling)", async () => {
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: ownAccountTransferAccounts,
+            payees: ownAccountTransferPayees,
+            linkCandidates: { "ryt-bank": { candidate: { id: "credit-1", account_id: "ryt-bank" }, matches: 1 } },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        const lookup = run.calls.find((c) => c.name === "find_link_candidate" && c.args.account_id === "ryt-bank");
+        expect(lookup.args.amount_cents).toBeLessThan(0);
+        expect(lookup.args.notes_contains).toBeUndefined();
+        const link = run.calls.find((c) => c.name === "link_transfer_pair");
+        expect(link?.args).toMatchObject({ outgoing_id: "booked-1", incoming_id: "credit-1" });
+    });
+
+    it("leaves an own-name debit unlinked when two accounts hold a waiting credit (owner ruling)", async () => {
+        const hit = (id, account_id) => ({ candidate: { id, account_id }, matches: 1 });
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: [...ownAccountTransferAccounts, { id: "dbs-account", name: "DBS Account", closed: false }],
+            payees: ownAccountTransferPayees,
+            linkCandidates: { "ryt-bank": hit("credit-1", "ryt-bank"), "dbs-account": hit("credit-2", "dbs-account") },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        expect(run.calls.some((c) => c.name === "link_transfer_pair")).toBe(false);
+    });
+
+    it("leaves an own-name debit unlinked when one account holds several waiting credits (owner ruling)", async () => {
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: [...ownAccountTransferAccounts, { id: "dbs-account", name: "DBS Account", closed: false }],
+            payees: ownAccountTransferPayees,
+            linkCandidates: {
+                "ryt-bank": { candidate: { id: "credit-1", account_id: "ryt-bank" }, matches: 1 },
+                "dbs-account": { candidate: null, matches: 2 },
+            },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        expect(run.calls.some((c) => c.name === "link_transfer_pair")).toBe(false);
+    });
+
+    it("books the uid 919 own-name debit as Misc with no category (#585, owner ruling)", async () => {
+        const run = await orchestrate(
             RYT_SENT_OWN_NAME,
             {
                 senderBank: "Ryt",
@@ -392,21 +452,15 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
             },
         );
 
-        expect(llm).not.toHaveBeenCalled();
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            account_id: "ryt-bank",
-            _hold_unresolved_transfer: true,
-        });
-        expect(phase2.category_id ?? null).toBe(null);
-        expect(phase2.payee_name).not.toBe("Work");
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
-        expect(calls.some((c) => c.name === "notify_user")).toBe(true);
+        // Never guessed: no LLM, no Jev, never the Work payee.
+        expect(run.llm).not.toHaveBeenCalled();
+        expect(run.calls.some((c) => c.name === "resolve_merchant")).toBe(false);
+        expect(run.phase2.payee_name).not.toBe("Work");
+        expectOwnNameMisc(run, "ryt-bank");
     });
 
-    it("holds the uid 911 own-name credit rather than booking income (#585)", async () => {
-        const { phase2, result, calls } = await orchestrate(
+    it("books the uid 911 own-name credit as Misc, never as categorised income (#585, owner ruling)", async () => {
+        const run = await orchestrate(
             RYT_RECEIVED_OWN_NAME,
             {
                 senderBank: "Ryt",
@@ -415,18 +469,16 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
             },
         );
 
-        expect(phase2).toMatchObject({ payee_name: "Misc" });
-        expect(phase2.category_id ?? null).toBe(null);
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expectOwnNameMisc(run, "ryt-bank");
+        expect(run.phase2.amount_cents).toBeGreaterThan(0);
     });
 
-    it("holds the RM200 own-name debit even when the live legal-name fact carries a password suffix (#592)", async () => {
+    it("books the RM200 own-name debit as Misc even when the live legal-name fact carries a password suffix (#592, owner ruling)", async () => {
         // Production fact shape stores the statement-password mnemonic after an
         // arrow: `Legal name: <holder> -> <MNEMONIC> (statement password)`. The
         // old capture read the whole tail, so the holder name never matched and
-        // the RM200 was booked as spending instead of being held.
-        const { phase2, result, calls, llm } = await orchestrate(
+        // the RM200 was booked as spending instead of as an own-name Misc row.
+        const run = await orchestrate(
             "Hi Darren, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
             {
                 senderBank: "Ryt",
@@ -437,20 +489,15 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
             },
         );
 
-        expect(llm).not.toHaveBeenCalled();
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            account_id: "ryt-bank",
-            _hold_unresolved_transfer: true,
-        });
-        expect(phase2.category_id ?? null).toBe(null);
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
-        expect(calls.some((c) => c.name === "notify_user")).toBe(true);
+        expect(run.llm).not.toHaveBeenCalled();
+        expectOwnNameMisc(run, "ryt-bank");
+        // The mnemonic after the arrow never reaches the owner's chat.
+        const text = run.calls.find((c) => c.name === "notify_user")?.args?.message || "";
+        expect(text).not.toMatch(/statement password|-> ACCOUNT/);
     });
 
-    it("holds the RM200 own-name debit with a clean legal-name fact too (#592)", async () => {
-        const { phase2, result, calls } = await orchestrate(
+    it("books the RM200 own-name debit as Misc with a clean legal-name fact too (#592, owner ruling)", async () => {
+        const run = await orchestrate(
             "Hi Darren, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
             {
                 senderBank: "Ryt",
@@ -459,10 +506,7 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
             },
         );
 
-        expect(phase2).toMatchObject({ payee_name: "Misc" });
-        expect(phase2.category_id ?? null).toBe(null);
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expectOwnNameMisc(run, "ryt-bank");
     });
 
     // The two SC PayNow credits and the DBS FAST emails that book their other
@@ -624,8 +668,8 @@ To: ACCOUNT HOLDER SC A/C ending 2555
         });
     });
 
-    it("holds the uid 916 reference-named deposit instead of booking income (#584)", async () => {
-        const { phase2, result, calls } = await orchestrate(
+    it("books the uid 916 own-name reference deposit as Misc, never as categorised income (#584, owner ruling)", async () => {
+        const run = await orchestrate(
             OCBC_REFERENCE_DEPOSIT,
             {
                 senderBank: "OCBC",
@@ -634,13 +678,7 @@ To: ACCOUNT HOLDER SC A/C ending 2555
             },
         );
 
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            account_id: "ocbc-360",
-            _hold_unresolved_transfer: true,
-        });
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expectOwnNameMisc(run, "ocbc-360");
     });
 
     it("books the uid 917 merchant payment instead of holding it (#587)", async () => {
@@ -729,20 +767,14 @@ To: ACCOUNT HOLDER SC A/C ending 2555
         expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
     });
 
-    it("holds the real uid 919 body delivered inside its template (#585)", async () => {
-        const { phase2, result, calls } = await orchestrate(RYT_SENT_OWN_NAME_REAL, {
+    it("books the real uid 919 body delivered inside its template as own-name Misc (#585, owner ruling)", async () => {
+        const run = await orchestrate(RYT_SENT_OWN_NAME_REAL, {
             senderBank: "Ryt",
             receivedAt: "2026-09-19T04:58:02.000Z",
             accounts: rytAccounts,
         });
 
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            account_id: "ryt-bank",
-            _hold_unresolved_transfer: true,
-        });
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expectOwnNameMisc(run, "ryt-bank");
     });
 
     // ── #654 pins ───────────────────────────────────────────────────────────
@@ -790,22 +822,16 @@ To: ACCOUNT HOLDER SC A/C ending 2555
         expect(calls.some((c) => c.name === "insert_transaction")).toBe(true);
     });
 
-    it("holds an INCOMING person credit when the sender bank has ONE live account (#654)", async () => {
-        const { phase2, result, calls } = await orchestrate(RYT_RECEIVED_OWN_NAME_REAL, {
+    it("books an INCOMING own-name credit as Misc when the sender bank has ONE live account (#654, owner ruling)", async () => {
+        const run = await orchestrate(RYT_RECEIVED_OWN_NAME_REAL, {
             senderBank: "Ryt",
             receivedAt: "2026-09-18T00:00:00.000Z",
             accounts: rytAccounts,
         });
 
-        expect(phase2).toMatchObject({
-            payee_name: "Misc",
-            _hold_unresolved_transfer: true,
-            _hold_cause: "person_identity_unverified",
-        });
-        // The held row names the SENDER, never the holder's own account.
-        expect(phase2.merchant).toBe("ACCOUNT HOLDER");
-        expect(result.action).toBe("notified");
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expectOwnNameMisc(run, "ryt-bank");
+        // The row names the SENDER, never the holder's own account.
+        expect(run.phase2.merchant).toBe("ACCOUNT HOLDER");
     });
 
     it("still DROPS an incoming person credit when TWO accounts share the sender bank (#654 boundary)", async () => {

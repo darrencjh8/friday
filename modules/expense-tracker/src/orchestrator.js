@@ -371,6 +371,13 @@ function matchCategory(categories, name, { exact = false } = {}) {
 }
 
 /** Normalize a holder name for equality without turning a partial match into one. */
+/** The why for an own-name row booked as Misc (owner ruling); "" otherwise. */
+function ownNameNote(output) {
+    return output?._own_name_misc
+        ? " as Misc: a transfer in your own name, and I couldn't tell which of your accounts is the other side"
+        : "";
+}
+
 function normalizeIdentityName(value) {
     return String(value || "")
         .normalize("NFKD")
@@ -1162,9 +1169,10 @@ export class AgentOrchestrator {
             const holder = match[1].split(/\s*(?:->|→|=>)\s*/, 1)[0];
             return normalizeIdentityName(holder) === normalizeIdentityName(counterparty);
         });
-        // Two independent reasons to hold a person-shaped movement. The own-identity arm
-        // is unchanged: the holder's legal name recalled from memory, AND the name
-        // must not resolve to a tracked account. The person-transfer arm is new: the
+        // Two person-shaped cases. The own-identity case (the holder's legal name
+        // recalled from memory, and the name does not resolve to a tracked
+        // account) is booked as Misc below, by owner ruling; it used to be held.
+        // The person-transfer case still holds: the
         // PARSER already decided this is a person-to-person movement
         // (bank-movement.js person_transfer, set from `looksLikePersonName`), and
         // an unremembered person name is unverifiable without consulting accounts.
@@ -1220,12 +1228,55 @@ export class AgentOrchestrator {
         }
         const personNamed =
             movement.person_transfer === true && !personCounterpartyReleased && !ownCreditDebit;
-        const unverifiablePersonMovement =
+        const ownNameUnresolved =
             !resolved.internal &&
-            ((knownOwnIdentity &&
-                !ownCreditDebit &&
-                !matchAccountByName(counterparty, accounts, mappings.aliases).matched) ||
-                personNamed);
+            knownOwnIdentity &&
+            !ownCreditDebit &&
+            !matchAccountByName(counterparty, accounts, mappings.aliases).matched;
+        // Owner ruling: the holder's own legal name is never a stranger, so an
+        // own-name movement whose other side no account identifies is booked as
+        // Misc with no category instead of held (it used to be held under #569 /
+        // #585 / #592). The purpose varies, so no payee or category is guessed,
+        // and the notification says why. A stranger's name still holds below.
+        if (ownNameUnresolved) {
+            const incoming = movement.direction === "incoming";
+            const namedParty = incoming
+                ? (movement.own_account?.name || counterparty)
+                : counterparty;
+            return {
+                merchant: namedParty || "Own transfer",
+                amount_cents: incoming
+                    ? Math.abs(movement.amount_cents)
+                    : -Math.abs(movement.amount_cents),
+                date,
+                currency: movement.currency,
+                account_id: source.id,
+                account_name: source.name,
+                budget_id: budgetId,
+                action: "insert",
+                payee_name: "Misc",
+                category_id: null,
+                raw_description: `${incoming ? "Transfer from" : "Transfer to"} own name`,
+                raw_merchant_descriptor: "",
+                notes: movement.reference_number ? `Statement: ${movement.reference_number}` : "",
+                reasoning: "Own-name transfer; the other side is not an identified account, so Misc",
+                notify_message: "",
+                _suffix_mappings: suffixMappings,
+                _structured_movement: true,
+                _own_name_misc: true,
+                // An own-name credit booked first as Misc waits for this debit;
+                // the credit side already looked for a waiting debit (#796).
+                ...(incoming
+                    ? {}
+                    : {
+                          _pair_other_accounts: accounts
+                              .filter((a) => !a.closed && a.id !== source.id)
+                              .map((a) => a.id),
+                          _pair_untagged: true,
+                      }),
+            };
+        }
+        const unverifiablePersonMovement = !resolved.internal && personNamed;
         if (unverifiablePersonMovement) {
             // Name the OTHER party to the money. On this route `counterparty` is
             // the destination field and `own_account` the source field, and the
@@ -1662,15 +1713,20 @@ export class AgentOrchestrator {
     }
 
     /**
-     * After an incoming credit is booked, link it to a debit that was booked
-     * first as a possible own transfer (`SELF_TRANSFER_TAG`). Only a tagged,
-     * unlinked, uncleared `Misc` debit of the same amount that day, on exactly
-     * one other account, is joined; anything else is left alone.
+     * After a transfer leg is booked, link it to the other leg that was booked
+     * first and is waiting. For a credit that is a debit tagged as a possible
+     * own transfer (`SELF_TRANSFER_TAG`); for an own-name debit (and the #796
+     * credit) it is an untagged own-name `Misc` row. Only an unlinked,
+     * uncleared `Misc` row of the same amount that day, on exactly one other
+     * account, is joined; anything else is left alone.
      */
-    async _pairWaitingDebit({ llmOutput, creditRowId }) {
-        if (!creditRowId || !llmOutput.budget_id || !llmOutput.date) return false;
+    async _pairWaitingDebit({ llmOutput, creditRowId: bookedRowId }) {
+        if (!bookedRowId || !llmOutput.budget_id || !llmOutput.date) return false;
         try {
-            const amount = Math.abs(Number(llmOutput.amount_cents));
+            // Signed like the booked leg: find_link_candidate looks for the
+            // opposite sign, so a debit finds its waiting credit.
+            const outgoing = Number(llmOutput.amount_cents) < 0;
+            const amount = (outgoing ? -1 : 1) * Math.abs(Number(llmOutput.amount_cents));
             const found = [];
             for (const accountId of llmOutput._pair_other_accounts || []) {
                 const result = await this._tools.executeTool("find_link_candidate", {
@@ -1680,19 +1736,22 @@ export class AgentOrchestrator {
                     on_date: llmOutput.date,
                     notes_contains: llmOutput._pair_untagged ? undefined : SELF_TRANSFER_TAG,
                 });
-                if (result?.matches == null) return false;
+                // Several rows on one account is a question for the user.
+                if (result?.matches == null || Number(result.matches) > 1) return false;
                 if (result.candidate) found.push(result.candidate);
             }
             if (found.length !== 1) return false;
             const linked = await this._tools.executeTool("link_transfer_pair", {
                 budget_id: llmOutput.budget_id,
-                outgoing_id: found[0].id,
-                incoming_id: creditRowId,
+                outgoing_id: outgoing ? bookedRowId : found[0].id,
+                incoming_id: outgoing ? found[0].id : bookedRowId,
             });
             if (!linked || linked.error) return false;
             await this._tools.executeTool("log_decision", {
                 action: "transfer_pair_linked",
-                reasoning: `Joined the credit to the waiting debit ${found[0].id}`,
+                reasoning: outgoing
+                    ? `Joined the debit to the waiting credit ${found[0].id}`
+                    : `Joined the credit to the waiting debit ${found[0].id}`,
                 timestamp: new Date().toISOString(),
             });
             return true;
@@ -3761,15 +3820,15 @@ export class AgentOrchestrator {
                     if (inserted.code) refused.code = inserted.code;
                     throw refused;
                 }
-                // Only a Misc credit is a transfer leg waiting for its debit; one
-                // memory or Jev named is income (#680 pairing shape).
+                // Only a Misc row is a transfer leg waiting for its other leg; a
+                // credit memory or Jev named is income (#680 pairing shape).
                 if (
                     llmOutput._pair_other_accounts?.length &&
                     inserted?.id &&
                     (payeeName.trim().toLowerCase() === "misc" || llmOutput._pair_untagged)
                 ) {
                     const paired = await this._pairWaitingDebit({ llmOutput, creditRowId: inserted.id });
-                    if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer debit)`;
+                    if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer leg)`;
                 }
                 if (transferReservation?.status === "reserved") {
                     await this._tools.executeTool("complete_transfer", {
@@ -3853,7 +3912,7 @@ export class AgentOrchestrator {
                     : "";
                 const offer = await this._jevOffer(llmOutput, payeeName);
                 const notified = await this._tools.executeTool("notify_user", {
-                    message: `${amountPrefix}at ${displayPayee} via ${acct} on ${dt}${cat}, logged${offer.text}`,
+                    message: `${amountPrefix}at ${displayPayee} via ${acct} on ${dt}${cat}, logged${ownNameNote(llmOutput)}${offer.text}`,
                 });
                 if (!notified) {
                     // An offer the user was never told about must not linger.
