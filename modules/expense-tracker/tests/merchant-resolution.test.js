@@ -8,16 +8,16 @@
  * resolves to its approved payee/category. When the memory changes, the test
  * re-verifies against the latest mappings and fails on drift.
  *
- * Business merchants live in committed fixtures (non-PII). Person names are PII
- * and are NOT committed here; they are fetched from the private friday-memory
- * repo as `expense-tracker/person-rules.json`, so the "person name -> transfer
- * -> Misc (no category)" rule is also verified against production without
- * leaking identities into the public friday repo.
+ * Neither the owner's merchants nor person names are committed here: merchants
+ * show where the owner lives, works and shops, and names are PII. Both are
+ * fetched from the private friday-memory repo, as
+ * `expense-tracker/merchant-rules.json` and `expense-tracker/person-rules.json`,
+ * so every rule is verified against production without leaking either into
+ * the public friday repo.
  */
 import { describe, it, expect } from "vitest";
-import { readFileSync, writeFileSync } from "fs";
-import { fileURLToPath } from "url";
-import { dirname, join } from "path";
+import { writeFileSync } from "fs";
+import { join } from "path";
 import { tmpdir } from "os";
 import { randomBytes } from "crypto";
 import { MemoryStore } from "../src/memory.js";
@@ -25,14 +25,11 @@ import {
     fetchLiveMemory,
     redactMemory,
     fetchPersonRules,
+    fetchMerchantRules,
 } from "../src/fetch-memory.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const merchantFixtures = JSON.parse(
-    readFileSync(join(__dirname, "fixtures", "merchant-mappings.json"), "utf8"),
-);
-
 let store = null;
+let merchantRules = null;
 let personRules = null;
 let fetchError = null;
 try {
@@ -43,6 +40,11 @@ try {
     );
     writeFileSync(memPath, raw);
     store = new MemoryStore(memPath);
+    try {
+        merchantRules = fetchMerchantRules();
+    } catch {
+        merchantRules = null;
+    }
     try {
         personRules = fetchPersonRules();
     } catch {
@@ -77,9 +79,13 @@ async function resolveCategory(payee) {
 const run = fetchError ? describe.skip : describe;
 
 run("merchant -> payee -> category (production MemoryStore)", () => {
+    it("fetches merchant golden rules from friday-memory", () => {
+        expect(merchantRules).not.toBeNull();
+    });
+
     it("resolves every fixture merchant to its approved payee", async () => {
         const failures = [];
-        for (const f of merchantFixtures) {
+        for (const f of merchantRules || []) {
             const resolved = await resolvePayee(f.merchant);
             if (resolved !== f.payee) {
                 failures.push(
@@ -92,7 +98,7 @@ run("merchant -> payee -> category (production MemoryStore)", () => {
 
     it("resolves every fixture merchant to its approved category", async () => {
         const failures = [];
-        for (const f of merchantFixtures) {
+        for (const f of merchantRules || []) {
             const resolved = await resolveCategory(f.payee);
             if (f.category === null) {
                 if (resolved !== null) {

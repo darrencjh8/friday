@@ -16,6 +16,9 @@ const MEMORY_PATH =
 const PERSON_RULES_PATH =
     "repos/darrencjh8/friday-memory/contents/expense-tracker/person-rules.json";
 
+const MERCHANT_RULES_PATH =
+    "repos/darrencjh8/friday-memory/contents/expense-tracker/merchant-rules.json";
+
 const PASSWORD_FACT_RE = /^-\s+.*(?:password|DOB|legal name)\s*[:is]*\s*.+$/i;
 
 /**
@@ -53,6 +56,27 @@ export function fetchPersonRules() {
             "-H",
             "Accept: application/vnd.github.raw+json",
             PERSON_RULES_PATH,
+        ],
+        { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+    return JSON.parse(output);
+}
+
+/**
+ * Fetch the merchant golden rules (descriptor -> approved payee/category) from
+ * the private friday-memory repo. The owner's own merchants show where they
+ * live, work and shop, so they stay out of the public friday repo too.
+ *
+ * @returns {Array<{merchant: string, payee: string, category: string|null}>}
+ */
+export function fetchMerchantRules() {
+    const output = execFileSync(
+        "gh",
+        [
+            "api",
+            "-H",
+            "Accept: application/vnd.github.raw+json",
+            MERCHANT_RULES_PATH,
         ],
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
