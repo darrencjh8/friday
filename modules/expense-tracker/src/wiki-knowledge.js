@@ -158,9 +158,7 @@ export function wikiFacts(wikiDir) {
     if (override) facts.push(`${key(k)} maps to ${override} category`);
   }
 
-  for (const [payee, category, status] of tableRows(read("payee-categories.md"), "Payee")) {
-    if (active(status) && payee && category) facts.push(`${payee} maps to ${category} category`);
-  }
+  facts.push(...payeeCategoryFacts(wikiDir));
 
   // A row with an "Incoming amount" is a rule for a credit of exactly that
   // amount from that sender, and nothing else: the same sender sending another
@@ -197,6 +195,22 @@ export function wikiFacts(wikiDir) {
   return facts.filter((f) => !SECRET_RE.test(f));
 }
 
+/**
+ * The payee-categories rows as fact sentences. Each is keyed on a payee, never
+ * on a merchant, so search marks them (`payeeCategory`) for the resolver.
+ * @param {string} wikiDir
+ * @returns {string[]}
+ */
+function payeeCategoryFacts(wikiDir) {
+  const p = join(wikiDir, "payee-categories.md");
+  if (!existsSync(p)) return [];
+  const facts = [];
+  for (const [payee, category, status] of tableRows(readFileSync(p, "utf8"), "Payee")) {
+    if (active(status) && payee && category) facts.push(`${payee} maps to ${category} category`);
+  }
+  return facts.filter((f) => !SECRET_RE.test(f));
+}
+
 /** Password facts only, from the legacy MEMORY.md. */
 function legacyPasswordFacts(path) {
   if (!path || !existsSync(path)) return [];
@@ -230,6 +244,7 @@ export class WikiKnowledgeStore extends MemoryStore {
   _loadFacts() {
     const { wikiDir, legacyPasswordPath } = this._opts;
     this._facts = [...wikiFacts(wikiDir), ...legacyPasswordFacts(legacyPasswordPath)];
+    this._payeeCategory = new Set(payeeCategoryFacts(wikiDir).map((f) => f.toLowerCase()));
     this._signature = this._currentSignature();
   }
 
@@ -264,7 +279,10 @@ export class WikiKnowledgeStore extends MemoryStore {
 
   async search(query, topK = 5) {
     this._refreshIfChanged();
-    return super.search(query, topK);
+    const results = await super.search(query, topK);
+    return results.map((r) =>
+      this._payeeCategory.has(String(r.text).toLowerCase()) ? { ...r, payeeCategory: true } : r,
+    );
   }
 
   // ── write side: proposals only ───────────────────────────────

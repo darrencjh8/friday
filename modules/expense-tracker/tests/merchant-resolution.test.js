@@ -76,8 +76,10 @@ async function resolvePayee(merchant) {
 
 async function resolveCategory(payee, merchant) {
     // Tier 1a: a category fact keyed on the merchant itself (a wiki
-    // "Category override" or a person's category) outranks the payee's.
+    // "Category override" or a person's category) outranks the payee's. A
+    // payee-categories row is keyed on a payee, so it is left to Tier 1.
     for (const r of await store.search(merchant, 5)) {
+        if (r.payeeCategory) continue;
         if (!factNamesMerchant(r.text, merchant)) continue;
         const m = (r.text || "").match(/maps to (.+?) category/i);
         if (m) return m[1];
