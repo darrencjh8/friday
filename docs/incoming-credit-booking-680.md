@@ -103,6 +103,8 @@ A movement to or from the holder's own legal name, where no account identifies t
 
 - Why: the purpose of these transfers varies (work, travel, top-ups), so no payee or category is guessed, but holding them left every one for manual booking.
 - Still first: an own-to-own leg that resolves to two accounts books as a transfer, and the #796 single waiting debit is still linked.
-- The row is the shape `find_link_candidate` pairs, so a later alert for the other leg can still link it.
+- The row is the shape `find_link_candidate` pairs, so a later alert for the other leg can still link it, in either order:
+  - Debit first: the later own-name credit finds the one waiting `Misc` debit (#796) and links the pair.
+  - Credit first: the later own-name debit looks on the other accounts for exactly one waiting `Misc` credit of the amount that day and links the pair. None, one account with several, or several accounts: it stays unlinked `Misc`.
 - The notification says it was logged as Misc because it is an own-name transfer whose other account is unknown.
 - Unchanged: a stranger's person-named transfer still holds (`person_identity_unverified`).

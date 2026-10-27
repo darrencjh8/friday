@@ -254,7 +254,7 @@ Reference :
 
 describe("hold behaviour for person-name movements (#584 / #585)", () => {
     /** Orchestrator over a single Ryt/OCBC account and no matching payee. */
-    async function orchestrate(body, { senderBank, receivedAt, accounts, payees = [], extraFacts = [], legalFact = "Legal name: ACCOUNT HOLDER", listFacts = [] }) {
+    async function orchestrate(body, { senderBank, receivedAt, accounts, payees = [], extraFacts = [], legalFact = "Legal name: ACCOUNT HOLDER", listFacts = [], linkCandidates = {} }) {
         const { AgentOrchestrator } = await import("../src/orchestrator.js");
         const calls = [];
         const tools = {
@@ -278,7 +278,8 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
                 // is pre-booked in Actual for these fixtures, so there is no
                 // candidate and the insert path stays unchanged.
                 if (name === "find_link_candidate")
-                    return { candidate: null, matches: 0 };
+                    return linkCandidates[args.account_id] || { candidate: null, matches: 0 };
+                if (name === "insert_transaction") return { id: "booked-1" };
                 return true;
             }),
             getPhase1ToolSchemas: vi.fn(() => []),
@@ -389,6 +390,56 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
         });
 
         expectOwnNameMisc(run, "ocbc-360");
+    });
+
+    // The credit can arrive first: it books as own-name Misc and waits. The
+    // later own-name debit must find it and link the pair, the mirror of the
+    // debit-first #796 case, or the two rows stay unlinked Misc.
+    it("links an own-name debit to its one waiting own-name Misc credit (owner ruling)", async () => {
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: ownAccountTransferAccounts,
+            payees: ownAccountTransferPayees,
+            linkCandidates: { "ryt-bank": { candidate: { id: "credit-1", account_id: "ryt-bank" }, matches: 1 } },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        const lookup = run.calls.find((c) => c.name === "find_link_candidate" && c.args.account_id === "ryt-bank");
+        expect(lookup.args.amount_cents).toBeLessThan(0);
+        expect(lookup.args.notes_contains).toBeUndefined();
+        const link = run.calls.find((c) => c.name === "link_transfer_pair");
+        expect(link?.args).toMatchObject({ outgoing_id: "booked-1", incoming_id: "credit-1" });
+    });
+
+    it("leaves an own-name debit unlinked when two accounts hold a waiting credit (owner ruling)", async () => {
+        const hit = (id, account_id) => ({ candidate: { id, account_id }, matches: 1 });
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: [...ownAccountTransferAccounts, { id: "dbs-account", name: "DBS Account", closed: false }],
+            payees: ownAccountTransferPayees,
+            linkCandidates: { "ryt-bank": hit("credit-1", "ryt-bank"), "dbs-account": hit("credit-2", "dbs-account") },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        expect(run.calls.some((c) => c.name === "link_transfer_pair")).toBe(false);
+    });
+
+    it("leaves an own-name debit unlinked when one account holds several waiting credits (owner ruling)", async () => {
+        const run = await orchestrate(OCBC_DUITNOW_OWN_ACCOUNT, {
+            senderBank: "OCBC",
+            receivedAt: "2026-09-17T21:04:12.000Z",
+            accounts: [...ownAccountTransferAccounts, { id: "dbs-account", name: "DBS Account", closed: false }],
+            payees: ownAccountTransferPayees,
+            linkCandidates: {
+                "ryt-bank": { candidate: { id: "credit-1", account_id: "ryt-bank" }, matches: 1 },
+                "dbs-account": { candidate: null, matches: 2 },
+            },
+        });
+
+        expectOwnNameMisc(run, "ocbc-360");
+        expect(run.calls.some((c) => c.name === "link_transfer_pair")).toBe(false);
     });
 
     it("books the uid 919 own-name debit as Misc with no category (#585, owner ruling)", async () => {

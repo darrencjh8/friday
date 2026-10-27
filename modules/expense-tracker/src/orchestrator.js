@@ -1264,6 +1264,16 @@ export class AgentOrchestrator {
                 _suffix_mappings: suffixMappings,
                 _structured_movement: true,
                 _own_name_misc: true,
+                // An own-name credit booked first as Misc waits for this debit;
+                // the credit side already looked for a waiting debit (#796).
+                ...(incoming
+                    ? {}
+                    : {
+                          _pair_other_accounts: accounts
+                              .filter((a) => !a.closed && a.id !== source.id)
+                              .map((a) => a.id),
+                          _pair_untagged: true,
+                      }),
             };
         }
         const unverifiablePersonMovement = !resolved.internal && personNamed;
@@ -1703,15 +1713,20 @@ export class AgentOrchestrator {
     }
 
     /**
-     * After an incoming credit is booked, link it to a debit that was booked
-     * first as a possible own transfer (`SELF_TRANSFER_TAG`). Only a tagged,
-     * unlinked, uncleared `Misc` debit of the same amount that day, on exactly
-     * one other account, is joined; anything else is left alone.
+     * After a transfer leg is booked, link it to the other leg that was booked
+     * first and is waiting. For a credit that is a debit tagged as a possible
+     * own transfer (`SELF_TRANSFER_TAG`); for an own-name debit (and the #796
+     * credit) it is an untagged own-name `Misc` row. Only an unlinked,
+     * uncleared `Misc` row of the same amount that day, on exactly one other
+     * account, is joined; anything else is left alone.
      */
-    async _pairWaitingDebit({ llmOutput, creditRowId }) {
-        if (!creditRowId || !llmOutput.budget_id || !llmOutput.date) return false;
+    async _pairWaitingDebit({ llmOutput, creditRowId: bookedRowId }) {
+        if (!bookedRowId || !llmOutput.budget_id || !llmOutput.date) return false;
         try {
-            const amount = Math.abs(Number(llmOutput.amount_cents));
+            // Signed like the booked leg: find_link_candidate looks for the
+            // opposite sign, so a debit finds its waiting credit.
+            const outgoing = Number(llmOutput.amount_cents) < 0;
+            const amount = (outgoing ? -1 : 1) * Math.abs(Number(llmOutput.amount_cents));
             const found = [];
             for (const accountId of llmOutput._pair_other_accounts || []) {
                 const result = await this._tools.executeTool("find_link_candidate", {
@@ -1721,19 +1736,22 @@ export class AgentOrchestrator {
                     on_date: llmOutput.date,
                     notes_contains: llmOutput._pair_untagged ? undefined : SELF_TRANSFER_TAG,
                 });
-                if (result?.matches == null) return false;
+                // Several rows on one account is a question for the user.
+                if (result?.matches == null || Number(result.matches) > 1) return false;
                 if (result.candidate) found.push(result.candidate);
             }
             if (found.length !== 1) return false;
             const linked = await this._tools.executeTool("link_transfer_pair", {
                 budget_id: llmOutput.budget_id,
-                outgoing_id: found[0].id,
-                incoming_id: creditRowId,
+                outgoing_id: outgoing ? bookedRowId : found[0].id,
+                incoming_id: outgoing ? found[0].id : bookedRowId,
             });
             if (!linked || linked.error) return false;
             await this._tools.executeTool("log_decision", {
                 action: "transfer_pair_linked",
-                reasoning: `Joined the credit to the waiting debit ${found[0].id}`,
+                reasoning: outgoing
+                    ? `Joined the debit to the waiting credit ${found[0].id}`
+                    : `Joined the credit to the waiting debit ${found[0].id}`,
                 timestamp: new Date().toISOString(),
             });
             return true;
@@ -3802,15 +3820,15 @@ export class AgentOrchestrator {
                     if (inserted.code) refused.code = inserted.code;
                     throw refused;
                 }
-                // Only a Misc credit is a transfer leg waiting for its debit; one
-                // memory or Jev named is income (#680 pairing shape).
+                // Only a Misc row is a transfer leg waiting for its other leg; a
+                // credit memory or Jev named is income (#680 pairing shape).
                 if (
                     llmOutput._pair_other_accounts?.length &&
                     inserted?.id &&
                     (payeeName.trim().toLowerCase() === "misc" || llmOutput._pair_untagged)
                 ) {
                     const paired = await this._pairWaitingDebit({ llmOutput, creditRowId: inserted.id });
-                    if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer debit)`;
+                    if (paired) llmOutput.reasoning = `${llmOutput.reasoning || ""} (linked to the waiting transfer leg)`;
                 }
                 if (transferReservation?.status === "reserved") {
                     await this._tools.executeTool("complete_transfer", {
