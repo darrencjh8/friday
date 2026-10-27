@@ -1926,6 +1926,42 @@ grep -qx 'cross_session: true' "$TMPDIR/cs/absent.yaml" 2>/dev/null && ok "absen
     || nope "cross_session absent file" "not created"
 
 echo ""
+echo "=== Mnemosyne plugin dependency pin ==="
+# Hermes installs the catalog wrapper's [project].dependencies into its selected
+# environment, so the working pair must be pinned there, not in lazy-packages.
+mp_block=$(python3 - "$SEED_SCRIPT" <<'PY'
+import re, sys
+content = open(sys.argv[1], encoding="utf-8").read()
+blocks = re.findall(r"<<'PYMNPIN'[^\n]*\n(.*?)\nPYMNPIN", content, re.DOTALL)
+print(blocks[0] if blocks else "")
+PY
+)
+[ -n "$mp_block" ] && ok "seed has a Mnemosyne plugin pin block" || nope "plugin pin block" "not found"
+mp_run() { python3 -c "${mp_block//\/opt\/data\/plugins\/mnemosyne\/pyproject.toml/$1}" >/dev/null 2>&1; }
+mkdir -p "$TMPDIR/mp"
+cat > "$TMPDIR/mp/pyproject.toml" <<'TOML'
+# wrapper comment
+[project]
+name = "mnemosyne-plugin"
+dependencies = [
+    "mnemosyne-hermes>=0.7.3,<0.8",
+    "mnemosyne-memory[embeddings]>=4.0.0b3",
+]
+TOML
+mp_run "$TMPDIR/mp/pyproject.toml"; mp_run "$TMPDIR/mp/pyproject.toml"
+grep -qF '"mnemosyne-hermes==0.7.1",' "$TMPDIR/mp/pyproject.toml" \
+    && grep -qF '"mnemosyne-memory[embeddings]==3.15.1",' "$TMPDIR/mp/pyproject.toml" \
+    && [ "$(grep -c 'mnemosyne-' "$TMPDIR/mp/pyproject.toml")" = "3" ] \
+    && grep -qx '# wrapper comment' "$TMPDIR/mp/pyproject.toml" \
+    && ok "wrapper dependencies pinned to 0.7.1 + 3.15.1 once; rest kept" || nope "plugin pin edit" "$(cat "$TMPDIR/mp/pyproject.toml")"
+mp_run "$TMPDIR/mp/absent.toml"
+[ ! -e "$TMPDIR/mp/absent.toml" ] && ok "absent wrapper is left absent" || nope "plugin pin absent file" "created"
+grep -q 'prepare_memory_provider_dependencies' "$SEED_SCRIPT" \
+    && ok "seed re-syncs the provider environment through Hermes PM" || nope "plugin pin sync" "no PM sync call"
+grep -q 'uv pip install --target /opt/data/lazy-packages' "$SEED_SCRIPT" \
+    && nope "dead lazy-packages pin" "seed still calls uv, which the image does not ship" || ok "no dead lazy-packages uv pin"
+
+echo ""
 echo "=== memory digests and wiki lint wording ==="
 wording=$(python3 - "$SEED_SCRIPT" "$SCRIPT_DIR/../config.yaml" <<'PY'
 import re, sys

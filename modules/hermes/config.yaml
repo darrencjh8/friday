@@ -67,7 +67,7 @@ memory:
     # Without the plugin installed discovery finds no instance and Hermes
     # falls back to built-in, so fresh hosts are unaffected. Pinned to the
     # working pair 0.7.1 + 3.15.1 (0.7.3/0.7.4 constructor raises under turn
-    # scope); the seed enforces the pin into lazy-packages.
+    # scope); the seed pins them in the plugin wrapper pyproject that PM installs from.
     provider: mnemosyne
     mnemosyne:
         auto_sleep: true
