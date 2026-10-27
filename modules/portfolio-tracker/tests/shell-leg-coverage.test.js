@@ -47,6 +47,7 @@ const REQUIRED = [
     "flex_import",
     "taxonomy_export",
     "portfolio_status",
+    "deposit_matches",
 ];
 
 describe("the shell parser covers the same legs as the renderer", () => {

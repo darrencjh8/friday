@@ -1744,6 +1744,76 @@ export class ToolRegistry {
     return reservation;
   }
 
+  /**
+   * Rebook the one Misc debit a broker deposit accounts for as the transfer
+   * to that broker. A bank alert that only says "Withdrawal" names no
+   * destination, so it books as Misc; the broker's own record of the deposit
+   * (the portfolio sync's IBKR flex CashTransactions row) carries the exact
+   * amount. The bank leg may precede the deposit by a few days.
+   *
+   * Exactly one unlinked, uncleared Misc debit of that amount, off the broker's
+   * own account, inside the window: patch it to the broker's transfer payee and
+   * the named category, and tell the user. Anything else changes nothing. A
+   * rebooked row is no longer Misc, so a flex window that repeats the deposit
+   * is a no-op.
+   */
+  async _handle_match_broker_deposit({
+    budget_id,
+    amount_cents,
+    on_date,
+    payee_name,
+    category_name,
+    window_days = 3,
+  } = {}) {
+    const amount = Number(amount_cents);
+    if (!budget_id || !on_date || !payee_name || !Number.isInteger(amount) || amount <= 0) {
+      return { matched: 0, reason: "invalid_input" };
+    }
+    const since = shiftIsoDay(on_date, -Math.max(0, Number(window_days) || 0));
+    const until = shiftIsoDay(on_date, 1);
+    const [rows, payees] = await Promise.all([
+      this._get("/transactions", budget_id, { since_date: since, until_date: until }),
+      this._get("/payees", budget_id),
+    ]);
+    const list = Array.isArray(payees) ? payees : [];
+    const misc = list.find((p) => p.name === "Misc" && !p.transfer_acct);
+    const broker = list.find((p) => p.name === payee_name && p.transfer_acct);
+    if (!misc || !broker) return { matched: 0, reason: "payee_missing" };
+    const candidates = (Array.isArray(rows) ? rows : []).filter(
+      (tx) =>
+        tx.amount === -amount &&
+        tx.payee === misc.id &&
+        !tx.transfer_id &&
+        tx.cleared === false &&
+        tx.account !== broker.transfer_acct &&
+        (!tx.date || (tx.date >= since && tx.date <= until)),
+    );
+    if (candidates.length !== 1) return { matched: 0, candidates: candidates.length };
+    const row = candidates[0];
+
+    let categoryId;
+    if (category_name) {
+      const categories = await this._get("/categories", budget_id);
+      categoryId = (Array.isArray(categories) ? categories : []).find(
+        (c) => c.name === category_name,
+      )?.id;
+    }
+    const updated = await this._handle_update_transaction({
+      id: row.id,
+      budget_id,
+      payee_id: broker.id,
+      ...(categoryId ? { category_id: categoryId } : {}),
+    });
+    if (!updated || updated.error) {
+      return { matched: 0, reason: "update_failed", error: updated?.error || "no response" };
+    }
+    const category = categoryId ? ` / ${category_name}` : "";
+    await this._handle_notify_user({
+      message: `Matched the ${(amount / 100).toFixed(2)} withdrawal on ${row.date || on_date} to a ${payee_name} deposit, rebooked as ${payee_name}${category}`,
+    });
+    return { matched: 1, id: row.id, account_id: row.account };
+  }
+
   async _handle_find_link_candidate({ budget_id, account_id, amount_cents, on_date, notes_contains } = {}) {
     if (!budget_id || !account_id || !on_date || amount_cents == null) {
       return { candidate: null, matches: 0 };
