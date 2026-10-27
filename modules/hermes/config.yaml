@@ -99,6 +99,9 @@ terminal:
     backend: local
     persistent_shell: true
     cwd: /workspace
+    # execute_code scrubs *_SECRET and unlisted names from its child env, so the
+    # gtasks CLI it may spawn (wiki-due-reminders) needs its OAuth client passed.
+    env_passthrough: [GTASKS_CLIENT_ID, GTASKS_CLIENT_SECRET]
 
 web:
     search_backend: brave-free
