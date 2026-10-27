@@ -20,11 +20,11 @@ import {
 
 /** uid 919 - Ryt Bank outgoing, counterparty is the holder's own name. */
 const RYT_SENT_OWN_NAME =
-    "Hi Darren, You've sent RM100.00 to ACCOUNT HOLDER on 19/9/2026, 12:58 PM (GMT+8) using your Main Account.";
+    "Hi Alex, You've sent RM100.00 to ACCOUNT HOLDER on 19/9/2026, 12:58 PM (GMT+8) using your Main Account.";
 
 /** uid 911 - Ryt Bank incoming credit from the holder's own name. */
 const RYT_RECEIVED_OWN_NAME =
-    "Hi Darren, Money's in! You've received RM62.00 from ACCOUNT HOLDER on 18/9/2026, 5:04 AM (GMT+8).";
+    "Hi Alex, Money's in! You've received RM62.00 from ACCOUNT HOLDER on 18/9/2026, 5:04 AM (GMT+8).";
 
 /** uid 916 - one-sided OCBC deposit whose only sender evidence is `Reference:`. */
 const OCBC_REFERENCE_DEPOSIT = `Dear Valued Customer,
@@ -51,11 +51,11 @@ Reference number: REDACTED
 
 /** uid 917 - Ryt Bank card payment to a real (but unknown-to-memory) merchant. */
 const RYT_PAID_MERCHANT =
-    "Hi Darren, You've paid RM255.00 to CLINIC MERCHANT on 19/9/2026, 10:50 AM (GMT+8) using your Ryt Credit.";
+    "Hi Alex, You've paid RM255.00 to CLINIC MERCHANT on 19/9/2026, 10:50 AM (GMT+8) using your Ryt Credit.";
 
 /** uid 918 - ordinary Ryt merchant purchase that poisoned a generic memory key. */
 const RYT_BOUGHT_MERCHANT =
-    "Hi Darren, You've paid RM27.70 to BAKERY MERCHANT on 19/9/2026, 11:00 AM (GMT+8) using your Ryt Credit.";
+    "Hi Alex, You've paid RM27.70 to BAKERY MERCHANT on 19/9/2026, 11:00 AM (GMT+8) using your Ryt Credit.";
 
 /**
  * The bodies above are the alert sentence alone. Production sends the sentence
@@ -65,7 +65,7 @@ const RYT_BOUGHT_MERCHANT =
  */
 const RYT_FRAME = (sentence) => `[https://cdn.example/bee/Images/bmsx/tracker/money%20on%20the%20move.png]
 
-Hi Darren,
+Hi Alex,
 
 ${sentence}
 
@@ -479,7 +479,7 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
         // old capture read the whole tail, so the holder name never matched and
         // the RM200 was booked as spending instead of as an own-name Misc row.
         const run = await orchestrate(
-            "Hi Darren, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
+            "Hi Alex, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
             {
                 senderBank: "Ryt",
                 receivedAt: "2026-09-20T16:22:04.000Z",
@@ -498,7 +498,7 @@ describe("hold behaviour for person-name movements (#584 / #585)", () => {
 
     it("books the RM200 own-name debit as Misc with a clean legal-name fact too (#592, owner ruling)", async () => {
         const run = await orchestrate(
-            "Hi Darren, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
+            "Hi Alex, You've sent RM200.00 to ACCOUNT HOLDER on 21/9/2026, 12:22 AM (GMT+8) using your Main Account.",
             {
                 senderBank: "Ryt",
                 receivedAt: "2026-09-20T16:22:04.000Z",

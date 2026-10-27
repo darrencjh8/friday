@@ -1,9 +1,9 @@
 QUESTIONS
-q: Should the hold cover a transfer to ANY person, or only the holder's own legal name as today? | a: Any bare person name, in BOTH directions. Memory is consulted FIRST; if no fact resolves the counterparty, hold. Never guess. Confirmed by Darren 2026-10-05, superseding the earlier Option 1 (narrow hold).
+q: Should the hold cover a transfer to ANY person, or only the holder's own legal name as today? | a: Any bare person name, in BOTH directions. Memory is consulted FIRST; if no fact resolves the counterparty, hold. Never guess. Confirmed by the owner 2026-10-05, superseding the earlier Option 1 (narrow hold).
 q: Where should the memory lookup happen? | a: `_resolveMovementToOutput`, at the existing hold site (orchestrator.js:761-765), which already receives the movement. Parsing stays free of account facts.
 q: Which memory read decides the person/business question? | a: `list_facts` (full deterministic read from disk), NOT `search_memory`. A recall miss on `search_memory` would silently book a real person transfer as spend, which is the exact defect this closes. The read is made only when `movement.person_transfer === true`, so plain merchant alerts pay nothing.
 q: EXACTLY which facts release the hold? | a: Only the payee/category mapping grammar — a fact whose key normalises equal to the alert's counterparty name under `normalizeIdentityName` (orchestrator.js:290, already used at :759) using the shape `KEY (merchant )?maps to VALUE (payee|category)`. A legal-name / account-holder fact or an `is a ... account` fact can NEVER release the hold. It is fail-closed: an unrecognised grammar holds.
-q: What closes the loop when a person-shaped name is held? | a: Hold only, and name the counterparty and the cause in the notification (Option 1, Darren 2026-10-05). No reply path, no auto-learn, and the notification does NOT tell the user to teach it — nothing would act on that. The cause rides a NEW `_hold_cause` string with one value per held row, not `notify_message` (ignored by the notify path at orchestrator.js:2395-2406) and not `reasoning` (LLM-authored for the three Phase-2 holds).
+q: What closes the loop when a person-shaped name is held? | a: Hold only, and name the counterparty and the cause in the notification (Option 1, the owner 2026-10-05). No reply path, no auto-learn, and the notification does NOT tell the user to teach it — nothing would act on that. The cause rides a NEW `_hold_cause` string with one value per held row, not `notify_message` (ignored by the notify path at orchestrator.js:2395-2406) and not `reasoning` (LLM-authored for the three Phase-2 holds).
 q: Does the hold also fire on INCOMING person credits? | a: Yes, deliberately, but only where the alert resolves to exactly ONE live account at the sender bank. The flag is direction-independent (bank-movement.js:292-293 sets it for `received` as well as `sent`) and an unverified incoming person credit is as unverifiable as an outgoing one; this already matches the #585 precedent that an own-name credit is held rather than booked as income. BOUNDARY, verified: with 2+ live accounts at the sender bank the movement is dropped at orchestrator.js:740 before the hold site, because resolveAccountByBank refuses an ambiguous bank, and F2's new branch is keyed on `outgoing`. That case is unchanged by this plan, is listed under "Not in scope", and is pinned by a test at both account counts.
 q: May the pipeline write facts automatically? | a: Only what the alert itself proves — digits and bank names printed in the body (orchestrator.js:2819 suffix->account, :2749 account type). Never a judgment fact. No new auto-learn is added by this plan.
 q: Should the LLM-extractor route be covered too? | a: Yes (H4), and at `_llmExtractMovement` (orchestrator.js:1040-1052) where the movement is built — NOT at the Phase-1 sanitize block at :1297-1303, which runs after every `_resolveMovementToOutput` caller has already returned.
@@ -33,7 +33,7 @@ All three hold sites set `notify_message: ""` (orchestrator.js:735, 783, 905),
 and the notify path at `:2395-2406` ignores that field anyway, hardcoding
 `Held: transfer destination for ... was not safe to resolve`. For a person-shaped
 hold that text is wrong: the destination was never the problem, the counterparty
-identity was. Darren chose Option 1 on 2026-10-05 — hold, and say why, with no
+identity was. The owner chose Option 1 on 2026-10-05 — hold, and say why, with no
 reply path and no auto-learn.
 
 **F2 (High) — the ambiguous sender-bank case is dropped, not held.**
@@ -613,5 +613,5 @@ treats as a `tests_only` mutation, plus lines added to existing test files.
   which never enters `_resolveMovementToOutput` and cannot reach a movement hold.
 - `CARD_PRODUCT_RE`'s redundant alternation (`\bcredit\s+cards?\b` already
   covers `\bcredit\s+card\b`) — cosmetic, no behaviour change.
-- A reply-to-teach resolution path for holds (Darren's Option 2, not chosen).
+- A reply-to-teach resolution path for holds (the owner's Option 2, not chosen).
   Tracked in issue #670.

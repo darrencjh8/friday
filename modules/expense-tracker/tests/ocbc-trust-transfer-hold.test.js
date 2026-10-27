@@ -21,7 +21,7 @@
  *    flipped to `Misc` + `_hold_unresolved_transfer` (issue #575).
  *
  * 2. uid 969 (the OCBC request). Held for a different and correct reason: the
- *    destination `Darren Trust (-222000)` had no stored suffix fact, so the
+ *    destination `Alex Trust (-222000)` had no stored suffix fact, so the
  *    destination account could not be verified as one of yours. The fact now
  *    exists (`Account ending 222000 belongs to Trust Bank`), so the leg
  *    resolves. This test pins that it resolves, and that the safety gate still
@@ -52,11 +52,11 @@ Date of Transfer   : 27 Sep 2026
 Time of Transfer   : 11.49 AM SGT
 Amount             : SGD 6.48
 From your account  : 360 Account (-166600)
-To account         : Darren Trust (-222000) at TRUST BANK SINGAPORE LIMITED
+To account         : Alex Trust (-222000) at TRUST BANK SINGAPORE LIMITED
 Reference number   : 2609270064297585
 `;
 
-// ── Live-shaped account set (Darren SGD) ─────────────────────────
+// ── Live-shaped account set (Alex SGD) ─────────────────────────
 
 const OCBC_360 = "942dc4d1-7310-429e-8c53-54bb9571ce81";
 const OCBC_90N = "4b313497-6203-47b6-857e-1ff62874ca46";

@@ -11,7 +11,7 @@ q: Does the "Friday is online" boot ping count as a notification to remove? | as
 
 ## Goal
 
-Make the seeded Hermes cron jobs easy to read and quiet unless something needs Darren, let Mnemosyne's built-in sleep write real summaries, and surface the built-in skill curator's merge proposals.
+Make the seeded Hermes cron jobs easy to read and quiet unless something needs the owner, let Mnemosyne's built-in sleep write real summaries, and surface the built-in skill curator's merge proposals.
 
 ## Facts
 

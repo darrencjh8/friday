@@ -7,7 +7,7 @@ q: Does `memory-triage.sh compact` accept more than one target per plan? | a: No
 
 ## Problem
 
-- `memory-approve-queue` (daily 08:00) treats "a store above 95%" as a reason to message Darren. He cannot act on that: only `memory-compact` frees room. With `USER.md` at 1322/1375 he gets a message every morning even when the queue is empty.
+- `memory-approve-queue` (daily 08:00) treats "a store above 95%" as a reason to message the owner. They cannot act on that: only `memory-compact` frees room. With `USER.md` at 1322/1375 he gets a message every morning even when the queue is empty.
 - `memory-compact` runs weekly (Sunday 07:30). The stores grew from 905 to 1322 (user) and 1667 to 2321 (memory) inside one week, so weekly is too slow.
 - `memory-compact` only compacts the fullest store per run, so a second store over 80% waits another cycle.
 

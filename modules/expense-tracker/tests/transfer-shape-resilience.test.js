@@ -5,8 +5,8 @@
  * Every body below is a real alert. Third-party person names are replaced with
  * placeholders; amounts, dates, times, masked suffixes and product wording are
  * retained, because they are what resolution keys on. The holder's own name
- * strings ("Darren DBS", "Hi Darren") are kept, matching the existing
- * convention in `bank-movement.test.js`. Reference numbers are truncated to
+ * is the placeholder "Alex" ("Alex DBS", "Hi Alex"), as in
+ * `bank-movement.test.js`. Reference numbers are truncated to
  * their leading segment: no assertion here depends on their tail, and they are
  * the highest-entropy identifier in the body.
  *
@@ -47,7 +47,7 @@ import { parseBankMovement } from "../src/bank-movement.js";
 const OCBC_TRANSFER_REQUEST_FLAT =
     "Dear Valued CustomerWe have received your request to make the following transfer:" +
     "Date of Transfer:01 Oct 2026Time of Transfer:09.14 PM SGTAmount:SGD 1000.00" +
-    "From your account:360 Account (-166600)To account:Darren DBS (-667222) at DBS BANK LTD" +
+    "From your account:360 Account (-166600)To account:Alex DBS (-667222) at DBS BANK LTD" +
     "Reference number:73500420188You can log in to OCBC Online Banking and select Customer " +
     "Service > Check internet transaction status to check the status of this transfer." +
     "If you have any questions, please call our Personal Banking Hotline: OCBC website > " +
@@ -99,7 +99,7 @@ const DBS_BILLPAY_TO_YUU_CARD =
  * ACCOUNT HOLDER' from Main Account means a transfer to Shopee Wallet."
  */
 const RYT_SCHEDULED_TRANSFER =
-    "Hi Darren, Your scheduled transfer of RM908.25 to ACCOUNT HOLDER on 1/10/2026, " +
+    "Hi Alex, Your scheduled transfer of RM908.25 to ACCOUNT HOLDER on 1/10/2026, " +
     "10:02 AM (GMT+8) was successfully completed. For more details, just log into the " +
     "Ryt Bank App and head to Scheduled Transfers.";
 
@@ -117,7 +117,7 @@ describe("flattened labelled bodies survive field extraction", () => {
             amount_cents: -100000,
             currency: "SGD",
             own_account: { bank: "OCBC", suffix: "166600" },
-            counterparty: { name: "Darren DBS", bank: "DBS", suffix: "667222" },
+            counterparty: { name: "Alex DBS", bank: "DBS", suffix: "667222" },
         });
     });
 
@@ -129,7 +129,7 @@ describe("flattened labelled bodies survive field extraction", () => {
 
         // The value must stop at the following label, so the destination
         // carries only the account name and its own suffix.
-        expect(movement.counterparty.name).toBe("Darren DBS");
+        expect(movement.counterparty.name).toBe("Alex DBS");
         expect(movement.counterparty.suffix).toBe("667222");
     });
 });
