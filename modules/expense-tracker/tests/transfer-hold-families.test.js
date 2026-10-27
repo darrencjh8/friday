@@ -127,7 +127,7 @@ const DBS_BILLPAY_TO_CITI =
 const OCBC_TRANSFER_REQUEST_FLAT =
     "Dear Valued CustomerWe have received your request to make the following transfer:" +
     "Date of Transfer:01 Oct 2026Time of Transfer:09.14 PM SGTAmount:SGD 1000.00" +
-    "From your account:360 Account (-166600)To account:Darren DBS (-667222) at DBS BANK LTD" +
+    "From your account:360 Account (-166600)To account:Alex DBS (-667222) at DBS BANK LTD" +
     "Reference number:26100100114You can log in to OCBC Online Banking and select Customer " +
     "Service > Check internet transaction status to check the status of this transfer.";
 
@@ -292,7 +292,7 @@ describe("a card-product destination that cannot be linked is held, not spent", 
 // ── 5. A scheduled transfer must not become an external expense ───
 
 const RYT_SCHEDULED_TRANSFER =
-    "Hi Darren, Your scheduled transfer of RM908.25 to ACCOUNT HOLDER on 1/10/2026, " +
+    "Hi Alex, Your scheduled transfer of RM908.25 to ACCOUNT HOLDER on 1/10/2026, " +
     "10:02 AM (GMT+8) was successfully completed. For more details, just log into the " +
     "Ryt Bank App and head to Scheduled Transfers.";
 

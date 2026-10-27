@@ -9,7 +9,7 @@
 // driver's `failure_line_mentions` check has real evidence to read.
 import { AgentOrchestrator } from "./src/orchestrator.js";
 
-// The live `Darren SGD` accounts and the real suffix fact, from Actual Budget
+// The live SGD budget's accounts and the real suffix fact, from Actual Budget
 // and the fact store.
 const ACCOUNTS = [
     { id: "acc-dbs", name: "DBS Account", closed: false },
@@ -46,8 +46,8 @@ const orch = new AgentOrchestrator(
     {
         primaryCurrency: "SGD",
         secondaryCurrency: "MYR",
-        primaryBudgetFile: "Darren SGD",
-        secondaryBudgetFile: "Darren MYR",
+        primaryBudgetFile: "Alex SGD",
+        secondaryBudgetFile: "Alex MYR",
         llmProvider: "deepseek",
         llmApiKey: "t",
         deepseekApiKey: "t",

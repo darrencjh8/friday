@@ -1893,7 +1893,7 @@ export class AgentOrchestrator {
             const accountDigits = [...account.name.matchAll(/\d{4,}/g)].map((match) => match[0]);
             const exact = accountDigits.some((digits) => digits === value);
             // An account whose NAME carries no digits at all but which is
-            // reached by a written name resolving to it ("Darren POSB" ->
+            // reached by a written name resolving to it ("Alex POSB" ->
             // POSB Cashback, issue #598) is not `accountMatches`-provable: that
             // check requires digits in the name. The mapping is exactly what
             // turns the next alert of the same kind into a resolvable transfer,

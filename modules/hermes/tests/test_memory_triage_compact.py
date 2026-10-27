@@ -62,7 +62,7 @@ STUB_MT = textwrap.dedent('''
         return {"success": True}
 ''')
 
-MEMORY = "Darren lives in SG.\n§\nRouter runs on 192.0.2.10 port 4000, behind Caddy.\n§\nOld note one.\n"
+MEMORY = "Alex lives in SG.\n§\nRouter runs on 192.0.2.10 port 4000, behind Caddy.\n§\nOld note one.\n"
 
 
 class CompactTest(unittest.TestCase):

@@ -33,7 +33,7 @@ ACCOUNT_CONTEXTS = [
         r"\s*(?:number|no\.?|#)?\s*[:=#\"'`]?\s*\**\s*"
         r"(?<![0-9])(?P<n>[0-9]{3,6})(?![0-9])"
     ),
-    # "Darren POSB (-<REDACTED:6>)", "(A/C ending <REDACTED:4>)", "ACCOUNT (-<REDACTED:6>)"
+    # "Alex POSB (-<REDACTED:6>)", "(A/C ending <REDACTED:4>)", "ACCOUNT (-<REDACTED:6>)"
     re.compile(r"\(\s*-?\s*\**\s*(?<![0-9])(?P<n>[0-9]{4,6})\s*\**\s*\)"),
     # "ACCOUNT HOLDER (********<REDACTED:4>)", "OCBC 360 ACCOUNT ******<REDACTED:4>"
     re.compile(r"\*{2,}\s*(?<![0-9])(?P<n>[0-9]{4,6})(?![0-9])"),

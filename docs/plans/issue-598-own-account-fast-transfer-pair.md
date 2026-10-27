@@ -19,7 +19,7 @@ This plan therefore records the change under the current gate rather than propos
 The transfer arrives as two separate bank alerts (OCBC outgoing, DBS inbound) and each one was booked independently:
 
 1. The DBS inbound sentence form carries no `Amount :` label, so `parseBankMovement` returned `null`, the movement fell through to the LLM extractor, and it was booked as an unclassified `Misc` credit. Fixed by the DBS inbound FAST branch in `bank-movement.js`.
-2. The OCBC leg parsed, but its destination `Darren POSB (-155500)` resolved to no live account, so the leg was not recognised as a transfer. Fixed by the suffix and recipient-bank resolution in `bank-movement.js` and the suffix-learning gate in `orchestrator.js`.
+2. The OCBC leg parsed, but its destination `Alex POSB (-155500)` resolved to no live account, so the leg was not recognised as a transfer. Fixed by the suffix and recipient-bank resolution in `bank-movement.js` and the suffix-learning gate in `orchestrator.js`.
 3. Once both rows existed, nothing linked them. Linking after the insert is too late: the near leg is inserted carrying the other account's transfer payee, and the Actual engine's `runTransfers` then creates a *second* counterpart row, after which the link route rejects the already-linked leg. Fixed by deciding the existing far side **before** the insert and suppressing the derived transfer payee at the wire.
 
 ## What each changed file does

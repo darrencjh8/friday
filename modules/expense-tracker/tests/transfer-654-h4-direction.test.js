@@ -152,7 +152,7 @@ describe("H4 boundary - the deterministic received form and the extractor disagr
     const RECEIVED_WITH_ACCOUNT_CLAUSE = [
         "[frame]",
         "",
-        "Hi Darren,",
+        "Hi Alex,",
         "",
         "Money's in! You've received RM62.00 from ACCOUNT HOLDER on 18/9/2026,",
         "5:04 AM (GMT+8) using your Main Account.",

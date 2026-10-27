@@ -9,7 +9,7 @@
  *    the /accounts lookup fails, instead of throwing (insert_failed).
  *
  * Data is production-derived and redacted: the account/payee IDs and the
- * suffixes below are the real shapes seen in the live `Darren SGD` budget
+ * suffixes below are the real shapes seen in the live SGD budget
  * (Ryt Bank ...2444, OCBC 360 ..., Trust Card) with names kept as-is because
  * they appear in the alerts' own text.
  */

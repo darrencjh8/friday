@@ -1,4 +1,4 @@
-"""Memory crons only message Darren when he can act, and compaction keeps up daily."""
+"""Memory crons only message the owner when they can act, and compaction keeps up daily."""
 
 import json
 import os
