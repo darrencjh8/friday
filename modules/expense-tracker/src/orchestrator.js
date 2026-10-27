@@ -32,6 +32,7 @@ import {
 } from "./suffix-facts.js";
 import { factNamesMerchant } from "./memory.js";
 import { amazeDescriptor } from "./amaze.js";
+import { leftoverWords } from "./jev.js";
 import { descriptorOf } from "./learning.js";
 import { offerSubject } from "./learning-notify.js";
 import {
@@ -49,6 +50,8 @@ import {
     fromResponses,
 } from "./llm-responses.js";
 
+/** A payee that already books travel: no abroad question for it. */
+const TRAVEL_PAYEE_RE = /travel|flight|hotel/i;
 /** Consecutive LLM-outage retries of one email per process before the 12h cooldown applies (#694). */
 const MAX_LLM_OUTAGE_RETRIES = 12;
 
@@ -3081,6 +3084,8 @@ export class AgentOrchestrator {
         }
         // Memory hits for the merchant itself; the category tier reads them too.
         let memResults = [];
+        // The key of the memory rule that named the payee.
+        let memoryKey = "";
         if (!output.payee_name && searchTerm && !paynowSettled) {
             // An incoming person credit had its memory decided upstream.
             if (!output._no_memory) {
@@ -3104,6 +3109,7 @@ export class AgentOrchestrator {
                 const m = (r.text || "").match(/maps to (.+?) payee/i);
                 if (m) {
                     payeeMatch = m[1];
+                    memoryKey = (r.text || "").split(/\s+maps to\s+/i)[0];
                     break;
                 }
             }
@@ -3162,6 +3168,61 @@ export class AgentOrchestrator {
         if (!output.payee_name) {
             output.payee_name = "Misc";
             output.payee_source = "fallback";
+        }
+
+        // Spending abroad is Travel. A memory rule names what was bought, not
+        // where, so a home brand's branch abroad (`ACMEMART HANOI` under the
+        // rule `ACMEMART`) is asked about only when the descriptor has words the
+        // rule does not account for. A Misc fallback is asked with the search
+        // that failed to name it, and may count as part of a trip when Jev
+        // cannot tell (tools.js judge_abroad).
+        if (
+            searchTerm &&
+            !paynowSettled &&
+            output._evidence?.text &&
+            Number(output.amount_cents) < 0 &&
+            !output._no_search &&
+            !output._incoming_person &&
+            !TRAVEL_PAYEE_RE.test(output.payee_name)
+        ) {
+            const remembered =
+                output.payee_source === "memory" && memoryKey && leftoverWords(searchTerm, memoryKey).length > 0;
+            const fallback = output.payee_source === "fallback" && output.payee_name.trim().toLowerCase() === "misc";
+            if (remembered || fallback) {
+                try {
+                    const verdict = await this._tools.executeTool("judge_abroad", {
+                        merchant: searchTerm,
+                        payee: output.payee_name,
+                        budget_id: output.budget_id || "",
+                        evidence: output._evidence,
+                        ...(fallback && output._merchant_search ? { search: output._merchant_search } : {}),
+                        amount_cents: output.amount_cents,
+                        currency: output.currency,
+                        date: output.date,
+                        ...(fallback ? { trip_window: true } : {}),
+                    });
+                    if (verdict?.abroad && verdict.payee) {
+                        const was = output.payee_name;
+                        output.payee_name = verdict.payee;
+                        output.payee_source = verdict.source === "trip" ? "trip" : "abroad";
+                        output._abroad = true;
+                        // The trip line never marks a trip itself: only a
+                        // charge Jev placed abroad carries `Abroad:`.
+                        const line =
+                            verdict.source === "trip"
+                                ? `Trip: within a day of a charge placed abroad (${verdict.trip_date})`
+                                : "Abroad: placed outside the home locations";
+                        output.notes = [output.notes, line].filter(Boolean).join("\n");
+                        output.reasoning = [output.reasoning, `Booked Travel, not ${was}: ${line}.`]
+                            .filter(Boolean)
+                            .join(" ");
+                        // The rule's own category is for home spending.
+                        memResults = [];
+                    }
+                } catch (error) {
+                    logger.warn({ event: "judge_abroad_failed", error: error.message });
+                }
+            }
         }
 
         // Transfer detection: if payee matches an account, use the transfer
@@ -3401,7 +3462,8 @@ export class AgentOrchestrator {
                     // payee in the auto-learned shape and the merchant in older
                     // facts. Either may name it; a fact naming neither must not
                     // supply the category. Issues #471, #420.
-                    const categoryKeys = [output.payee_name, output.merchant].filter(
+                    // Abroad, the merchant's own category is for home spending.
+                    const categoryKeys = (output._abroad ? [output.payee_name] : [output.payee_name, output.merchant]).filter(
                         Boolean,
                     );
                     for (const r of catMem?.results || []) {

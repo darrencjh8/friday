@@ -10,7 +10,7 @@
  * and nothing here ever learns or writes anything.
  */
 
-import { isAmaze } from "./amaze.js";
+import { isAmaze, withoutAmazeLocation } from "./amaze.js";
 import { logger } from "./logging.js";
 import { factNamesMerchant } from "./memory.js";
 
@@ -154,6 +154,18 @@ function v2Criterion(entry) {
 /** `Home location: Johor Bahru` -> `Johor Bahru` (wiki-knowledge.js). */
 const HOME_FACT_RE = /^Home location:\s*(.+)$/i;
 
+/** The owner's home locations from `Home location: X` facts (strings or `{text}`). */
+export function homeLocations(facts = []) {
+    return [
+        ...new Set(
+            facts
+                .map((fact) => String(typeof fact === "string" ? fact : fact?.text || "").trim().match(HOME_FACT_RE)?.[1])
+                .filter(Boolean)
+                .map((place) => oneLine(place)),
+        ),
+    ];
+}
+
 /**
  * Lines about the alert that the email does not say plainly: an Amaze
  * charge's location is Amaze's own, and where the owner lives, so spending
@@ -168,14 +180,7 @@ export function alertContext({ merchant, facts = [] } = {}) {
             "This is an Amaze card charge. Every Amaze alert gives the location as SINGAPORE SGP, which is Amaze's own, so the alert does not show where the money was spent.",
         );
     }
-    const homes = [
-        ...new Set(
-            facts
-                .map((fact) => String(typeof fact === "string" ? fact : fact?.text || "").trim().match(HOME_FACT_RE)?.[1])
-                .filter(Boolean)
-                .map((place) => oneLine(place)),
-        ),
-    ];
+    const homes = homeLocations(facts);
     if (homes.length) {
         lines.push(
             `The owner lives in ${homes.join(" and ")}. Spending that the merchant or the evidence clearly places outside ${homes.length > 1 ? "these places" : "this place"} is usually travel.`,
@@ -537,4 +542,83 @@ export async function classifyCategory({
         logger.warn({ event: "jev_category_failed", error: error?.message || "unknown" });
         return none("error");
     }
+}
+
+/** The two places a purchase can be; the none option means the evidence does not say. */
+export const ABROAD_OPTION = "OUTSIDE THE OWNER'S HOME LOCATIONS";
+export const HOME_OPTION = "IN ONE OF THE OWNER'S HOME LOCATIONS";
+
+/**
+ * Was this purchase made outside the owner's home locations? A memory rule
+ * or a fallback names what was bought, not where, so a home brand spent
+ * abroad (a supermarket chain's branch in another country) would book as
+ * home spending. Only a confident, margin-clear, evidence-backed "outside"
+ * counts; "in" and "not shown" both leave the booking alone. Writes nothing.
+ * @returns {Promise<{abroad: true, confidence: number, evidenceScore: number, scores: object} | {abroad: false, home?: true, reason: string, scores?: object}>}
+ */
+export async function judgeAbroad({
+    config,
+    merchant,
+    amountCents,
+    currency,
+    evidence,
+    search,
+    homes = [],
+    context = [],
+    fetchImpl = fetch,
+}) {
+    const none = (reason, scores) => ({ abroad: false, reason, ...(scores ? { scores } : {}) });
+    if (!config?.jevApiKey) return none("disabled");
+    if (!evidence?.text) return none("no_evidence");
+    if (homes.length === 0) return none("no_home");
+    const searched = hasResults(search);
+    const state = buildState({
+        task: "Decide where one card purchase was made: in one of the owner's home locations, or outside them.",
+        merchant,
+        direction: "outgoing",
+        amountCents,
+        currency,
+        evidence,
+        search,
+        extra: [`The owner's home locations: ${homes.join(", ")}.`, ...context],
+    });
+    try {
+        const result = await pick({
+            config,
+            fetchImpl,
+            state,
+            key: "place",
+            minConfidence: JEV_THRESHOLDS.confidence,
+            names: [ABROAD_OPTION, HOME_OPTION],
+            unknownReason: "unknown_place",
+            noneCriterion: "The descriptor, the email and the search results do not show where the purchase was made.",
+            instructions: `Where was this purchase made? A place named in the descriptor, such as a city or district after the merchant's name, or ${searched ? "search results clearly about this same merchant" : "the email"}, can show it. A card or payment company's own location is not where the money was spent. Choose the none option unless the evidence shows the place.`,
+            evidenceQuestion: (best) =>
+                best === ABROAD_OPTION
+                    ? `Does the descriptor${searched ? ", the email or search results clearly about this same merchant" : " or the email"} name a place that is clearly outside ${homes.join(" and ")}?`
+                    : `Does the descriptor${searched ? ", the email or search results clearly about this same merchant" : " or the email"} place this purchase in ${homes.join(" or ")}?`,
+        });
+        logDecision("jev_abroad_decision", merchant, searched, result);
+        if (result.choice === ABROAD_OPTION) {
+            return { abroad: true, confidence: result.confidence, evidenceScore: result.evidenceScore, scores: result.scores };
+        }
+        if (result.choice === HOME_OPTION) return { abroad: false, home: true, reason: "home", scores: result.scores };
+        return none(result.reason, result.scores);
+    } catch (error) {
+        logger.warn({ event: "jev_abroad_failed", error: error?.message || "unknown" });
+        return none("error");
+    }
+}
+
+/**
+ * Words of `descriptor` a remembered `key` does not account for: what is left
+ * after the Amaze prefix and location, the key's own words, and any word with
+ * a digit (a branch or reference code) or under three letters. A place after
+ * the merchant's name (`ACMEMART HANOI` under the key `ACMEMART`) is left over; a
+ * descriptor the key fully names has nothing to judge.
+ */
+export function leftoverWords(descriptor, key) {
+    const words = (text) => withoutAmazeLocation(text).replace(/^AMAZE\*\s*/i, "").toUpperCase().split(/[^A-Z0-9]+/).filter(Boolean);
+    const known = new Set(words(key));
+    return words(descriptor).filter((word) => !known.has(word) && word.length >= 3 && !/\d/.test(word));
 }
