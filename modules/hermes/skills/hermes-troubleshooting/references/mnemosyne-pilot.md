@@ -15,7 +15,7 @@ system-prompt header once `memory.provider: mnemosyne` is set.
 ## Install (seed-owned, verified live 2026-10-09)
 
 The seed flips `memory.provider: mnemosyne` (only when the provider loads)
-and pins the working pair into `/opt/data/lazy-packages`. Operator install
+and pins the working pair in `/opt/data/plugins/mnemosyne/pyproject.toml`, which Hermes PM installs into its selected environment. Operator install
 is a one-time bootstrap only:
 
 ```bash
