@@ -212,6 +212,16 @@ An Amaze charge reaches the bank as `AMAZE* <merchant>`, the merchant cut to 12 
 
 Pinned by `tests/amaze-descriptor.test.js`.
 
+#### Spending abroad books Travel
+
+A memory rule names what was bought, not where. A home brand's branch abroad (`AMAZE* ACMEMART HANOI SINGAPORE SGP` under a rule keyed `ACMEMART`) booked as home shopping, and a merchant with no rule booked `Misc` even when the search placed it abroad. After the payee is resolved, an outgoing card or merchant row with email evidence (not a person, not PayNow) gets a separate Jev question, `judge_abroad` (`src/tools.js`, `judgeAbroad` in `src/jev.js`): was this purchase made in one of the owner's home locations, outside them, or does the evidence not say?
+
+- It is asked about a memory payee only when the descriptor has words the rule's key does not account for (`leftoverWords`: not the Amaze prefix or location, not a key word, three or more letters, no digit). A rule that names the whole descriptor is never second-guessed. It is asked about a `Misc` fallback with the search that failed to name it. A payee that already reads as travel (`Travel`, flight, hotel) is never asked about.
+- Only "outside", at the payee confidence and margin bars and the 0.8 evidence bar, counts. Then the row books the live `Travel` payee, its notes get the line `Abroad: placed outside the home locations`, and the category comes from the Travel payee, not the merchant's own rule. "In a home location" and "cannot tell" leave the booking alone. With no `Home location:` facts or no `Travel` payee, nothing is asked.
+- The trip window: when Jev cannot tell where a `Misc` fallback was spent, a row in the same budget within a day either side whose notes carry the `Abroad:` line makes it Travel too, noted `Trip: within a day of a charge placed abroad (<date>)`. A confident home answer is never overridden. Only a charge Jev placed abroad carries `Abroad:`, never a plain Travel booking (a ride at home books Travel too) or a trip-window row, so a trip never extends itself.
+
+Pinned by `tests/abroad-travel.test.js`.
+
 #### Incoming credits keyed by sender and amount
 
 A named incoming credit (for example OCBC `Reference: from NAME`, DBS `From: NAME`) books `Misc` by default: bank alerts for received money carry the sender's name but no payer remark, so the name alone does not say what the money is for. The wiki page `entities/accounts/people-transfers.md` may carry an optional `Incoming amount` column (`SGD 900.00`). A row with it becomes the facts `Incoming SGD 900.00 from NAME maps to PAYEE payee` and `… maps to CATEGORY category`, and only those: the plain `NAME maps to …` facts come from rows without an amount. `incomingRule` in `src/orchestrator.js` reads the full fact list (`list_facts`) and matches the whole normalised sender name, the currency and the exact cents; then the credit books that payee and category and is not offered to a waiting debit as a transfer leg. An amount cell that does not parse adds no fact.
