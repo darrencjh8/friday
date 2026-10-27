@@ -59,12 +59,32 @@ def selected_merges(proposal_id: str, selection: str) -> list[dict[str, str]]:
     return [merges[index - 1] for index in indexes]
 
 
+def refuse_cron_skills(merges: list[dict[str, str]]) -> None:
+    """A merge deletes its source skill and nothing rewrites cron job references,
+    so a job still listing that skill would run without it."""
+    try:
+        data = json.loads((HOME / "cron" / "jobs.json").read_text())
+    except FileNotFoundError:
+        return
+    jobs = data.get("jobs") if isinstance(data, dict) else data
+    if not isinstance(jobs, list):
+        raise ValueError("cron jobs file is malformed")
+    for merge in merges:
+        users = sorted(str(job.get("name")) for job in jobs if isinstance(job, dict) and (
+            merge["from"] == job.get("skill")
+            or (isinstance(job.get("skills"), list) and merge["from"] in job["skills"])))
+        if users:
+            raise ValueError(f"skill {merge['from']} is used by cron jobs: {', '.join(users)}")
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print("usage: curator-proposal-approval.py <proposal-id> <all|row[,row...]>", file=sys.stderr)
         return 2
     try:
-        result = {"proposal_id": argv[1], "merges": selected_merges(argv[1], argv[2])}
+        merges = selected_merges(argv[1], argv[2])
+        refuse_cron_skills(merges)
+        result = {"proposal_id": argv[1], "merges": merges}
     except (OSError, ValueError, json.JSONDecodeError, yaml.YAMLError) as exc:
         print(f"curator proposal approval refused: {exc}", file=sys.stderr)
         return 1

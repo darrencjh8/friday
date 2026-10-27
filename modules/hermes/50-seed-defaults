@@ -1253,7 +1253,7 @@ If any source/tool is unavailable, preserve the last verified data with its old 
 MANAGED = {
     "prompt": PROMPT,
     "script": "wiki-source-snapshot.py",
-    "skills": ["llm-wiki", "expense-tracker", "notion", "notion-pitfalls", "cron-job-inspection", "portfolio-tracker"],
+    "skills": ["llm-wiki", "expense-tracker", "notion", "notion-pitfalls", "hermes-operations", "portfolio-tracker"],
     "skill": "llm-wiki",
 }
 DEFAULTS = {
@@ -1337,7 +1337,7 @@ with "fetch failed: <reason>" in Issue and "—" in Link for a failed fetch. Oth
 
 MANAGED = {
     "prompt": PROMPT,
-    "skills": ["llm-wiki", "github-issues", "docs-accuracy-verification"],
+    "skills": ["llm-wiki", "github-issues", "knowledge-base-maintenance"],
     "skill": "llm-wiki",
 }
 DEFAULTS = {
@@ -1408,7 +1408,7 @@ PROMPT = """Check the private wiki for payment, action, and habit dates that nee
 
 MANAGED = {
     "prompt": PROMPT,
-    "skills": ["llm-wiki", "expense-tracker", "notion", "cron-job-inspection", "gtasks-cli"],
+    "skills": ["llm-wiki", "expense-tracker", "notion", "hermes-operations", "gtasks-cli"],
     "skill": "llm-wiki",
 }
 DEFAULTS = {
@@ -1511,6 +1511,29 @@ else:
 with open(jobs_path + ".tmp", "w") as f:
     json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
 os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
+# Pin every skill a cron job loads, so the curator never proposes merging or
+# archiving it: approved merges are applied without rewriting job references.
+# ponytail: pins only at boot, so a skill first listed by a job created later
+# stays unpinned until the next boot (curator-proposal-approval.py still refuses
+# merging it); upgrade path is pinning on cron job creation.
+python3 <<'PYEOF' || true
+import json, re, subprocess
+try:
+    with open("/opt/data/cron/jobs.json") as f:
+        data = json.load(f)
+except (OSError, json.JSONDecodeError):
+    raise SystemExit(0)
+jobs = data.get("jobs", []) if isinstance(data, dict) else data
+names = set()
+for job in jobs if isinstance(jobs, list) else []:
+    if isinstance(job, dict):
+        skills = job.get("skills") if isinstance(job.get("skills"), list) else []
+        names.update(s for s in skills + [job.get("skill")] if isinstance(s, str))
+for name in sorted(n for n in names if re.fullmatch(r"[A-Za-z0-9._-]+", n)):
+    subprocess.run(["su", "-s", "/bin/sh", "hermes", "-c", f"hermes curator pin {name}"],
+                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 PYEOF
 
 # Disable profile gateways (workers don't need their own gateways — they compete for Telegram token)
