@@ -1006,6 +1006,24 @@ export class AgentOrchestrator {
         }
     }
 
+    /**
+     * True when memory holds a payee row keyed exactly on `text`: the one case
+     * a reference the label check refuses is still known. Exact equality only;
+     * a fact that merely contains the text is another entity's.
+     */
+    async _isPayeeKey(text) {
+        const want = String(text || "").trim().toLowerCase();
+        if (!want) return false;
+        try {
+            const found = await this._tools.executeTool("search_memory", { query: text });
+            return (found?.results || []).some(
+                (r) => String(r.text || "").match(/^(.+?)\s+maps to .+? payee$/i)?.[1].trim().toLowerCase() === want,
+            );
+        } catch {
+            return false;
+        }
+    }
+
     async _resolveMovementToOutput(movement, { allowSuffixLearning = false } = {}) {
         // A movement whose amount did not parse must not become a booking: the
         // sign flip below turned `null` into -0, and the route accepts 0, so a
@@ -1379,7 +1397,12 @@ export class AgentOrchestrator {
             // resolver. Phase 2 clears the `Misc` placeholder, so memory and Jev
             // get to decide, and `Misc` remains the answer when neither can.
             const reference = String(movement.reference_number || "").trim();
-            const descriptor = descriptorOf(reference) || "Unidentified deposit";
+            // A reference the label check refuses ("ACME GLOBAL B.V., S": a
+            // comma) is still this deposit's identity when the wiki keys a
+            // payee on exactly that text.
+            const label =
+                descriptorOf(reference) || ((await this._isPayeeKey(reference)) ? reference : null);
+            const descriptor = label || "Unidentified deposit";
             return {
                 merchant: descriptor,
                 amount_cents: Math.abs(movement.amount_cents),
@@ -1399,6 +1422,10 @@ export class AgentOrchestrator {
                 _suffix_mappings: suffixMappings,
                 _structured_movement: true,
                 _payee_unresolved: true,
+                // The placeholder names nothing, so memory is not asked: its
+                // word "deposit" would match a wiki key such as `Deposit`, a
+                // transfer payee, and book the credit as a transfer.
+                ...(label ? {} : { _no_memory: true }),
             };
         }
 
