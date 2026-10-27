@@ -1150,12 +1150,14 @@ fi
 # Needs extra wait: config migration + profile seeding registers the supervised
 # gateway service after container start, so poll it with the same bounded budget
 # the HTTP health checks use instead of checking once. Measured 2026-10-09: the
-# gateway took 2.5 minutes to come up (integrity check after an unclean exit), so
-# the budget is 5 minutes, not the 90 seconds that failed deploy 585.
+# gateway took 2.5 minutes to come up (integrity check after an unclean exit), and
+# on 2026-10-27 a one-time Mnemosyne dependency sync at boot made it 7 minutes, so
+# the budget is 11 minutes. The loop exits as soon as the service is up, so only a
+# genuinely failed start waits the full budget.
 if should_deploy "hermes" || should_deploy "all"; then
   sleep 30
   gateway_up=false
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 105); do
     if docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/service/gateway-default 2>/dev/null | grep -qx true; then
       gateway_up=true
       break
