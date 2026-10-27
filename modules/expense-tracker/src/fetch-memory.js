@@ -19,6 +19,9 @@ const PERSON_RULES_PATH =
 const MERCHANT_RULES_PATH =
     "repos/darrencjh8/friday-memory/contents/expense-tracker/merchant-rules.json";
 
+const WIKI_ACCOUNTS_PATH =
+    "repos/darrencjh8/friday-memory/contents/wiki/entities/accounts";
+
 const PASSWORD_FACT_RE = /^-\s+.*(?:password|DOB|legal name)\s*[:is]*\s*.+$/i;
 
 /**
@@ -60,6 +63,32 @@ export function fetchPersonRules() {
         { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
     );
     return JSON.parse(output);
+}
+
+/**
+ * Fetch the wiki accounts pages production reads its merchant, payee and
+ * category facts from (`WikiKnowledgeStore`), as Hermes backs them up to the
+ * private friday-memory repo. Throws if any page cannot be fetched, so a gate
+ * built on them never runs against a partial wiki.
+ *
+ * @param {string[]} pages page file names under `wiki/entities/accounts/`
+ * @returns {Record<string, string>} page name -> markdown
+ */
+export function fetchWikiPages(pages) {
+    const out = {};
+    for (const page of pages) {
+        out[page] = execFileSync(
+            "gh",
+            [
+                "api",
+                "-H",
+                "Accept: application/vnd.github.raw+json",
+                `${WIKI_ACCOUNTS_PATH}/${page}`,
+            ],
+            { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+        );
+    }
+    return out;
 }
 
 /**

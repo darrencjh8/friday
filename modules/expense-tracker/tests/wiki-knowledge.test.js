@@ -198,6 +198,19 @@ describe("WikiKnowledgeStore", () => {
     expect(results[0].text).toBe("Alpha Cafe maps to Food payee");
   });
 
+  it("marks a payee-categories row, so a descriptor word never reads it as its own", async () => {
+    const s = store();
+    const find = async (query, text) => (await s.search(query)).find((r) => r.text === text);
+
+    // "Drinks" is a payee; a descriptor that merely contains the word is not it.
+    expect(await find("DRINKS STALL 42", "Drinks maps to Food category")).toMatchObject({
+      payeeCategory: true,
+    });
+    // A merchant's own override and a person's category stay unmarked.
+    expect((await find("BETA MART", "BETA MART maps to Food category")).payeeCategory).toBeUndefined();
+    expect((await find("PERSON ONE", "PERSON ONE maps to Rent category")).payeeCategory).toBeUndefined();
+  });
+
   it("re-reads the wiki when a page changes, without a restart", async () => {
     const s = store();
     expect(await s.search("Delta Diner")).toEqual([]);

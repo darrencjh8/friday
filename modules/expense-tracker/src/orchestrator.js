@@ -3442,7 +3442,11 @@ export class AgentOrchestrator {
             // category" (the "X category" suffix is not contiguous in the fact).
             // Tier 1a: a category fact keyed on this merchant (a confirmed offer
             // or a wiki "Category override") outranks the payee's category.
+            // A payee-categories row is keyed on a payee: a descriptor that
+            // contains the payee's word ("FP APP") is not that payee, so the
+            // row is left to Tier 1, which reads the resolved payee's category.
             for (const r of output.category_id ? [] : memResults) {
+                if (r.payeeCategory) continue;
                 if (!searchTerm || !factNamesMerchant(r.text, searchTerm)) continue;
                 const m = (r.text || "").match(/maps to (.+?) category/i);
                 const matched = m ? matchCategory(liveCategories, m[1]) : null;
