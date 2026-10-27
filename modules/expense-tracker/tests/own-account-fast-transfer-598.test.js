@@ -183,7 +183,7 @@ describe("the two legs become one transfer pair (#598)", () => {
         return { phase1, phase2, result, calls, llm: orch._llm.chat };
     }
 
-    it("holds the uid 942 DBS credit rather than inventing income or a source account", async () => {
+    it("books the uid 942 DBS credit as own-name Misc rather than inventing income or a source account (owner ruling)", async () => {
         const { phase2, calls } = await orchestrate(DBS_RECEIVED_TRANSFER, {
             senderBank: "DBS",
             receivedAt: "2026-09-22T16:36:44.000Z",
@@ -194,14 +194,17 @@ describe("the two legs become one transfer pair (#598)", () => {
         expect(phase2.amount_cents).toBe(100000);
         // The DBS notice names only the SENDER'S NAME, never which of the
         // holder's accounts sent it, so the sending leg cannot be identified
-        // from this email alone: the credit is held as Misc with no category,
-        // not booked as income and not guessed at (issue #584 / #598).
+        // from this email alone: the credit is booked as Misc with no category
+        // (owner ruling; it was held under #584 / #598), never as income and
+        // never with a guessed source account.
         expect(phase2.payee_name).toBe("Misc");
         expect(phase2.category_id).toBeNull();
         expect(phase2._is_transfer).toBeUndefined();
-        expect(phase2._hold_unresolved_transfer).toBe(true);
-        // No merchant lookup ran for the person name, and no expense was booked.
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expect(phase2._hold_unresolved_transfer).toBeUndefined();
+        // No merchant lookup ran for the person name.
+        expect(calls.some((c) => c.name === "resolve_merchant")).toBe(false);
+        const insert = calls.find((c) => c.name === "insert_transaction");
+        expect(insert?.args?.category_id ?? null).toBe(null);
         // The reference still ties this leg to the OCBC request.
         expect(phase2.notes).toBe("Statement: 012609230000266880EPS6064508");
     });
