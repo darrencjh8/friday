@@ -96,7 +96,7 @@ describe("leftoverWords", () => {
         ["AMAZE* ACMEMART HANOI SINGAPORE SGP", "ACMEMART", ["HANOI"]],
         ["AMAZE* ACMEMART HANOI SINGAPORE SGP", "AMAZE* ACMEMART HANOI SINGAPORE SGP", []],
         ["AMAZE* ACMEMART SINGAPORE SGP", "ACMEMART", []],
-        ["AMAZE* RIDECO A-9KO6C", "AMAZE* RIDECO", []],
+        ["AMAZE* RIDECO A-0AB1C", "AMAZE* RIDECO", []],
         ["ACMEMART HO CHI MINH", "ACMEMART", ["CHI", "MINH"]],
     ])("%s under %s leaves %j", (descriptor, key, expected) => {
         expect(leftoverWords(descriptor, key)).toEqual(expected);
