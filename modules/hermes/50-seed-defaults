@@ -330,11 +330,44 @@ chown -R hermes:hermes /opt/data/memories-backup 2>/dev/null || true
 # fixes the constructor. Built-in MEMORY.md/USER.md stay ON (additive).
 mkdir -p /opt/data/mnemosyne/data
 chown -R hermes:hermes /opt/data/mnemosyne 2>/dev/null || true
-# Pin the working pair into the durable lazy-packages target. uv resolves
-# == pins without network when already installed; `|| true` keeps a pin
-# failure from aborting boot (live state keeps serving).
-su -s /bin/sh hermes -c 'HERMES_HOME=/opt/data timeout 300 uv pip install --target /opt/data/lazy-packages --no-deps "mnemosyne-hermes==0.7.1" >/dev/null 2>&1' || true
-su -s /bin/sh hermes -c 'HERMES_HOME=/opt/data timeout 300 uv pip install --target /opt/data/lazy-packages "mnemosyne-memory[embeddings]==3.15.1" >/dev/null 2>&1' || true
+# Hermes PM installs the catalog wrapper's [project].dependencies into its
+# selected environment (/opt/data/installs/...), so the pin has to live in that
+# file: the wrapper's own ">=0.7.3" floor resolved 0.7.4 + 4.0.0b4 there and the
+# provider stopped loading ("no binding for the current home"). The older
+# lazy-packages pin was dead code: the image ships no `uv` on PATH.
+python3 <<'PYMNPIN' || true
+import os, re
+path = "/opt/data/plugins/mnemosyne/pyproject.toml"
+pins = {"mnemosyne-hermes": "mnemosyne-hermes==0.7.1",
+        "mnemosyne-memory": "mnemosyne-memory[embeddings]==3.15.1"}
+try:
+    text = open(path, encoding="utf-8").read()
+except FileNotFoundError:
+    raise SystemExit(0)
+new = text
+for name, pin in pins.items():
+    new = re.sub(r'"%s(\[[^\]"]*\])?\s*[<>=!~][^"]*"' % re.escape(name), '"%s"' % pin, new)
+if new != text:
+    st = os.stat(path)
+    with open(path + ".tmp", "w", encoding="utf-8") as handle:
+        handle.write(new)
+    os.chmod(path + ".tmp", st.st_mode)
+    os.chown(path + ".tmp", st.st_uid, st.st_gid)
+    os.replace(path + ".tmp", path)
+    print("mnemosyne: plugin dependencies pinned")
+PYMNPIN
+# Re-sync the provider environment only when the wrapper changed since the last
+# successful sync; the marker is a copy of the synced file, so a failed sync
+# retries next boot. `|| echo` keeps a sync failure from aborting boot.
+mn_wrapper=/opt/data/plugins/mnemosyne/pyproject.toml
+mn_marker=/opt/data/mnemosyne/.plugin-deps-synced
+if [ -f "$mn_wrapper" ] && ! cmp -s "$mn_wrapper" "$mn_marker"; then
+    if su -s /bin/sh hermes -c 'HERMES_HOME=/opt/data timeout 900 /opt/hermes/.venv/bin/python3 -c "from hermes_cli.memory_setup import prepare_memory_provider_dependencies as p; p(\"mnemosyne\")" >/dev/null 2>&1'; then
+        cp "$mn_wrapper" "$mn_marker" && chown hermes:hermes "$mn_marker" 2>/dev/null || true
+    else
+        echo "WARNING: mnemosyne dependency sync failed; provider may not load" >&2
+    fi
+fi
 
 # Cross-session recall (operator decision 2026-10-11). Mnemosyne reads
 # cross_session only from its own config.yaml (mnemosyne.core.config
