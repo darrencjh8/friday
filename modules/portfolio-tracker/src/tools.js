@@ -6,6 +6,7 @@
  */
 
 import { parseIBKRFlexQuery } from "./ibkr_parser.js";
+import { brokerDeposits, matchBrokerDeposits } from "./broker_deposits.js";
 import { extractEmailContent } from "./email_handler.js";
 import { extractPdfText } from "./pdf_extractor.js";
 import { SheetsClient } from "./sheets_client.js";
@@ -856,6 +857,7 @@ export class ToolRegistry {
         // Step 1.5: Pull IBKR flex XML and import trades
         let flexPullResult = null;
         let flexImportResult = null;
+        let depositMatches = [];
         if (this._ppBridge) {
             try {
                 const { pullFlexXml } = await import("./ibkr_flex.js");
@@ -867,6 +869,23 @@ export class ToolRegistry {
                     }),
                 );
                 if (flexPullResult.success && flexPullResult.xml) {
+                    // The deposit's exact amount lets the expense tracker turn
+                    // the bank's destination-less "Withdrawal" (booked Misc)
+                    // into the broker transfer. Independent of the PP import.
+                    try {
+                        depositMatches = await matchBrokerDeposits(
+                            await brokerDeposits(flexPullResult.xml),
+                            {
+                                env: {
+                                    ...process.env,
+                                    ACTUAL_PRIMARY_BUDGET_FILE: this._config.primaryBudgetFile,
+                                    ACTUAL_SECONDARY_BUDGET_FILE: this._config.secondaryBudgetFile,
+                                },
+                            },
+                        );
+                    } catch (e) {
+                        console.warn(`broker deposit match failed (continuing): ${e.message}`);
+                    }
                     const xmlB64 = Buffer.from(flexPullResult.xml).toString(
                         "base64",
                     );
@@ -999,6 +1018,7 @@ export class ToolRegistry {
                 pull: pullResult,
                 flex_pull: flexPullResult,
                 flex_import: flexImportResult,
+                deposit_matches: depositMatches,
                 push: pushResult,
             };
         }
@@ -1115,6 +1135,7 @@ export class ToolRegistry {
             pull: pullResult,
             flex_pull: flexPullResult,
             flex_import: flexImportResult,
+            deposit_matches: depositMatches,
             push: pushResult,
             taxonomy_export: taxonomyResult,
             taxonomy_data: taxonomyData,
