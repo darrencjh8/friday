@@ -1,12 +1,13 @@
 /**
- * Merchant -> payee -> category resolution test against the live memory, using
- * the PRODUCTION resolution path (the real `MemoryStore.search` + the exact
- * regexes from `orchestrator._resolvePhase2` / `tools._validate_payee`).
+ * Merchant -> payee -> category resolution test against the live wiki, using
+ * the PRODUCTION resolution path (the real `WikiKnowledgeStore.search` + the
+ * exact regexes from `orchestrator._resolvePhase2` / `tools._validate_payee`).
  *
- * This is the "always up-to-date" accuracy gate: it fetches `friday-memory` at
- * test time (via `gh api`, like live-memory.test.js) and verifies each fixture
- * resolves to its approved payee/category. When the memory changes, the test
- * re-verifies against the latest mappings and fails on drift.
+ * This is the "always up-to-date" accuracy gate: it fetches the wiki accounts
+ * pages from `friday-memory` at test time (via `gh api`, like
+ * live-memory.test.js) and verifies each fixture resolves to its approved
+ * payee/category. When the wiki changes, the test re-verifies against the
+ * latest mappings and fails on drift.
  *
  * Neither the owner's merchants nor person names are committed here: merchants
  * show where the owner lives, works and shops, and names are PII. Both are
@@ -16,14 +17,13 @@
  * the public friday repo.
  */
 import { describe, it, expect } from "vitest";
-import { writeFileSync } from "fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { randomBytes } from "crypto";
-import { MemoryStore } from "../src/memory.js";
+import { WikiKnowledgeStore, WIKI_PAGES } from "../src/wiki-knowledge.js";
+import { factNamesMerchant } from "../src/memory.js";
 import {
-    fetchLiveMemory,
-    redactMemory,
+    fetchWikiPages,
     fetchPersonRules,
     fetchMerchantRules,
 } from "../src/fetch-memory.js";
@@ -33,13 +33,18 @@ let merchantRules = null;
 let personRules = null;
 let fetchError = null;
 try {
-    const raw = redactMemory(fetchLiveMemory());
-    const memPath = join(
-        tmpdir(),
-        `merchant-res-${randomBytes(6).toString("hex")}.md`,
-    );
-    writeFileSync(memPath, raw);
-    store = new MemoryStore(memPath);
+    // Production reads these facts from the wiki accounts pages, not the
+    // legacy MEMORY.md (#783), so the gate builds the same store from them.
+    const dir = mkdtempSync(join(tmpdir(), "merchant-res-"));
+    const wikiDir = join(dir, "accounts");
+    mkdirSync(wikiDir);
+    for (const [page, text] of Object.entries(fetchWikiPages(WIKI_PAGES))) {
+        writeFileSync(join(wikiDir, page), text);
+    }
+    store = new WikiKnowledgeStore({
+        wikiDir,
+        proposalsPath: join(dir, "proposals.jsonl"),
+    });
     try {
         merchantRules = fetchMerchantRules();
     } catch {
@@ -55,21 +60,35 @@ try {
 }
 
 // ── Production-faithful resolution ─────────────────────────────
-// Mirror `_resolvePhase2` Step 1 (payee) and Step 2 Tier 1 (category) exactly:
+// Mirror `_resolvePhase2` Step 1 (payee) and Step 2 Tiers 1a and 1 (category) exactly:
 //   search(query) -> first result matching /maps to (.+?) payee|category/i.
 
 async function resolvePayee(merchant) {
     const results = await store.search(merchant, 5);
     for (const r of results) {
+        // Production only takes a payee from a fact keyed on this merchant.
+        if (!factNamesMerchant(r.text, merchant)) continue;
         const m = (r.text || "").match(/maps to (.+?) payee/i);
         if (m) return m[1];
     }
     return "Misc";
 }
 
-async function resolveCategory(payee) {
-    const results = await store.search(payee, 5);
-    for (const r of results) {
+async function resolveCategory(payee, merchant) {
+    // Tier 1a: a category fact keyed on the merchant itself (a wiki
+    // "Category override" or a person's category) outranks the payee's. A
+    // payee-categories row is keyed on a payee, so it is left to Tier 1.
+    for (const r of await store.search(merchant, 5)) {
+        if (r.payeeCategory) continue;
+        if (!factNamesMerchant(r.text, merchant)) continue;
+        const m = (r.text || "").match(/maps to (.+?) category/i);
+        if (m) return m[1];
+    }
+    // Tier 1: search by payee; a fact naming the payee or the merchant may
+    // supply the category. "X maps to Misc payee, no category" names X, not
+    // Misc, so it must not supply Misc's category.
+    for (const r of await store.search(payee, 5)) {
+        if (![payee, merchant].some((k) => factNamesMerchant(r.text, k))) continue;
         const m = (r.text || "").match(/maps to (.+?) category/i);
         if (m) return m[1];
     }
@@ -78,7 +97,7 @@ async function resolveCategory(payee) {
 
 const run = fetchError ? describe.skip : describe;
 
-run("merchant -> payee -> category (production MemoryStore)", () => {
+run("merchant -> payee -> category (production wiki store)", () => {
     it("fetches merchant golden rules from friday-memory", () => {
         expect(merchantRules).not.toBeNull();
     });
@@ -99,7 +118,7 @@ run("merchant -> payee -> category (production MemoryStore)", () => {
     it("resolves every fixture merchant to its approved category", async () => {
         const failures = [];
         for (const f of merchantRules || []) {
-            const resolved = await resolveCategory(f.payee);
+            const resolved = await resolveCategory(f.payee, f.merchant);
             if (f.category === null) {
                 if (resolved !== null) {
                     failures.push(
@@ -116,7 +135,7 @@ run("merchant -> payee -> category (production MemoryStore)", () => {
     });
 });
 
-run("person-name rule (production MemoryStore)", () => {
+run("person-name rule (production wiki store)", () => {
     it("fetches person-name golden rules from friday-memory", () => {
         expect(personRules).not.toBeNull();
     });
@@ -137,7 +156,7 @@ run("person-name rule (production MemoryStore)", () => {
     it("resolves every person name to its approved category", async () => {
         const failures = [];
         for (const f of personRules || []) {
-            const resolved = await resolveCategory(f.payee);
+            const resolved = await resolveCategory(f.payee, f.merchant);
             if (f.category === null) {
                 if (resolved !== null) {
                     failures.push(
