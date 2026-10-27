@@ -203,6 +203,9 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         # Measured 2026-10-09: the gateway came up 2.5 minutes after container start
         # (config migration, profile seeding, state.db integrity check), but the gate
         # gave up after 90 seconds and failed deploy 585 with the gateway healthy.
+        # Measured 2026-10-27: a one-time Mnemosyne dependency sync at boot plus the
+        # same integrity check took 7 minutes and failed the 5-minute gate of the
+        # PR #68 deploy, so the budget now covers 11 minutes.
         import re
 
         block = DEPLOY_SCRIPT.read_text(encoding="utf-8").split("# Hermes gateway (the dashboard", 1)[1]
@@ -210,7 +213,7 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         initial = int(re.search(r"sleep (\d+)\n\s*gateway_up=false", block).group(1))
         tries = int(re.search(r"seq 1 (\d+)", block).group(1))
         step = int(re.search(r"done\n", block) and re.findall(r"sleep (\d+)", block)[-1])
-        self.assertGreaterEqual(initial + tries * step, 300)
+        self.assertGreaterEqual(initial + tries * step, 660)
 
     def test_hermes_container_checkout_is_refreshed(self):
         # Dev-loop sessions in the Hermes container drive the gate from their own
