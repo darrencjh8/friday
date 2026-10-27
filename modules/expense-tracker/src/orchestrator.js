@@ -3171,8 +3171,8 @@ export class AgentOrchestrator {
         }
 
         // Spending abroad is Travel. A memory rule names what was bought, not
-        // where, so a home brand's branch abroad (`AEON DA NANG` under the
-        // rule `AEON`) is asked about only when the descriptor has words the
+        // where, so a home brand's branch abroad (`ACMEMART HANOI` under the
+        // rule `ACMEMART`) is asked about only when the descriptor has words the
         // rule does not account for. A Misc fallback is asked with the search
         // that failed to name it, and may count as part of a trip when Jev
         // cannot tell (tools.js judge_abroad).

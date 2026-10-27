@@ -97,7 +97,7 @@ describe("leftoverWords", () => {
         ["AMAZE* ACMEMART HANOI SINGAPORE SGP", "AMAZE* ACMEMART HANOI SINGAPORE SGP", []],
         ["AMAZE* ACMEMART SINGAPORE SGP", "ACMEMART", []],
         ["AMAZE* RIDECO A-9KO6C", "AMAZE* RIDECO", []],
-        ["ACMEMART DA NANG", "ACMEMART", ["NANG"]],
+        ["ACMEMART HO CHI MINH", "ACMEMART", ["CHI", "MINH"]],
     ])("%s under %s leaves %j", (descriptor, key, expected) => {
         expect(leftoverWords(descriptor, key)).toEqual(expected);
     });
@@ -275,7 +275,7 @@ describe("the orchestrator books spending abroad as Travel", () => {
             notify_message: "",
         };
         orch._llm.chat = vi.fn().mockResolvedValue({ choices: [{ message: { content: JSON.stringify(phase1) } }] });
-        await orch.processEmail(1152, Buffer.from(RAW(details)), null, "Citi Alerts <alerts@citi.example>",
+        await orch.processEmail(1001, Buffer.from(RAW(details)), null, "Citi Alerts <alerts@citi.example>",
             "Citi Alerts - Credit Card/Ready Credit Transaction");
         return {
             calls,

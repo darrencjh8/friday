@@ -614,7 +614,7 @@ export async function judgeAbroad({
  * Words of `descriptor` a remembered `key` does not account for: what is left
  * after the Amaze prefix and location, the key's own words, and any word with
  * a digit (a branch or reference code) or under three letters. A place after
- * the merchant's name (`AEON DA NANG` under the key `AEON`) is left over; a
+ * the merchant's name (`ACMEMART HANOI` under the key `ACMEMART`) is left over; a
  * descriptor the key fully names has nothing to judge.
  */
 export function leftoverWords(descriptor, key) {
