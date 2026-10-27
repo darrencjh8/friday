@@ -264,7 +264,7 @@ describe("resolve_merchant pipeline", () => {
     // neighbour from another merchant, at a score above #420's proposed floor.
     memory.search = vi.fn(async () => [
       {
-        text: "AMAZE* GREATEASTERN SINGAPORE SGP maps to Insurance payee",
+        text: "AMAZE* ACMEINSURERS SINGAPORE SGP maps to Insurance payee",
         score: 0.623,
       },
     ]);
@@ -272,7 +272,7 @@ describe("resolve_merchant pipeline", () => {
     const registry = new ToolRegistry(config, memory);
 
     const result = await registry._handle_resolve_merchant({
-      merchant: "AMAZE* ALIPAYPROGRA SINGAPORE SGP",
+      merchant: "AMAZE* ACMEPAYPROGR SINGAPORE SGP",
       budget_id: "test-budget",
     });
 
@@ -283,8 +283,8 @@ describe("resolve_merchant pipeline", () => {
     const memory = mockMemoryStore();
     // Both keys contain "AMAZE"; a truncated alert line must not pick one.
     memory.search = vi.fn(async () => [
-      { text: "AMAZE* GREATEASTERN maps to Insurance payee", score: 1 },
-      { text: "AMAZE* ALIPAYPROGRA maps to Misc payee, no category", score: 1 },
+      { text: "AMAZE* ACMEINSURERS maps to Insurance payee", score: 1 },
+      { text: "AMAZE* ACMEPAYPROGR maps to Misc payee, no category", score: 1 },
     ]);
     const config = mockConfig({ braveSearchApiKey: undefined });
     const registry = new ToolRegistry(config, memory);

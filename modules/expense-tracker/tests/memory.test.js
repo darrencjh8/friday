@@ -1980,8 +1980,8 @@ describe("MemoryStore", () => {
 // ── Issues #420, #471: a merchant mapping must name the merchant ──────────
 describe("merchant mapping lookup", () => {
   const ALIPAY_FACTS = [
-    "- AMAZE* ALIPAYPROGRA maps to Misc payee, no category (middle-man processor — varies)",
-    "- AMAZE* GREATEASTERN maps to Insurance payee",
+    "- AMAZE* ACMEPAYPROGR maps to Misc payee, no category (middle-man processor — varies)",
+    "- AMAZE* ACMEINSURERS maps to Insurance payee",
     "- Insurance maps to Malaysia Insurances category",
   ].join("\n");
 
@@ -1993,12 +1993,12 @@ describe("merchant mapping lookup", () => {
     const store = new MemoryStore(path);
     store._model = null; // exercise the deterministic path only
 
-    const results = await store.search("AMAZE* ALIPAYPROGRA SINGAPORE SGP");
+    const results = await store.search("AMAZE* ACMEPAYPROGR SINGAPORE SGP");
 
-    expect(results[0].text).toContain("AMAZE* ALIPAYPROGRA maps to");
+    expect(results[0].text).toContain("AMAZE* ACMEPAYPROGR maps to");
     expect(results[0].score).toBe(1.0);
     expect(results[0].match).toBe("exact");
-    expect(results.some((r) => r.text.includes("GREATEASTERN"))).toBe(false);
+    expect(results.some((r) => r.text.includes("ACMEINSURERS"))).toBe(false);
     unlinkSync(path);
   });
 
@@ -2015,14 +2015,14 @@ describe("merchant mapping lookup", () => {
   });
 
   it("anchors the match to the fact's own key, not to any text (round-1 High)", () => {
-    const greateastern = "AMAZE* GREATEASTERN maps to Insurance payee";
+    const insurer = "AMAZE* ACMEINSURERS maps to Insurance payee";
 
-    expect(factNamesMerchant(greateastern, "AMAZE")).toBe(false);
-    expect(factNamesMerchant(greateastern, "AMAZE*")).toBe(false);
+    expect(factNamesMerchant(insurer, "AMAZE")).toBe(false);
+    expect(factNamesMerchant(insurer, "AMAZE*")).toBe(false);
     expect(
-      factNamesMerchant(greateastern, "AMAZE* GREATEASTERN SINGAPORE SGP"),
+      factNamesMerchant(insurer, "AMAZE* ACMEINSURERS SINGAPORE SGP"),
     ).toBe(true);
-    expect(factNamesMerchant(greateastern, "AMAZE* GREATEASTERN")).toBe(true);
+    expect(factNamesMerchant(insurer, "AMAZE* ACMEINSURERS")).toBe(true);
   });
 
   it("treats a non-ASCII run as part of the word, not a boundary (round-2 Low)", () => {
@@ -2050,7 +2050,7 @@ describe("merchant mapping lookup", () => {
 
     expect(
       store._acceptSemanticHit(
-        "AMAZE* GREATEASTERN maps to Insurance payee",
+        "AMAZE* ACMEINSURERS maps to Insurance payee",
         0.99,
       ),
     ).toBe(false);

@@ -26,8 +26,8 @@ export function withoutAmazeLocation(descriptor) {
  * Citi form keeps its `SINGAPORE SGP` tail, so a remembered key with or
  * without it still matches (`factNamesMerchant` finds a key inside a longer
  * merchant). The Standard Chartered debit form has no location.
- *   Citi: `Transaction details : AMAZE* MAGAZINE63 S    SINGAPORE     SGP`
- *   SC:   `… on 20-Jun-2026 04:59 AM at AMAZE* GREATEASTERN. …`
+ *   Citi: `Transaction details : AMAZE* ACMESHOP63 S    SINGAPORE     SGP`
+ *   SC:   `… on 01-Jan-2026 09:00 AM at AMAZE* ACMEINSURERS. …`
  * @param {string} text - The alert text, with or without its line breaks.
  * @returns {string|null}
  */
