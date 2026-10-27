@@ -19,6 +19,8 @@ import {
   classifyPayee,
   eligibleCategories,
   eligiblePayees,
+  homeLocations,
+  judgeAbroad,
   payeeHistory,
 } from "./jev.js";
 import { merchantKey, searchMerchant } from "./merchant-search.js";
@@ -992,6 +994,7 @@ const DRY_RUN_READ_TOOLS = new Set([
   "search_web",
   "resolve_merchant",
   "classify_category",
+  "judge_abroad",
   "list_pending_learning",
   "log_decision",
 ]);
@@ -1006,6 +1009,9 @@ const DRY_RUN_STUBS = {
 };
 
 // ── ToolRegistry ─────────────────────────────────────────────────
+
+/** The notes line a charge Jev judged abroad carries (orchestrator.js). */
+const ABROAD_NOTE_RE = /^Abroad:/m;
 
 function shiftIsoDay(iso, days) {
   const d = new Date(`${String(iso).slice(0, 10)}T00:00:00Z`);
@@ -2496,6 +2502,74 @@ export class ToolRegistry {
     } catch (error) {
       logger.warn({ event: "jev_category_tier_failed", error: error.message });
       return { category_id: null, reason: "error" };
+    }
+  }
+
+  /**
+   * Internal: not on the HTTP or MCP routes. Was this outgoing charge made
+   * outside the owner's home locations (the wiki's `Home location:` facts)?
+   * Jev judges the descriptor, the email and `search`. When it cannot tell
+   * and `trip_window` is set, a row in this budget within a day of `date`
+   * whose notes carry the `Abroad:` line marks a trip, so the charge counts
+   * too. Only a charge Jev itself judged abroad carries that line, never a
+   * plain Travel booking or a trip-window one, so a trip never extends
+   * itself. A `payee` that is a transfer payee is never asked about.
+   * Answers with the live Travel payee's name, or `abroad: false`.
+   * Writes nothing.
+   */
+  async _handle_judge_abroad({ merchant, payee, budget_id, evidence, search, amount_cents, currency, date, trip_window }) {
+    if (!this._config.jevApiKey) return { abroad: false, reason: "disabled" };
+    let facts = [];
+    try {
+      facts = this._memory?.listFacts?.() || [];
+    } catch {
+      return { abroad: false, reason: "no_home" };
+    }
+    const homes = homeLocations(facts);
+    if (homes.length === 0) return { abroad: false, reason: "no_home" };
+    try {
+      const payees = await this._get("/payees", budget_id);
+      const travel = (Array.isArray(payees) ? payees : []).find(
+        (p) => /^travel$/i.test(String(p.name || "").trim()) && !p.transfer_acct,
+      );
+      if (!travel) return { abroad: false, reason: "no_travel_payee" };
+      // Money moved to one of the owner's own accounts is never spending.
+      const named = String(payee || "").trim().toLowerCase();
+      if (named && payees.some((p) => p.transfer_acct && String(p.name || "").trim().toLowerCase() === named)) {
+        return { abroad: false, reason: "transfer" };
+      }
+      const verdict = await judgeAbroad({
+        config: this._config,
+        merchant,
+        amountCents: amount_cents,
+        currency,
+        evidence,
+        search,
+        homes,
+        context: this._jevContext(merchant),
+      });
+      if (verdict.abroad) {
+        return { abroad: true, payee: travel.name, source: "abroad", confidence: verdict.confidence };
+      }
+      // A confident "at home" is an answer; only "cannot tell" asks the trip.
+      if (!trip_window || verdict.home || !date) return { abroad: false, reason: verdict.reason };
+      const rows = await this._get("/transactions", budget_id, {
+        since_date: shiftIsoDay(date, -1),
+        until_date: shiftIsoDay(date, 1),
+      });
+      const day = String(date).slice(0, 10);
+      const near = (Array.isArray(rows) ? rows : []).find(
+        (row) =>
+          row &&
+          !row.tombstone &&
+          Math.abs(Date.parse(String(row.date || "").slice(0, 10)) - Date.parse(day)) <= 86400000 &&
+          ABROAD_NOTE_RE.test(String(row.notes || "")),
+      );
+      if (!near) return { abroad: false, reason: verdict.reason };
+      return { abroad: true, payee: travel.name, source: "trip", trip_date: String(near.date).slice(0, 10) };
+    } catch (error) {
+      logger.warn({ event: "judge_abroad_failed", error: error.message });
+      return { abroad: false, reason: "error" };
     }
   }
 
