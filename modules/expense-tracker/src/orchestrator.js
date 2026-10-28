@@ -484,10 +484,33 @@ export function incomingPersonMemory(facts, name) {
             if (normalizeIdentityName(ruled[1]) === who) amountOnly = true;
             continue;
         }
-        const plain = text.match(/^(.+?)\s+maps\s+to\s+(.+?)\s+payee\s*$/i);
+        // Same key grammar as the release (`counterpartyIsRememberedEntity`).
+        const plain = text.match(/^(.+?)(?:\s+merchant)?\s+maps\s+to\s+(.+?)\s+payee\s*$/i);
         if (plain && !payee && normalizeIdentityName(plain[1]) === who) payee = plain[2].trim();
     }
     return { amountOnly, payee: amountOnly ? null : payee };
+}
+
+/**
+ * The payee the owner's plain `NAME maps to PAYEE payee` row names for this
+ * exact counterparty, or null. Whole-name equality after normalisation, like
+ * `counterpartyIsRememberedEntity`; an `Incoming ...` amount rule is a rule for
+ * credits only and never names an outgoing payee.
+ *
+ * @param {Array<{text?: string}|string>} facts the full fact list
+ * @param {string} name the counterparty
+ * @returns {string|null}
+ */
+export function rememberedPayee(facts, name) {
+    const who = normalizeIdentityName(name);
+    if (!who) return null;
+    for (const fact of facts || []) {
+        const text = typeof fact === "string" ? fact : fact?.text || "";
+        if (/^Incoming\s/i.test(text)) continue;
+        const plain = text.match(/^(.+?)(?:\s+merchant)?\s+maps\s+to\s+(.+?)\s+payee\s*$/i);
+        if (plain && normalizeIdentityName(plain[1]) === who) return plain[2].trim();
+    }
+    return null;
 }
 
 /**
@@ -1087,7 +1110,9 @@ export class AgentOrchestrator {
                 date &&
                 movement.direction === "outgoing" &&
                 destination &&
-                /\bA\/C\s*ending\s*\d{4,}/i.test(movement.counterparty?.name || "")
+                // The parser strips "A/C ending NNNN" from the name and marks it.
+                (movement.counterparty?.account_ending === true ||
+                    /\bA\/C\s*ending\s*\d{4,}/i.test(movement.counterparty?.name || ""))
             ) {
                 return {
                     merchant: movement.counterparty?.name || "Transfer",
@@ -1480,7 +1505,9 @@ export class AgentOrchestrator {
             destination &&
             date &&
             movement.counterparty &&
-            (movement.person_transfer !== true || ownCreditDebit)
+            // A person credit the owner's row released books here too: the
+            // row names its payee (#654 boundary, closed 2026-10-28).
+            (movement.person_transfer !== true || ownCreditDebit || personCounterpartyReleased)
         ) {
             const namedFrom = movement.counterparty?.name || "an unverified counterparty";
             // Money from a person: memory first, then Jev reading the email
@@ -1568,7 +1595,14 @@ export class AgentOrchestrator {
                 !resolved.destination_account &&
                 Boolean(movement.counterparty?.suffix);
             const destinationIsCardProduct = CARD_PRODUCT_RE.test(named || "");
-            if (unverifiedDestination && !destinationIsCardProduct) {
+            // The owner's people-transfers row keyed on exactly this name says
+            // what the money is, even when its account is not tracked (a
+            // closed or never-added account): book that payee, never search a
+            // person, and keep the hold for every name no row names.
+            const ownerPayee = named && (unverifiedDestination || movement.person_transfer === true)
+                ? rememberedPayee(await this._personEntityFacts(), named)
+                : null;
+            if (unverifiedDestination && !destinationIsCardProduct && !ownerPayee) {
                 return {
                     merchant: named || "Bank transfer",
                     amount_cents: -Math.abs(movement.amount_cents),
@@ -1604,9 +1638,12 @@ export class AgentOrchestrator {
                 raw_description: movement.merchant_display_name || movement.counterparty?.name || "Bank payment",
                 raw_merchant_descriptor: movement.raw_merchant_descriptor || "",
                 notes: movement.reference_number ? `Statement: ${movement.reference_number}` : "",
-                reasoning: "Deterministic external bank payment",
+                reasoning: ownerPayee ? "Transfer the owner's people-transfers row names" : "Deterministic external bank payment",
                 notify_message: "",
                 _suffix_mappings: suffixMappings,
+                ...(ownerPayee
+                    ? { payee_name: ownerPayee, payee_source: "memory", _no_search: true, _no_memory: true }
+                    : {}),
                 // A destination the alert names as a card is a repayment into
                 // the holder's own credit line: it must never be categorised as
                 // spend on the funding account.
