@@ -161,11 +161,12 @@ def _cron_health(args):
     findings = []
     heartbeat_path = _CRON_ROOT / "ticker_heartbeat"
     try:
-        heartbeat_value = float(heartbeat_path.read_text(encoding="utf-8").strip())
+        # Hermes writes "<epoch> <pid>"; older stamps are a bare epoch.
+        heartbeat_value = float(heartbeat_path.read_text(encoding="utf-8").split()[0])
         if not math.isfinite(heartbeat_value):
             raise ValueError("heartbeat is not finite")
         heartbeat_age = max(0.0, now.timestamp() - heartbeat_value)
-    except (OSError, TypeError, ValueError):
+    except (OSError, TypeError, ValueError, IndexError):
         heartbeat_age = None
     if heartbeat_age is None:
         findings.append(_cron_finding("scheduler", "cron-scheduler", "ticker_unavailable", "ticker heartbeat is missing or invalid", now))
