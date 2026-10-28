@@ -164,17 +164,28 @@ export function suffix(value) {
  * matched: a reference number must never be read as an account.
  */
 function maskedSuffix(value) {
-  const match = String(value || "").match(/\*{2,}\s*(\d{4,})\b/);
+  // A masked phone number ("(+******1234)") is a PayNow proxy, not an account.
+  const match = String(value || "").match(/(?<![+*])\*{2,}\s*(\d{4,})\b/);
   return match?.[1] || null;
 }
 
+/** "<NAME> using his/her Mobile (+******1234)": a PayNow mobile/NRIC proxy. */
+const PAYNOW_PROXY_RE = /\s+using\s+his\/her\s+(?:Mobile|NRIC|FIN)\b.*$/i;
+
 function namedAccount(value, fallbackBank) {
   if (!value) return null;
+  // The flattened DBS body runs "To: NAME A/C ending 2555" into the footer
+  // ("If unauthorised, please call ..."), so the account ends at its digits.
+  const text = String(value).replace(/^(.*?\bA\/C\s+ending\s+\d{4,})\b.*$/i, "$1");
   return {
-    name: String(value).replace(/\s*\((?:A\/C|Ref)?\s*(?:ending\s+)?-?\*{0,}\d+\)[^)]*$/i, "")
+    name: text.replace(/\s*\((?:A\/C|Ref)?\s*(?:ending\s+)?-?\*{0,}\d+\)[^)]*$/i, "")
+      .replace(/\s+A\/C\s+ending\s+\d{4,}$/i, "")
+      .replace(PAYNOW_PROXY_RE, "")
       .replace(/\s*\*+\d*\s*$/, "").trim(),
-    bank: bankFromText(value, fallbackBank),
-    suffix: suffix(value) || maskedSuffix(value),
+    bank: bankFromText(text, fallbackBank),
+    suffix: suffix(text) || maskedSuffix(text),
+    // The bare "NAME A/C ending NNNN" form names an account, not a merchant.
+    ...(/\bA\/C\s+ending\s+\d{4,}$/i.test(text) && !/\(\s*A\/C/i.test(text) ? { account_ending: true } : {}),
   };
 }
 
@@ -672,7 +683,10 @@ export function parseBankMovement(text, { senderBank = null, receivedAt } = {}) 
   // name (via merchantMatch) despite having no tracked destination account.
   if (!destination?.suffix && !payNow) return null;
   const descriptor = field(body, ["Description"]);
-  return baseMovement({
+  // A recipient reached by mobile number or NRIC is a person: the proxy names
+  // no account, so nothing can verify who it is (bank-movement person hold).
+  const proxyRecipient = !destination?.suffix && !merchantMatch && PAYNOW_PROXY_RE.test(payNowRecipient || "");
+  const movement = baseMovement({
     direction: "outgoing", amount, currency,
     occurredAt: isoDateTime(dateText, timeText, receivedAt),
     ownAccount,
@@ -687,6 +701,8 @@ export function parseBankMovement(text, { senderBank = null, receivedAt } = {}) 
     isPayNow: payNow,
     isPayNowMerchant: Boolean(merchantMatch),
   });
+  if (movement && proxyRecipient) movement.person_transfer = true;
+  return movement;
 }
 
 export function accountMatches(account, evidence) {
