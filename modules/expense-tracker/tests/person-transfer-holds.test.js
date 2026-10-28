@@ -11,7 +11,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parseBankMovement } from "../src/bank-movement.js";
 
-const DBS_FAST_FOOTER = "Email-Sender: DBS <ibanking.alert@dbs.com>\nSubject: iBanking Alerts\n\nTransaction Ref: 12345678901234567890Dear Customer,We refer to your FAST Interbank Funds Transfer transaction dated 21 Sep. We are pleased to confirm that the transaction was completed. Date & Time: 21 Sep 00:29 (SGT) Amount: SGD55.89 From: POSB Cashback A/C ending 5500 To: ALEX SC A/C ending 2555 If unauthorised, please call our DBS hotline. To view transaction details, please log in to digibank. DBS Bank Ltd Co. Reg. No.: 196800306E";
+const DBS_FAST_FOOTER = "Email-Sender: DBS <ibanking.alert@dbs.com>\nSubject: iBanking Alerts\n\nTransaction Ref: 17899237848838872763Dear Customer,We refer to your FAST Interbank Funds Transfer transaction dated 21 Sep. We are pleased to confirm that the transaction was completed. Date & Time: 21 Sep 00:29 (SGT) Amount: SGD55.89 From: POSB Cashback A/C ending 5500 To: ALEX SC A/C ending 2555 If unauthorised, please call our DBS hotline. To view transaction details, please log in to digibank. DBS Bank Ltd Co. Reg. No.: 196800306E";
 
 const OCBC_PAYNOW_MOBILE = "Email-Sender: OCBC <notifications@ocbc.com>\nSubject: PayNow transfer made\n\nDear Valued Customer The following PayNow transfer has been made to LEE WEI LING using his/her Mobile (+******1234).Date: 17 Oct 2026Time: 13:10 PM SGT Amount: SGD 30.00From your account: 360 Account (-123456)Description: gift note: 1234567890123456If you have any queries, please contact our Personal Banking hotline";
 
