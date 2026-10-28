@@ -147,12 +147,41 @@ async function init() {
     return initPromise;
 }
 
+const BUDGET_LIST_TTL_MS = 60 * 1000;
+let budgetList = null; // { promise, at }
+
+/**
+ * The budget list for name resolution, shared by concurrent requests and reused
+ * for `BUDGET_LIST_TTL_MS`. Each `getBudgets()` asks the sync server for its file
+ * list, so a burst of requests that each fetched it drew HTTP 429s (#73). A
+ * rejected fetch is dropped so the next request tries again.
+ *
+ * ponytail: a budget created on the server stays invisible to name resolution
+ * for up to a minute; invalidate on a miss if that ever matters.
+ */
+function cachedBudgetList() {
+    if (budgetList && Date.now() - budgetList.at < BUDGET_LIST_TTL_MS) {
+        return budgetList.promise;
+    }
+    const entry = { promise: getBudgets(), at: Date.now() };
+    budgetList = entry;
+    entry.promise.catch(() => {
+        if (budgetList === entry) budgetList = null;
+    });
+    return entry.promise;
+}
+
+/** Test-only: forget the cached budget list. */
+function resetBudgetListCache() {
+    budgetList = null;
+}
+
 /** Resolve the requested budget, or null. Read-only; takes no lock. */
 async function resolveBudgetTarget(budgetIdOrName) {
     await init();
     if (!budgetIdOrName) return null;
 
-    const budgets = await getBudgets();
+    const budgets = await cachedBudgetList();
     const target = budgets.find(
         (b) =>
             (b.groupId || b.cloudFileId) === budgetIdOrName ||
@@ -1099,4 +1128,5 @@ module.exports = {
     readWindow,
     init,
     ensureBudget,
+    resetBudgetListCache,
 };
