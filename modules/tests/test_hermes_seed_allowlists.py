@@ -184,6 +184,18 @@ class SeedAllowlistTest(unittest.TestCase):
         self.assertIn("BWS_ACCESS_TOKEN=0.fake-bws-token", self.env_path.read_text().splitlines())
         self.assertNotIn("0.fake-bws-token", result.stdout)
 
+    def test_mirrors_gtasks_oauth_client(self) -> None:
+        """terminal.env_passthrough resolves GTASKS_* through the profile secret
+        scope under multiplex_profiles, so the gtasks CLI a cron job spawns sees
+        them unset unless they are in the profile .env."""
+        result = self.seed(GTASKS_CLIENT_ID="fake-id.apps", GTASKS_CLIENT_SECRET="fake-secret")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = self.env_path.read_text().splitlines() if self.env_path.exists() else []
+        self.assertIn("GTASKS_CLIENT_ID=fake-id.apps", lines)
+        self.assertIn("GTASKS_CLIENT_SECRET=fake-secret", lines)
+        self.assertNotIn("fake-secret", result.stdout)
+
     def test_unset_telegram_credentials_never_remove_existing_keys(self) -> None:
         original = "TELEGRAM_BOT_TOKEN=keep\nTELEGRAM_HOME_CHANNEL=1\n"
         self.env_path.write_text(original)
