@@ -196,6 +196,18 @@ class SeedAllowlistTest(unittest.TestCase):
         self.assertIn("GTASKS_CLIENT_SECRET=fake-secret", lines)
         self.assertNotIn("fake-secret", result.stdout)
 
+    def test_mirrors_slack_bot_and_app_tokens(self) -> None:
+        """Under multiplex_profiles the gateway serves a platform only when a
+        profile's secret scope holds its token, so Slack stays unserved unless
+        both tokens are in the profile .env (#82)."""
+        result = self.seed(SLACK_BOT_TOKEN="fake-slack-bot", SLACK_APP_TOKEN="fake-slack-app")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lines = self.env_path.read_text().splitlines() if self.env_path.exists() else []
+        self.assertIn("SLACK_BOT_TOKEN=fake-slack-bot", lines)
+        self.assertIn("SLACK_APP_TOKEN=fake-slack-app", lines)
+        self.assertNotIn("fake-slack-bot", result.stdout)
+
     def test_unset_telegram_credentials_never_remove_existing_keys(self) -> None:
         original = "TELEGRAM_BOT_TOKEN=keep\nTELEGRAM_HOME_CHANNEL=1\n"
         self.env_path.write_text(original)
