@@ -864,11 +864,8 @@ To: ACCOUNT HOLDER SC A/C ending 2555
         expect(calls.some((c) => c.name === "insert_transaction")).toBe(true);
     });
 
-    // The release predicate is direction-independent, but the booking arms are
-    // not: `_resolveMovementToOutput` has no incoming arm for a non-internal
-    // movement that has a counterparty, so it falls to `return null`. Both
-    // outcomes of the incoming leg are pinned here — inherited at HEAD, out of
-    // scope for this change, and pinned so the boundary cannot silently widen.
+    // Both outcomes of the incoming leg: an unreleased person credit holds, and
+    // a released one books through the incoming person arm with its payee.
     it("HOLDS an incoming person credit when no fact releases it (#654)", async () => {
         const { phase2, calls } = await orchestrate(RYT_RECEIVED_FROM_PERSON, {
             senderBank: "Ryt",
@@ -880,19 +877,22 @@ To: ACCOUNT HOLDER SC A/C ending 2555
         expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
     });
 
-    it("still DROPS that incoming credit once a `maps to ... payee` fact releases it (#654 boundary)", async () => {
-        const { phase1, calls } = await orchestrate(RYT_RECEIVED_FROM_PERSON, {
+    it("BOOKS that incoming credit with the payee once a `maps to ... payee` fact releases it (#654)", async () => {
+        // This pin was "still DROPS" until the incoming person arm took released
+        // credits (production replay 2026-10-28: a remembered sender's credit was
+        // dropped here and then held by the extractor fallback). The row names
+        // the payee; the credit is not held, not income, and never searched.
+        const { phase2, calls } = await orchestrate(RYT_RECEIVED_FROM_PERSON, {
             senderBank: "Ryt",
             receivedAt: "2026-09-18T00:00:00.000Z",
             accounts: rytAccounts,
             listFacts: ["LEE WEI LING merchant maps to Bak Kwa Trading payee"],
         });
 
-        // Released, and then dropped for want of an incoming booking arm — NOT
-        // booked as income and NOT held. Closing this means adding an incoming
-        // person arm, which is its own change with its own reproduction.
-        expect(phase1).toBeNull();
-        expect(calls.some((c) => c.name === "insert_transaction")).toBe(false);
+        expect(phase2._hold_unresolved_transfer).toBeUndefined();
+        const insert = calls.find((c) => c.name === "insert_transaction")?.args;
+        expect(insert).toMatchObject({ account_id: "ryt-bank", amount_cents: 25500, imported_description: "Bak Kwa Trading" });
+        expect(calls.some((c) => c.name === "search_web" || c.name === "resolve_merchant")).toBe(false);
     });
 
     it("does NOT release the hold from a legal-name or account-type fact (#654)", async () => {
