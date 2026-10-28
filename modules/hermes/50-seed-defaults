@@ -619,6 +619,10 @@ mirrored_exact = (
     "IMAP_PASSWORD",
     "JEV_API_KEY",
     "EMAIL_INTAKE_MODE",
+    # terminal.env_passthrough takes these values from the profile scope, so the
+    # gtasks CLI a cron job spawns sees them unset unless they are here (#75).
+    "GTASKS_CLIENT_ID",
+    "GTASKS_CLIENT_SECRET",
 )
 wanted = {
     key: value.strip()
