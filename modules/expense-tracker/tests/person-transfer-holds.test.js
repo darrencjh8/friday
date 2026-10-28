@@ -13,7 +13,7 @@ import { parseBankMovement } from "../src/bank-movement.js";
 
 const DBS_FAST_FOOTER = "Email-Sender: DBS <ibanking.alert@dbs.com>\nSubject: iBanking Alerts\n\nTransaction Ref: 17899237848838872763Dear Customer,We refer to your FAST Interbank Funds Transfer transaction dated 21 Sep. We are pleased to confirm that the transaction was completed. Date & Time: 21 Sep 00:29 (SGT) Amount: SGD55.89 From: POSB Cashback A/C ending 5500 To: ALEX SC A/C ending 2555 If unauthorised, please call our DBS hotline. To view transaction details, please log in to digibank. DBS Bank Ltd Co. Reg. No.: 196800306E";
 
-const OCBC_PAYNOW_MOBILE = "Email-Sender: OCBC <notifications@ocbc.com>\nSubject: PayNow transfer made\n\nDear Valued Customer The following PayNow transfer has been made to LEE WEI LING using his/her Mobile (+******1234).Date: 17 Oct 2026Time: 13:10 PM SGT Amount: SGD 30.00From your account: 360 Account (-123456)Description: gift note: 1234567890123456If you have any queries, please contact our Personal Banking hotline";
+const OCBC_PAYNOW_MOBILE = "Email-Sender: OCBC <notifications@ocbc.com>\nSubject: PayNow transfer made\n\nDear Valued Customer The following PayNow transfer has been made to LEE WEI LING using his/her Mobile (+******1234).Date: 17 Oct 2026Time: 13:10 PM SGT Amount: SGD 30.00From your account: 360 Account (-123456)Description: giftReference number: 1234567890123456If you have any queries, please contact our Personal Banking hotline";
 
 const RYT_RECEIVED_FROM_PERSON = "Hi Alex,\n\nMoney's in! You've received RM88.00 from LEE WEI LING on 18/9/2026, 5:04 AM (GMT+8) using your\nMain Account.\n\nNeed help? Reach out to our Help & Support Centre.";
 
@@ -28,6 +28,12 @@ describe("parser: person transfer names", () => {
         const movement = parseBankMovement(OCBC_PAYNOW_MOBILE, { senderBank: "OCBC", receivedAt: "2026-10-17T00:00:00Z" });
         expect(movement.counterparty).toMatchObject({ name: "LEE WEI LING", suffix: null });
         expect(movement.person_transfer).toBe(true);
+    });
+
+    it("ends an OCBC reference at its digits when the footer runs into it", () => {
+        const movement = parseBankMovement(OCBC_PAYNOW_MOBILE, { senderBank: "OCBC", receivedAt: "2026-10-17T00:00:00Z" });
+        expect(movement.reference_number).toBe("1234567890123456");
+        expect(movement.raw_merchant_descriptor).toBe("gift");
     });
 });
 
@@ -120,6 +126,7 @@ describe("booking person transfers the owner named", () => {
         });
         expect(phase2._hold_unresolved_transfer).toBeUndefined();
         expect(insertOf(calls)).toMatchObject({ account_id: "ocbc-360", amount_cents: -3000, imported_description: "Misc" });
+        expect(insertOf(calls).notes).not.toMatch(/queries|hotline/i);
         expect(searched(calls)).toBe(false);
     });
 

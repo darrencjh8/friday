@@ -256,7 +256,10 @@ export function looksLikePersonName(value) {
 
 export function parseBankMovement(text, { senderBank = null, receivedAt } = {}) {
   const body = restoreFieldLines(String(text || ""));
-  const reference = field(body, ["Reference number", "Transaction Ref", "Reference"]);
+  // A flattened OCBC body runs a numeric reference straight into the footer
+  // ("1234567890123456If you have any queries, ..."), so it ends at its digits.
+  const reference = field(body, ["Reference number", "Transaction Ref", "Reference"])
+    .replace(/^(\d{6,})(?=[A-Z][a-z]).*$/, "$1");
 
   // Bank card-payment alert — no "Amount :" label.
   //   "RM200.00 was paid at TNG-EWALLET ECOM 3-EC using your Main Account on 2/9/2026, 12:46 AM (GMT+8)."
