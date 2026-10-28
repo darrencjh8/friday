@@ -59,6 +59,21 @@ class LogIssueTriagePluginTest(unittest.TestCase):
         self.assertIsInstance(result, str)
         self.assertEqual(json.loads(result), {"status": "healthy"})
 
+    def test_registered_handlers_ignore_dispatcher_context_kwargs(self):
+        # Hermes injects task_id/session_id into plugin handlers that accept **kwargs.
+        class Context:
+            def __init__(self):
+                self.tools = {}
+
+            def register_tool(self, **kwargs):
+                self.tools[kwargs["name"]] = kwargs["handler"]
+
+        context = Context()
+        with patch.object(triage, "_cron_health", lambda args: {"status": "healthy"}):
+            triage.register(context)
+        result = context.tools["triage_check_cron_health"]({}, task_id="t1", session_id="s1")
+        self.assertEqual(json.loads(result), {"status": "healthy"})
+
     def test_cron_health_reports_scheduled_failure_and_persists_no_untrusted_finding(self):
         now = dt.datetime(2026, 10, 9, 0, 0, tzinfo=dt.timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:

@@ -627,8 +627,9 @@ _PUBLISH_CRON_SCHEMA = {
 
 def _json_result(handler):
     """The gateway accepts only string tool results, so serialize the dict payloads."""
-    def wrapped(args, **kwargs):
-        result = handler(args, **kwargs)
+    def wrapped(args, **_dispatcher_context):
+        # Hermes injects task_id/session_id into any handler taking **kwargs; the handlers take only args.
+        result = handler(args)
         return result if isinstance(result, str) else json.dumps(result, sort_keys=True)
     return wrapped
 
