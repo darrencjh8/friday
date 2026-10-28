@@ -31,7 +31,7 @@ import {
     resolveFactAccount as resolveFactAccountShared,
 } from "./suffix-facts.js";
 import { factNamesMerchant } from "./memory.js";
-import { amazeDescriptor } from "./amaze.js";
+import { amazeDescriptor, isAmaze } from "./amaze.js";
 import { leftoverWords } from "./jev.js";
 import { descriptorOf } from "./learning.js";
 import { offerSubject } from "./learning-notify.js";
@@ -3237,9 +3237,12 @@ export class AgentOrchestrator {
         // Spending abroad is Travel. A memory rule names what was bought, not
         // where, so a home brand's branch abroad (`ACMEMART HANOI` under the
         // rule `ACMEMART`) is asked about only when the descriptor has words the
-        // rule does not account for. A Misc fallback is asked with the search
-        // that failed to name it, and may count as part of a trip when Jev
-        // cannot tell (tools.js judge_abroad).
+        // rule does not account for. An Amaze descriptor is always asked: its
+        // only location is Amaze's own, so a rule that names the whole of it
+        // (`ACMEMART Hanoi`) still says nothing about where the money was
+        // spent. A Misc fallback is asked with the search that failed to name
+        // it, and may count as part of a trip when Jev cannot tell (tools.js
+        // judge_abroad).
         if (
             searchTerm &&
             !paynowSettled &&
@@ -3250,7 +3253,9 @@ export class AgentOrchestrator {
             !TRAVEL_PAYEE_RE.test(output.payee_name)
         ) {
             const remembered =
-                output.payee_source === "memory" && memoryKey && leftoverWords(searchTerm, memoryKey).length > 0;
+                output.payee_source === "memory" &&
+                memoryKey &&
+                (isAmaze(searchTerm) || leftoverWords(searchTerm, memoryKey).length > 0);
             const fallback = output.payee_source === "fallback" && output.payee_name.trim().toLowerCase() === "misc";
             if (remembered || fallback) {
                 try {
