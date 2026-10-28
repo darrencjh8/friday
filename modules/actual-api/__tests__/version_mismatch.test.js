@@ -111,6 +111,7 @@ function mockFetch(serverVersion) {
 }
 
 beforeEach(async () => {
+    server.resetBudgetListCache();
     for (const fn of Object.values(actual)) fn.mockReset();
     actual.init.mockResolvedValue(undefined);
     actual.getBudgets.mockResolvedValue([SGD, MYR]);

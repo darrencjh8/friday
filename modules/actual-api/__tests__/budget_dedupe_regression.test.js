@@ -48,7 +48,7 @@ jest.mock("@actual-app/api", () => ({
 process.env.BUDGET_SWITCH_DELAY_MS = "0";
 
 const actual = require("@actual-app/api");
-require("../server");
+const server = require("../server");
 
 // jest.setup.js sets ACTUAL_PRIMARY_BUDGET_FILE="test-budget". The configured
 // budget is the SECOND entry on purpose: deduplicating by sync id and keeping
@@ -76,6 +76,8 @@ function mockReq(overrides = {}) {
 }
 
 beforeEach(() => {
+    // Each test swaps the budget list, so drop the one the last test cached.
+    server.resetBudgetListCache();
     // Reset only the library stubs: resetting mockApp would drop the recorded
     // route registrations that findHandler reads.
     actual.init.mockReset();
