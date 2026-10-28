@@ -623,6 +623,10 @@ mirrored_exact = (
     # gtasks CLI a cron job spawns sees them unset unless they are here (#75).
     "GTASKS_CLIENT_ID",
     "GTASKS_CLIENT_SECRET",
+    # The multiplexed gateway serves Slack only when a profile scope holds its
+    # tokens, so without these it logs "no profile provided a bot credential" (#82).
+    "SLACK_BOT_TOKEN",
+    "SLACK_APP_TOKEN",
 )
 wanted = {
     key: value.strip()
