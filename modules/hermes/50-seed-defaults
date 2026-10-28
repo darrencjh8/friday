@@ -929,7 +929,9 @@ OUTPUT
 - The scheduled report uses local delivery; do not claim that a chat notification was sent.
 - `[SILENT]` is allowed only when all four collections and investigation steps completed successfully, the scheduler health is `healthy`, and no confirmed new defect exists.
 - Otherwise report partial/blocked status and the failed component or stage. Include verified issue URLs for any successful publications; never hide partial failures.
-- Keep the report concise and distinguish `confirmed`, `unproven`, `expected`, `duplicate`, and `blocked` candidates."""
+- Keep the report concise and distinguish `confirmed`, `unproven`, `expected`, `duplicate`, and `blocked` candidates.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step."""
 
 MANAGED = {
     "prompt": LOG_ISSUE_TRIAGE_PROMPT,
@@ -1034,7 +1036,9 @@ Moved to: <topic file names>
 Snapshot <names>
 
    If nothing was needed, reply exactly [SILENT] so no message is sent.
-   If anything failed, say so plainly with the error."""
+   If anything failed, say so plainly with the error.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step."""
 
 
 def _configured_cap(key, default):
@@ -1173,7 +1177,9 @@ Held records younger than 7 days go on one line: "⏸ Held: <ids>: <reason in un
 Add "⚠️ store nearly full" under the store table when either store is above 95% (information only: the daily memory-compact job frees room, so a full store alone is not a reason to send). Last line: snapshot <name>.
 When there is nothing for Darren to act on: nothing applied, discarded, filed or failed, and no held record aged 7 days or more: reply exactly [SILENT] so no message is sent. This covers an empty queue and a run that only re-held the same young records.
 
-Do not stop until the apply step has actually run and been verified. If a step fails, say so plainly rather than reporting success."""
+Do not stop until the apply step has actually run and been verified. If a step fails, say so plainly rather than reporting success.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step."""
 
 
 # The caps the judge quotes come from the seeded config, not from a copy pasted
@@ -1289,7 +1295,9 @@ Every Monday run a complete refresh, not a spot check. Repos and GitHub issues a
 with one row per meaningful diff (balances, plans, portfolio, router, repos, memory), then short bullet sections for upcoming account dates needing attention, open conflicts/issues, and failed or stale checks. Report only what Darren needs to know or act on: leave out passing checks and reassurances (lint passing, sources fresh, zero recall calls or errors, no writes to Notion/Actual/PP/OneDrive, no deploy); a check appears only when it failed. Omit an empty section. When the change table would have no rows, nothing is due, there is no open conflict or issue that is new or changed since the last digest, and no check failed or was partial, finish the wiki updates and the log entry anyway, then reply exactly [SILENT] so no message is sent.
 7. Reminders. Evaluate confirmed payment and action dates. A weekly cadence is insufficient for actions that need lead time: treat an action as due when action_date - today <= lead_days, with lead_days set per item (the daily wiki-due-reminders job owns that cadence).
 
-If any source/tool is unavailable, preserve the last verified data with its old capture date, mark it stale/needs-verify, and report the blocker. Do not invent replacement data or claim a failed check passed."""
+If any source/tool is unavailable, preserve the last verified data with its old capture date, mark it stale/needs-verify, and report the blocker. Do not invent replacement data or claim a failed check passed.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step."""
 
 MANAGED = {
     "prompt": PROMPT,
@@ -1374,7 +1382,9 @@ PROMPT = """Refresh the repository side of the private wiki at ${WIKI_PATH:-/opt
 | Repo | Issue | Link |
 |---|---|---|
 
-with "fetch failed: <reason>" in Issue and "—" in Link for a failed fetch. Otherwise reply exactly [SILENT] so no message is sent."""
+with "fetch failed: <reason>" in Issue and "—" in Link for a failed fetch. Otherwise reply exactly [SILENT] so no message is sent.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step."""
 
 MANAGED = {
     "prompt": PROMPT,
@@ -1445,6 +1455,8 @@ PROMPT = """Check the private wiki for payment, action, and habit dates that nee
 5. Dedup of Google Tasks is by the wiki-reminder-marker: note line, reading the Planned list with --include-completed; never update, delete, or move tasks yourself — the helper's own close sweep is the single sanctioned mutation: it auto-closes stale open daily-habit tasks dated before today (marks them completed, never deletes). Missed daily habit days are skipped silently, never backfilled, never reported. After downtime, report overdue non-habit items once with an "overdue" marker rather than silently skipping them. Missed 0-day non-habit task windows are never backfilled; report them for manual creation.
 6. Create Google Tasks for due candidates with `python3 /opt/data/scripts/wiki-reminder-tasks.py --snapshot-out /opt/data/reminders/reminders.json` (candidate JSON on stdin: key, type, title, action_date, optional note; types: claim_collect, cancel_replan, annual_oneoff, monthly, waiver_check, daily, weekly). The helper targets the Planned list and writes a structured snapshot (items with key/type/title/action_date/days_left/lead_days/status/note, plus problems and summary) that the reminders dashboard renders and the next run reads; it also closes stale open daily-habit tasks from earlier days, and close failures arrive in its problems list. Report its problems (conflicts, failures, unclassified items) — they are the only Telegram content.
 7. reply exactly [SILENT] when all due tasks were created and there are no conflicts, failures, unclassified items, or overdue non-habit items. Otherwise send a short Telegram message listing ONLY the problems (conflicts, failures, unclassified, overdue non-habit). Never send the routine digest or any success summary.
+
+FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step.
 """
 
 MANAGED = {
