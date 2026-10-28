@@ -409,12 +409,37 @@ describe("the orchestrator books spending abroad as Travel", () => {
         expect(insert.args.notes).not.toMatch(/Abroad:|Trip:/);
     });
 
-    it("does not ask when the rule names the whole descriptor", async () => {
+    it("asks about an Amaze rule that names the whole descriptor, place included", async () => {
+        const { judged, insert } = await book({
+            details: "AMAZE* ACMEMART HANOI    SINGAPORE     SGP",
+            merchant: DESCRIPTOR,
+            memory: { [DESCRIPTOR]: ["ACMEMART Hanoi maps to Shopping payee"], Travel: RULES.Travel },
+            verdict: { abroad: true, payee: "Travel", source: "abroad" },
+        });
+        expect(judged.args).toMatchObject({ merchant: DESCRIPTOR, payee: "Shopping" });
+        expect(judged.args.trip_window).toBeUndefined();
+        expect(insert.args.imported_description).toBe("Travel");
+        expect(insert.args.notes).toMatch(/^Abroad: placed outside the home locations$/m);
+    });
+
+    it("keeps an Amaze rule that names the whole descriptor when Jev does not place it abroad", async () => {
         const merchant = "AMAZE* ACMEMART SINGAPORE SGP";
         const { judged, insert } = await book({
             details: "AMAZE* ACMEMART    SINGAPORE     SGP",
             merchant,
             memory: { [merchant]: ["ACMEMART maps to Shopping payee"] },
+        });
+        expect(judged).toBeDefined();
+        expect(insert.args.imported_description).toBe("Shopping");
+        expect(insert.args.notes).not.toMatch(/Abroad:|Trip:/);
+    });
+
+    it("does not ask when a rule names a whole descriptor that carries its own place", async () => {
+        const merchant = "ACMEMART SPRINGFIELD";
+        const { judged, insert } = await book({
+            details: merchant,
+            merchant,
+            memory: { [merchant]: ["ACMEMART SPRINGFIELD maps to Shopping payee"] },
             verdict: { abroad: true, payee: "Travel", source: "abroad" },
         });
         expect(judged).toBeUndefined();
