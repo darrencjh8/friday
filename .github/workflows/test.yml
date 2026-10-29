@@ -227,6 +227,13 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_email_intake_notify.py -v
             - name: Install qpdf for the email-intake statement tests
               run: sudo apt-get update && sudo apt-get install -y --no-install-recommends qpdf
+            - name: Debug qpdf decrypt
+              run: |
+                  cd "$(mktemp -d)"; qpdf --version | head -1; env | grep -E 'LD_|TMP|PYTHON' || true
+                  qpdf --empty p.pdf; qpdf --encrypt pw owner-pw 256 -- p.pdf l.pdf; printf pw > f; chmod 600 f
+                  qpdf --password-file=f --decrypt l.pdf o.pdf; echo "rc=$?"
+                  python -c "import subprocess;r=subprocess.run(['qpdf','--password-file=f','--decrypt','l.pdf','o2.pdf'],capture_output=True);print(r.returncode,r.stdout,r.stderr)"
+                  python -m unittest modules/hermes/tests/test_email_intake_unlock.py 2>&1 | tail -3 || true
             - name: Test Hermes email-intake password-protected statements (#783)
               run: python -m unittest modules/hermes/tests/test_email_intake_unlock.py -v
             - name: Test Hermes email-intake cutover switch (#783)
