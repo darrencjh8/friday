@@ -265,6 +265,9 @@ services:
         container_name: hermes
         restart: unless-stopped
         command: gateway run
+        # A gateway mid-turn needs more than Docker's default 10 s to shut down;
+        # deploy.sh's `docker stop hermes` uses this as its timeout too (#80).
+        stop_grace_period: 60s
         depends_on:
             expense-tracker:
                 condition: service_healthy
@@ -296,6 +299,9 @@ services:
             - /home/runner/data/expense-tracker/data:/opt/data/expense-tracker-data:ro
         environment:
             - HERMES_WRITE_SAFE_ROOT=/opt/data:/workspace:/tmp
+            # s6-overlay's /init SIGKILLs everything 3 s after its own SIGTERM by
+            # default; give the gateway 45 s, inside stop_grace_period (#80).
+            - S6_KILL_GRACETIME=45000
             - GTASKS_CLIENT_ID=${GTASKS_CLIENT_ID:-}
             - REMINDERS_EDIT_TOKEN=${REMINDERS_EDIT_TOKEN:-}
             - GTASKS_CLIENT_SECRET=${GTASKS_CLIENT_SECRET:-}
