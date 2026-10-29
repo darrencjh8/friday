@@ -369,6 +369,17 @@ if [ -f "$mn_wrapper" ] && ! cmp -s "$mn_wrapper" "$mn_marker"; then
     fi
 fi
 
+# Read-only Mnemosyne in cron (patches/patch-mnemosyne-cron-readonly.py): cron
+# jobs recall chat memory but never write it. Runs every boot because a
+# provider re-sync reinstalls the module unpatched. The patch only accepts the
+# pinned 0.7.1 module; on any other file it refuses, and the plugin keeps its
+# own default of skipping cron entirely, so a failure costs recall, not data.
+for mn_init in /opt/data/installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py; do
+    [ -f "$mn_init" ] || continue
+    python3 /opt/hermes-defaults/patches/patch-mnemosyne-cron-readonly.py "$mn_init" \
+        || echo "WARNING: mnemosyne cron read-only patch not applied; cron keeps no Mnemosyne recall" >&2
+done
+
 # Cross-session recall (operator decision 2026-10-11). Mnemosyne reads
 # cross_session only from its own config.yaml (mnemosyne.core.config
 # resolve_beam_runtime; file beats env), not from Hermes' memory.mnemosyne
@@ -1506,6 +1517,80 @@ else:
         print("cron: wiki-due-reminders migrated: " + ", ".join(sorted(changed)))
     else:
         print("cron: wiki-due-reminders unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
+# Seed goal-tick cron job (MANAGED prompt/skills/attach). Goals live only in
+# Mnemosyne canonical slots (category "goal", written from chat by the goals
+# skill); cron reads them through the read-only Mnemosyne patch. The delivery
+# is attached to the Telegram DM session so a reply continues with the
+# check-in in context.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+PROMPT = """Check Darren's standing goals and decide whether any needs a check-in now. Follow the goals skill.
+
+1. List goals with mnemosyne_recall_canonical(category="goal"). Keep only slots whose body says status: active. If there are none, reply exactly [SILENT].
+2. A goal is due when its check_in date is today or earlier, when check_in is daily, or when check_in is weekly and its updated date is 7 or more days ago. Your previous output is in the context above: do not raise a goal you already raised today, and do not repeat a check-in with nothing new to say.
+3. For each due goal, gather context before writing: mnemosyne_recall with the goal's keywords and outcome, and session_search with its keywords for chats since its updated date. Use what Darren actually said; never invent progress, numbers, or decisions.
+4. Write one Telegram message covering at most 3 due goals, most overdue first. For each: the goal slug in backticks, one line on where it stands from the recalled context, and one concrete question or proposed next step he can answer with a short reply. End by saying he can reply "done", "pause", "drop", or a new check-in date.
+5. You may only read and message. Never send anything to anyone else, pay, book, buy, change an account, or edit files for a goal; propose the action in the message instead. Mnemosyne is read-only here, so do not try to update a goal; the goals skill records his reply from chat.
+6. If nothing is due, reply exactly [SILENT].
+
+FAILURE: when a required step failed (a tool error, Mnemosyne unavailable or reporting not initialized, a listed skill not found), make the first line of your reply exactly [CRON_FAILURE], then report what failed. Never reply [SILENT] after a failed step.
+"""
+
+MANAGED = {
+    "prompt": PROMPT,
+    "skills": ["goals"],
+    "skill": "goals",
+    "attach_to_session": True,
+    "context_from": ["self"],
+}
+DEFAULTS = {
+    "schedule": {"kind": "cron", "expr": "45 9,17 * * *", "display": "every day 9:45am and 5:45pm"},
+    "schedule_display": "every day 9:45am and 5:45pm",
+    "enabled": True,
+    "deliver": "telegram",
+}
+
+existing = next(
+    (j for j in jobs if isinstance(j, dict) and j.get("name") == "goal-tick"),
+    None,
+)
+
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "goal-tick",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **DEFAULTS,
+        **MANAGED,
+    })
+    print("cron: goal-tick seeded")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    if changed:
+        print("cron: goal-tick migrated: " + ", ".join(sorted(changed)))
+    else:
+        print("cron: goal-tick unchanged")
 
 with open(jobs_path + ".tmp", "w") as f:
     json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
