@@ -375,7 +375,7 @@ Taxonomy data is exported to Google Sheets with live FX conversion to SGD:
 - Java CLI queries taxonomy via `queryTaxonomies()` (configurable via `TAXONOMY_NAMES` env var, default: "Sector,Geography,Asset Class")
 - Each classification's native value is converted to SGD using per-currency breakdowns
 - Live exchange rates from `open.er-api.com/v6/latest/USD` (free, no API key)
-- Cell mappings configured via `TAXONOMY_SHEET_MAPPING` env var (format: `key1=cell1,key2=cell2`)
+- Cell mappings configured via `TAXONOMY_SHEET_MAPPING` env var (format: `key1:cell1,key2:cell2`; each pair is split on its first colon, so a cell may be a range like `A1:B2`)
 - Valuation uses most-recent-price-≤-today from PP price history
 - Writes to `GOOGLE_SHEET_ID` using service account from `GOOGLE_SERVICE_ACCOUNT_JSON`
 - Handles weight-based proration via PP's `Assignment.getWeight()`

@@ -68,7 +68,7 @@ jobs:
               with:
                   node-version: 22
             - run: npm ci
-            - run: npx vitest run tests/onedrive-legs.test.js tests/mcp-server.test.js tests/java_bridge.test.js tests/leg-coverage.test.js tests/shell-leg-coverage.test.js tests/ci-gating.test.js
+            - run: npx vitest run tests/onedrive-legs.test.js tests/mcp-server.test.js tests/java_bridge.test.js tests/leg-coverage.test.js tests/shell-leg-coverage.test.js tests/ci-gating.test.js tests/taxonomy-export.test.js
     # The guard test for the job above also runs in the full suite, so deleting the
     # gating job's test command cannot make the guard disappear with it: the full
     # job is non-gating, but it still reports, so the next person's CI log shows
