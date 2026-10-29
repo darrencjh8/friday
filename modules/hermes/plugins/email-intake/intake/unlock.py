@@ -3,7 +3,8 @@
 Statement passwords live in Bitwarden as STMT_PW_* secrets. Each encrypted
 PDF in an email is tried against them with qpdf; the email is rebuilt with
 the decrypted PDFs so the tracker reads it like any other statement. The
-password reaches qpdf through a private temporary file, never argv or a log.
+password reaches qpdf on stdin, never argv, a file, or a log (#97: a confined
+qpdf may not be allowed to open a password file).
 """
 
 import logging
@@ -38,15 +39,13 @@ def is_encrypted(data):
 def decrypt_pdf(data, passwords, run=subprocess.run):
     """The decrypted PDF, or None when no password opens it."""
     with tempfile.TemporaryDirectory(prefix="intake-pdf-") as tmp:
-        source, target, secret = (os.path.join(tmp, n) for n in ("in.pdf", "out.pdf", "pw"))
+        source, target = (os.path.join(tmp, n) for n in ("in.pdf", "out.pdf"))
         with open(source, "wb") as handle:
             handle.write(data)
         for password in passwords:
-            with open(os.open(secret, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600), "w") as handle:
-                handle.write(password)
             try:
-                result = run(["qpdf", f"--password-file={secret}", "--decrypt", source, target],
-                             capture_output=True, timeout=60)
+                result = run(["qpdf", "--password-file=-", "--decrypt", source, target],
+                             input=password.encode(), capture_output=True, timeout=60)
             except (OSError, subprocess.SubprocessError) as error:
                 logger.warning("email-intake qpdf failed: %s", type(error).__name__)
                 return None
