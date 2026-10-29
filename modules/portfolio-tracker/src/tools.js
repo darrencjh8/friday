@@ -1670,6 +1670,13 @@ export class ToolRegistry {
                 const classification = entry.value;
                 if (classification === undefined || classification === null)
                     continue;
+                // PP-CLI's residual for unassigned holdings is not a classification;
+                // export it only when a cell is deliberately mapped for it (#81).
+                if (
+                    classification === "Without Classification" &&
+                    !config.taxonomySheetMapping[classification]
+                )
+                    continue;
 
                 // Convert native value to SGD using per-currency breakdown
                 const currencies = entry.currencies || {
