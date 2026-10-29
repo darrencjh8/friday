@@ -36,6 +36,11 @@ display:
 plugins:
     enabled:
         - disk-cleanup
+    # Per-plugin import + register() deadline. The 10 s default abandoned the
+    # Slack and Telegram platform plugins during deploy restarts, when the busy
+    # host took 13-17 s to load them, and the gateway came up without those
+    # channels (#104).
+    load_timeout_seconds: 60
 
 fallback_providers:
     - provider: deepseek
