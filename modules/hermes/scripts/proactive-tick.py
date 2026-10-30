@@ -18,15 +18,26 @@ Sources:
 - goals: active Mnemosyne goal slots whose check-in is due, at most once a day.
 - patch: the Mnemosyne cron read-only patch is missing (an upgrade or reinstall
   overwrote it), at most once a day.
+- mail: Gmail messages that arrived since the last tick (promotions, social and
+  forums skipped), through the read-only gmail.py. Off until `gmail login`; the
+  first tick after login only sets the cursor, so old mail is never replayed.
+- tasks: open items on Friday's own Google Tasks list that are due today or
+  earlier, at most once a day each.
+When any source has something, the open Friday tasks and Darren's notify
+preferences are added as context so the agent can match mail to what it
+already tracks.
 
-Reads only: the Mnemosyne DB is opened read-only.
+Reads only: the Mnemosyne DB is opened read-only and Gmail access is the
+gmail.readonly scope.
 """
 
 import datetime
+import functools
 import glob
 import json
 import os
 import sqlite3
+import subprocess
 import sys
 
 HOME = os.environ.get("HERMES_HOME", "/opt/data")
@@ -35,6 +46,9 @@ STATE = os.path.join(HOME, "proactive-tick", "state.json")
 PATCH_GLOB = os.path.join(HOME, "installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py")
 PATCH_MARKER = "# friday-patch: mnemosyne read-only in cron"
 SGT = datetime.timezone(datetime.timedelta(hours=8))
+SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+TASK_LIST = "Friday"
+MAIL_PER_TICK = 20
 
 
 def parse_body(body):
@@ -79,7 +93,7 @@ def read_slots(category):
         conn.close()
 
 
-def goals_source(today, seen):
+def goals_source(today, seen, cursors):
     items = []
     for name, body in read_slots("goal"):
         key = f"goal:{name}"
@@ -88,7 +102,7 @@ def goals_source(today, seen):
     return items
 
 
-def patch_source(today, seen):
+def patch_source(today, seen, cursors):
     key = "patch:mnemosyne-cron-readonly"
     if seen.get(key) == today.isoformat():
         return []
@@ -99,20 +113,81 @@ def patch_source(today, seen):
     return []
 
 
-SOURCES = {"goals": goals_source, "patch": patch_source}
+def mail_source(today, seen, cursors):
+    sys.path.insert(0, SCRIPTS)
+    import gmail
+
+    if not gmail.load_token():
+        return []
+    after = cursors.get("gmail")
+    if after is None:
+        cursors["gmail"] = int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
+        return []
+    try:
+        messages = gmail.list_messages(after_ms=after, limit=MAIL_PER_TICK)
+    except gmail.AuthExpired:
+        raise RuntimeError("Gmail login expired or was revoked; run `gmail login` again")
+    if messages:
+        cursors["gmail"] = messages[-1]["received_ms"]
+    return [(f"mail:{m['id']}", f"mail id={m['id']} | from: {m['from']} | subject: {m['subject']} | {m['date']}\n"
+             f"snippet: {m['snippet']}") for m in messages]
+
+
+@functools.lru_cache(maxsize=None)
+def friday_tasks():
+    """Open tasks on Friday's list; [] when the list does not exist yet."""
+    result = subprocess.run([sys.executable, os.path.join(SCRIPTS, "gtasks.py"), "tasks", "view", "-l", TASK_LIST,
+                             "--format=json"], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        if "not found" in (result.stdout + result.stderr).lower():
+            return []
+        raise RuntimeError(f"gtasks failed: {(result.stderr or result.stdout).strip()[:200]}")
+    return tuple(t for t in json.loads(result.stdout or "[]") if t.get("status") != "completed")
+
+
+def task_line(task):
+    due = (task.get("due") or "")[:10]
+    notes = " ".join((task.get("notes") or "").split())[:200]
+    return f"- [id={task.get('id', '')}] {task.get('title', '')}" + (f" (due {due})" if due else "") + (f" — {notes}" if notes else "")
+
+
+def tasks_source(today, seen, cursors):
+    items = []
+    for task in friday_tasks():
+        due = parse_date(task.get("due") or "")
+        key = f"task:{task.get('id')}"
+        if due and due <= today and seen.get(key) != today.isoformat():
+            items.append((key, "due: " + task_line(task)))
+    return items
+
+
+SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "tasks": tasks_source}
+
+
+def save_state(today, seen, cursors):
+    # Only today's entries matter for de-duplication, so older ones are dropped.
+    seen = {key: day for key, day in seen.items() if day == today.isoformat()}
+    os.makedirs(os.path.dirname(STATE), exist_ok=True)
+    with open(STATE + ".tmp", "w", encoding="utf-8") as handle:
+        json.dump({"seen": seen, "cursors": cursors}, handle, indent=2, sort_keys=True)
+    os.replace(STATE + ".tmp", STATE)
 
 
 def main():
     today = datetime.datetime.now(SGT).date()
     try:
         with open(STATE, encoding="utf-8") as handle:
-            seen = json.load(handle)
+            state = json.load(handle)
     except (FileNotFoundError, json.JSONDecodeError):
-        seen = {}
+        state = {}
+    if "seen" not in state:  # the first state format was the seen map alone
+        state = {"seen": state, "cursors": {}}
+    seen, cursors = state["seen"], state.setdefault("cursors", {})
+    before = json.dumps(cursors, sort_keys=True)
     sections = []
     for source, collect in SOURCES.items():
         try:
-            items = collect(today, seen)
+            items = collect(today, seen, cursors)
         except Exception as error:  # a broken source is reported, never hidden
             key = f"error:{source}"
             items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
@@ -120,19 +195,23 @@ def main():
             sections.append(f"## {source}\n" + "\n\n".join(text for _, text in items))
             seen.update({key: today.isoformat() for key, _ in items})
     if not sections:
+        if json.dumps(cursors, sort_keys=True) != before:
+            save_state(today, seen, cursors)
         return 0
+    try:
+        open_tasks = friday_tasks()
+    except Exception as error:
+        open_tasks = []
+        sections.append(f"## Friday tasks\nunavailable: {error}")
+    if open_tasks:
+        sections.append("## Friday tasks (open)\n" + "\n".join(task_line(t) for t in open_tasks))
     try:
         preferences = dict(read_slots("notify")).get("preferences")
     except sqlite3.Error:
         preferences = None
     if preferences:
         sections.append("## notify preferences\n" + preferences.strip())
-    # Only today's entries matter for de-duplication, so older ones are dropped.
-    seen = {key: day for key, day in seen.items() if day == today.isoformat()}
-    os.makedirs(os.path.dirname(STATE), exist_ok=True)
-    with open(STATE + ".tmp", "w", encoding="utf-8") as handle:
-        json.dump(seen, handle, indent=2, sort_keys=True)
-    os.replace(STATE + ".tmp", STATE)
+    save_state(today, seen, cursors)
     print(f"Today: {today.isoformat()}\n\n" + "\n\n".join(sections))
     return 0
 
