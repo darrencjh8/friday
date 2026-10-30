@@ -42,5 +42,6 @@ Darren approved (2026-10-30) that Friday owns a list named `Friday` for the thin
 - The token comes from `google login`, which asks for exactly three scopes: `https://www.googleapis.com/auth/tasks`, `https://www.googleapis.com/auth/gmail.readonly` ("View your email messages and settings") and `https://www.googleapis.com/auth/calendar.readonly`. If Google consent shows anything broader, cancel; the CLI also refuses to save such a token.
 - To log in or renew access, follow the `google-login` skill (automatic flow with the SSH tunnel, or `--manual`). Run it only when the user asks to set up or renew Google access.
 - If a command reports the token expired, tell the user to run `google login` again interactively. Never inspect, export, or display token/config files. Never run `google logout` unless the user explicitly asks.
+- The `gtasks-clear-completed` cron job (Darren's request, 2026-10-31) clears completed tasks in every list on the 1st of each month. Clearing only hides completed tasks; `--include-completed` still lists them. That job is the only sanctioned clear.
 - This skill does not authorize deletion, updating, or moving tasks or lists. Do not run `rm`, `update`, or other destructive commands from this CLI.
 - Never export task data to files or send it to another service unless the user explicitly requests that action and destination.
