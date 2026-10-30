@@ -344,10 +344,18 @@ def _list_id_or_exit(name):
 
 
 def _ordered_tasks(list_id, include_completed=False):
-    params = {"maxResults": 100, "showCompleted": str(include_completed).lower()}
-    out = _api("GET", _tasks_path(list_id) + "?%s"
-               % urllib.parse.urlencode(params))
-    return out.get("items", [])
+    # Completed tasks include cleared (hidden) ones, so the monthly clear
+    # never hides a task from the wiki reminder dedup; pages past 100.
+    params = {"maxResults": 100, "showCompleted": str(include_completed).lower(),
+              "showHidden": str(include_completed).lower()}
+    items = []
+    while True:
+        out = _api("GET", _tasks_path(list_id) + "?%s"
+                   % urllib.parse.urlencode(params))
+        items += out.get("items", [])
+        if not out.get("nextPageToken"):
+            return items
+        params["pageToken"] = out["nextPageToken"]
 
 
 def _resolve_number(list_id, number, include_completed=True):
