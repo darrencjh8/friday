@@ -65,14 +65,13 @@ class AuthExpired(Exception):
 class CallbackState:
     """Single-use OAuth callback gate. No secrets are logged."""
 
-    def __init__(self, paths=CALLBACK_PATHS):
-        self.paths = paths
+    def __init__(self):
         self.consumed = False
         self.code = None
 
     def handle(self, method, path, query, expected_state):
         pure_path = path.split("?", 1)[0]
-        if method != "GET" or pure_path not in self.paths:
+        if method != "GET" or pure_path not in CALLBACK_PATHS:
             return 404, "not found"
         if self.consumed:
             return 410, "callback already used"
@@ -116,9 +115,8 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
-def wait_for_code(port=CALLBACK_PORT, expected_state="", timeout=LOGIN_TIMEOUT,
-                  paths=CALLBACK_PATHS):
-    state = CallbackState(paths)
+def wait_for_code(port=CALLBACK_PORT, expected_state="", timeout=LOGIN_TIMEOUT):
+    state = CallbackState()
     _Handler.state = state
     _Handler.expected = expected_state
     server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
@@ -138,12 +136,12 @@ def pkce_pair():
     return verifier, challenge
 
 
-def build_auth_url(client_id, redirect_uri, state, challenge, scope=SCOPE):
+def build_auth_url(client_id, redirect_uri, state, challenge):
     params = urllib.parse.urlencode({
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": scope,
+        "scope": SCOPE,
         "state": state,
         "code_challenge": challenge,
         "code_challenge_method": "S256",

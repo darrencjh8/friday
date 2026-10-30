@@ -145,6 +145,8 @@ jobs:
                   GTASKS_CLIENT_ID: ${{ secrets.GTASKS_CLIENT_ID }}
                   GTASKS_CLIENT_SECRET: ${{ secrets.GTASKS_CLIENT_SECRET }}
                   REMINDERS_EDIT_TOKEN: ${{ secrets.REMINDERS_EDIT_TOKEN }}
+                  FRIDAY_BRIDGE_URL: ${{ secrets.FRIDAY_BRIDGE_URL }}
+                  FRIDAY_BRIDGE_KEY: ${{ secrets.FRIDAY_BRIDGE_KEY }}
                   BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
                   CODEX_ROUTER_AUTH_PASSWORD: ${{ secrets.CODEX_ROUTER_AUTH_PASSWORD }}
                   # GitHub secret MUSE_API_KEY maps to the runtime MODEL_API_KEY

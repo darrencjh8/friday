@@ -189,18 +189,22 @@ class ProactiveTickSeedTest(unittest.TestCase):
 
 # Stand-ins the pre-check imports or runs from its own directory. Each reads
 # its canned data from $FAKE_DIR so a test controls mail, tasks and login.
-FAKE_GMAIL = '''
+FAKE_BRIDGE = '''
 import json, os
 FAKE = os.environ["FAKE_DIR"]
-class AuthExpired(Exception):
+class BridgeError(Exception):
     pass
-def load_token():
-    return os.path.exists(os.path.join(FAKE, "gmail-token"))
+def configured():
+    return os.path.exists(os.path.join(FAKE, "bridge-on"))
+def _load(name):
+    if os.path.exists(os.path.join(FAKE, "bridge-down")):
+        raise BridgeError("bridge mail refused: forbidden")
+    path = os.path.join(FAKE, name)
+    return json.load(open(path)) if os.path.exists(path) else []
 def list_messages(after_ms=0, limit=20):
-    if os.path.exists(os.path.join(FAKE, "gmail-expired")):
-        raise AuthExpired()
-    with open(os.path.join(FAKE, "mail.json")) as fh:
-        return [m for m in json.load(fh) if m["received_ms"] > after_ms][:limit]
+    return [m for m in _load("mail.json") if m["received_ms"] > after_ms][:limit]
+def list_events(days=14):
+    return _load("events.json")
 '''
 FAKE_GTASKS = '''
 import os, sys
@@ -220,7 +224,7 @@ class ProactiveTickScriptTest(unittest.TestCase):
         self.scripts = self.home / "scripts"
         self.scripts.mkdir()
         shutil.copy(TICK_SCRIPT, self.scripts / "proactive-tick.py")
-        (self.scripts / "gmail.py").write_text(FAKE_GMAIL)
+        (self.scripts / "google_bridge.py").write_text(FAKE_BRIDGE)
         (self.scripts / "gtasks.py").write_text(FAKE_GTASKS)
         data = self.home / "mnemosyne" / "data"
         data.mkdir(parents=True)
@@ -280,13 +284,13 @@ class ProactiveTickScriptTest(unittest.TestCase):
     def fake(self, name, data):
         (self.home / name).write_text(json.dumps(data) if not isinstance(data, str) else data)
 
-    def test_mail_is_off_until_login_and_starts_from_now(self):
+    def test_mail_is_off_until_the_bridge_is_set_and_starts_from_now(self):
         self.module()
         self.fake("mail.json", [{"id": "old", "received_ms": 1, "from": "a", "subject": "old", "date": "",
                                  "snippet": ""}])
-        self.assertEqual(self.tick(), "")  # no login: source off
-        self.fake("gmail-token", "x")
-        self.assertEqual(self.tick(), "")  # first tick after login only sets the cursor
+        self.assertEqual(self.tick(), "")  # no bridge: source off
+        self.fake("bridge-on", "x")
+        self.assertEqual(self.tick(), "")  # first tick only sets the cursor
         later = int(__import__("time").time() * 1000) + 60_000
         self.fake("mail.json", [{"id": "m1", "received_ms": later, "from": "landlord@example.com",
                                  "subject": "Lease renewal", "date": "", "snippet": "please sign by Friday"}])
@@ -298,14 +302,56 @@ class ProactiveTickScriptTest(unittest.TestCase):
         self.assertIn("## Friday tasks (open)\n- [id=t1] Pay water bill — gmail:abc", out)
         self.assertEqual(self.tick(), "")  # each message is reported once
 
-    def test_expired_gmail_login_alerts_once_a_day(self):
+    def test_bridge_failure_alerts_once_a_day(self):
         self.module()
-        self.fake("gmail-token", "x")
+        self.fake("bridge-on", "x")
         self.tick()
-        self.fake("gmail-expired", "x")
+        self.fake("bridge-down", "x")
         out = self.tick()
-        self.assertIn("ALERT: source mail failed: Gmail login expired or was revoked", out)
+        self.assertIn("ALERT: source mail failed: bridge mail refused: forbidden", out)
+        self.assertIn("ALERT: source calendar failed", out)
         self.assertEqual(self.tick(), "")
+
+    def test_calendar_reports_changes_once_and_agenda_once_a_day(self):
+        import datetime
+        self.module()
+        self.fake("bridge-on", "x")
+        at = lambda hours: (datetime.datetime.now(datetime.timezone.utc)
+                            + datetime.timedelta(hours=hours)).isoformat()
+        dentist = {"id": "e1", "status": "confirmed", "summary": "Dentist", "location": "Clinic",
+                   "start": at(48), "end": at(49)}
+        standup = {"id": "e2", "status": "confirmed", "summary": "Standup", "start": at(72), "end": at(73)}
+        self.fake("events.json", [dentist, standup])
+        self.assertEqual(self.tick(), "")  # first tick takes the baseline only
+        lunch = {"id": "e3", "status": "confirmed", "summary": "Lunch with client", "start": at(5), "end": at(6)}
+        scrolled_in = {"id": "e4", "status": "confirmed", "summary": "Far away", "start": at(24 * 15),
+                       "end": at(24 * 15 + 1)}
+        self.fake("events.json", [dict(dentist, start=at(50), end=at(51)), lunch, scrolled_in])
+        out = self.tick()
+        self.assertIn("new event - ", out)
+        self.assertIn("Lunch with client", out)
+        self.assertIn("changed event ", out)
+        self.assertIn("cancelled event - ", out)
+        self.assertIn("Standup", out)
+        self.assertNotIn("Far away", out)
+        self.assertIn("agenda, next 24 hours:", out)
+        self.assertEqual(self.tick(), "")  # changes reported once, agenda once a day
+
+    def test_mail_wake_carries_the_next_day_of_calendar(self):
+        import datetime
+        self.module()
+        self.fake("bridge-on", "x")
+        self.tick()
+        soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=3)).isoformat()
+        self.fake("events.json", [{"id": "e1", "status": "confirmed", "summary": "Flight", "start": soon,
+                                   "end": soon}])
+        self.tick()  # new event plus agenda
+        later = int(__import__("time").time() * 1000) + 60_000
+        self.fake("mail.json", [{"id": "m1", "received_ms": later, "from": "airline@example.com",
+                                 "subject": "Gate change", "date": "", "snippet": ""}])
+        out = self.tick()
+        self.assertIn("## calendar (next 24 hours)\n- ", out)
+        self.assertIn("Flight", out)
 
     def test_due_friday_task_is_raised_once_a_day(self):
         self.module()

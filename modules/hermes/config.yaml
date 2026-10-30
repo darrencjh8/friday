@@ -105,8 +105,9 @@ terminal:
     persistent_shell: true
     cwd: /workspace
     # execute_code scrubs *_SECRET and unlisted names from its child env, so the
-    # gtasks CLI it may spawn (wiki-due-reminders) needs its OAuth client passed.
-    env_passthrough: [GTASKS_CLIENT_ID, GTASKS_CLIENT_SECRET]
+    # gtasks CLI it may spawn (wiki-due-reminders) needs its OAuth client passed,
+    # and the google_bridge CLI its bridge URL and key.
+    env_passthrough: [GTASKS_CLIENT_ID, GTASKS_CLIENT_SECRET, FRIDAY_BRIDGE_URL, FRIDAY_BRIDGE_KEY]
 
 web:
     search_backend: brave-free

@@ -306,6 +306,9 @@ services:
             - REMINDERS_EDIT_TOKEN=${REMINDERS_EDIT_TOKEN:-}
             - GTASKS_CLIENT_SECRET=${GTASKS_CLIENT_SECRET:-}
             - GTASKS_REDIRECT_URI=${GTASKS_REDIRECT_URI:-http://localhost:9090/callback}
+            # Read-only Gmail and Calendar bridge (apps-script/friday-bridge).
+            - FRIDAY_BRIDGE_URL=${FRIDAY_BRIDGE_URL:-}
+            - FRIDAY_BRIDGE_KEY=${FRIDAY_BRIDGE_KEY:-}
             - XDG_CONFIG_HOME=/opt/data/.config
             # Mnemosyne sleep summarises old working memory with the Hermes auxiliary
             # model it registers in-process (no new endpoint or key). Its local_llm
