@@ -28,8 +28,8 @@ describe("backupActual", () => {
             "http://a/export?budget_id=Main%20SGD",
             "http://a/export?budget_id=Main%20MYR",
         ]);
-        expect(upload.mock.calls.map(([n]) => n)).toEqual(["Main SGD 2026-11-01.zip", "Main MYR 2026-11-01.zip"]);
-        expect(out.files.map((f) => f.name)).toEqual(["Main SGD 2026-11-01.zip", "Main MYR 2026-11-01.zip"]);
+        expect(upload.mock.calls.map(([n]) => n)).toEqual(["2026-11/2026-11-01-Main SGD.zip", "2026-11/2026-11-01-Main MYR.zip"]);
+        expect(out.files.map((f) => f.name)).toEqual(["2026-11/2026-11-01-Main SGD.zip", "2026-11/2026-11-01-Main MYR.zip"]);
     });
 
     it("fails the whole run when an export fails, before uploading it", async () => {
@@ -60,7 +60,7 @@ describe("uploadBackup", () => {
         return vi.fn(async (url) => {
             if (url.includes("login.microsoftonline.com")) return { ok: true, json: async () => ({ access_token: "t" }) };
             if (url.includes("/search(")) return { ok: true, json: async () => ({ value: searchHits }) };
-            return { ok: true, json: async () => ({ name: "Main SGD 2026-11-01.zip" }) };
+            return { ok: true, json: async () => ({ name: "2026-11-01-Main SGD.zip" }) };
         });
     }
 
@@ -71,12 +71,12 @@ describe("uploadBackup", () => {
             { name: "Flyio notes", file: {} },
             { name: "Flyio", remoteItem: { id: "F1", folder: {}, parentReference: { driveId: "D9" } } },
         ]);
-        const name = await uploadBackup("Main SGD 2026-11-01.zip", new Uint8Array([1]));
+        const name = await uploadBackup("2026-11/2026-11-01-Main SGD.zip", new Uint8Array([1]));
         const [url, opts] = global.fetch.mock.calls[2];
         expect(global.fetch.mock.calls[1][0]).toContain("search(q='Flyio')");
-        expect(url).toBe("https://graph.microsoft.com/v1.0/drives/D9/items/F1:/Main%20SGD%202026-11-01.zip:/content?@microsoft.graph.conflictBehavior=replace");
+        expect(url).toBe("https://graph.microsoft.com/v1.0/drives/D9/items/F1:/2026-11/2026-11-01-Main%20SGD.zip:/content?@microsoft.graph.conflictBehavior=replace");
         expect(opts.method).toBe("PUT");
-        expect(name).toBe("Main SGD 2026-11-01.zip");
+        expect(name).toBe("2026-11-01-Main SGD.zip");
     });
 
     it("fails when the shared folder is not visible", async () => {
@@ -85,6 +85,8 @@ describe("uploadBackup", () => {
     });
 
     it("rejects a name that could escape the folder", async () => {
-        await expect(uploadBackup("../x.zip", new Uint8Array())).rejects.toThrow(/Unsafe/);
+        for (const bad of ["../x.zip", "a//x.zip", "/x.zip", "a\\x.zip", "a:x.zip"]) {
+            await expect(uploadBackup(bad, new Uint8Array())).rejects.toThrow(/Unsafe/);
+        }
     });
 });

@@ -216,7 +216,11 @@ export async function pushToOneDrive(localPath) {
  * @param {Uint8Array} bytes
  */
 export async function uploadBackup(name, bytes) {
-    if (/[\\/:]/.test(name)) throw new Error(`Unsafe backup name: ${name}`);
+    // name may hold subfolders ("2026-11/x.zip"); Graph creates any that are missing.
+    const parts = name.split("/");
+    if (parts.some((p) => !p || p === "." || p === ".." || /[\\:]/.test(p))) {
+        throw new Error(`Unsafe backup name: ${name}`);
+    }
     const folder = process.env.ONEDRIVE_BACKUP_FOLDER || "Flyio";
     const token = await getAccessToken();
     const headers = { Authorization: `Bearer ${token}` };
@@ -231,7 +235,7 @@ export async function uploadBackup(name, bytes) {
     if (!match) throw new Error(`OneDrive folder "${folder}" not found; share it with this account`);
     const ref = match.remoteItem || match;
     const resp = await fetch(
-        `https://graph.microsoft.com/v1.0/drives/${ref.parentReference.driveId}/items/${ref.id}:/${encodeURIComponent(name)}:/content?@microsoft.graph.conflictBehavior=replace`,
+        `https://graph.microsoft.com/v1.0/drives/${ref.parentReference.driveId}/items/${ref.id}:/${parts.map(encodeURIComponent).join("/")}:/content?@microsoft.graph.conflictBehavior=replace`,
         {
             method: "PUT",
             headers: { ...headers, "Content-Type": "application/octet-stream" },

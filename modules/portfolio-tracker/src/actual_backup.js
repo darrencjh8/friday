@@ -2,7 +2,8 @@
  * Monthly Actual Budget backup to OneDrive. Each budget named in
  * ACTUAL_PRIMARY_BUDGET_FILE / ACTUAL_SECONDARY_BUDGET_FILE is exported by
  * actual-api (Actual's own export zip) and uploaded to OneDrive
- * <shared backup folder>/<budget> <YYYY-MM-DD>.zip, the file "Import Actual" restores.
+ * <shared backup folder>/<YYYY-MM>/<YYYY-MM-DD>-<budget>.zip (the layout of
+ * the backups Darren made by hand), the file "Import Actual" restores.
  */
 import { uploadBackup } from "./onedrive.js";
 
@@ -20,7 +21,7 @@ export async function backupActual({
         });
         if (!resp.ok) throw new Error(`Export ${budget} failed: HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
         const bytes = new Uint8Array(await resp.arrayBuffer());
-        files.push({ name: await upload(`${budget} ${date}.zip`, bytes), bytes: bytes.length });
+        files.push({ name: await upload(`${date.slice(0, 7)}/${date}-${budget}.zip`, bytes), bytes: bytes.length });
     }
     return { files };
 }
