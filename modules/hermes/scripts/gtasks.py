@@ -5,11 +5,11 @@ Covers the upstream skill surface without the BRO3886 binary:
 login/logout, tasklists view/add/rm, tasks
 view/info/add/done/undo/clear/update/rm.
 
-OAuth uses a fixed https redirect served over the existing tailnet:
-  https://<tailnet-host>/gtasks/callback
-terminated by `tailscale serve --set-path /gtasks` and proxied to
-http://127.0.0.1:8299 inside the hermes container. The CLI validates
-path, single use, timeout, state and PKCE itself.
+OAuth redirects to the loopback http://localhost:9090/callback (Google rejects
+tailnet https redirects for this client). The browser reaches the listener on
+port 8299 through `ssh -L 9090:localhost:8299 <user>@<host>`, or the redirect
+URL is pasted back with `login --manual`. The CLI validates path, single use,
+timeout, state and PKCE itself.
 """
 import argparse
 import base64
@@ -33,6 +33,11 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 API_BASE = "https://tasks.googleapis.com/tasks/v1"
 DEFAULT_REDIRECT_URI = "http://localhost:9090/callback"
 CALLBACK_PORT = 8299
+# All interfaces inside the container: Docker delivers the published port to the
+# container's network interface, never to its loopback, so a 127.0.0.1 bind is
+# unreachable from the host. Compose publishes it on host loopback only
+# (127.0.0.1:8299:8299), and the listener only runs during a login.
+CALLBACK_HOST = "0.0.0.0"
 CALLBACK_PATHS = ("/callback", "/gtasks/callback")
 LOGIN_TIMEOUT = 300
 EXIT_AUTH_EXPIRED = 3
@@ -121,7 +126,7 @@ def wait_for_code(port=CALLBACK_PORT, expected_state="", timeout=LOGIN_TIMEOUT,
     state = CallbackState(paths)
     _Handler.state = state
     _Handler.expected = expected_state
-    server = http.server.HTTPServer(("127.0.0.1", port), _Handler)
+    server = http.server.HTTPServer((CALLBACK_HOST, port), _Handler)
     server.timeout = 1
     deadline = _dt.datetime.now().timestamp() + timeout
     while _dt.datetime.now().timestamp() < deadline:
