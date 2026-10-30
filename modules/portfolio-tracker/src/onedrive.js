@@ -206,6 +206,33 @@ export async function pushToOneDrive(localPath) {
     }
 }
 
+/**
+ * Upload one backup file to OneDrive under /Backups/<folder>/<name>, replacing
+ * a file of the same name. Graph creates missing folders on a path PUT; a
+ * single PUT is fine up to 250 MB.
+ * @param {string} folder - e.g. "Actual"
+ * @param {string} name - file name, no slashes
+ * @param {Uint8Array} bytes
+ */
+export async function uploadBackup(folder, name, bytes) {
+    if (/[\\/:]/.test(folder + name)) throw new Error(`Unsafe backup path: ${folder}/${name}`);
+    const token = await getAccessToken();
+    const path = ["Backups", folder, name].map(encodeURIComponent).join("/");
+    const resp = await fetch(
+        `https://graph.microsoft.com/v1.0/me/drive/root:/${path}:/content?@microsoft.graph.conflictBehavior=replace`,
+        {
+            method: "PUT",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/octet-stream" },
+            body: bytes,
+            signal: AbortSignal.timeout(120000),
+        },
+    );
+    if (!resp.ok) {
+        throw new Error(`OneDrive upload ${name} failed: HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    }
+    return (await resp.json()).name || name;
+}
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }

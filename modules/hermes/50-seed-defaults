@@ -928,6 +928,55 @@ with open(jobs_path + ".tmp", "w") as f:
 os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
+# Seed two no_agent jobs (zero tokens, silent on success, alerted on failure):
+# notion-monthly-bills-reset sets every Monthly Bill row back to "Not started" at
+# midnight on the 1st; actual-backup has portfolio-tracker export both Actual
+# budgets and upload them to OneDrive /Backups/Actual every midnight.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+SEEDS = {
+    "notion-monthly-bills-reset": ("notion-monthly-bills-reset.py", "0 0 1 * *", "1st of the month 12am"),
+    "actual-backup": ("actual-backup.sh", "0 0 * * *", "every day 12am"),
+}
+for name, (script, expr, display) in SEEDS.items():
+    managed = {"script": script, "no_agent": True}
+    existing = next((j for j in jobs if isinstance(j, dict) and j.get("name") == name), None)
+    if existing is None:
+        jobs.append({
+            "id": uuid.uuid4().hex[:12],
+            "name": name,
+            "schedule": {"kind": "cron", "expr": expr, "display": display},
+            "schedule_display": display,
+            "enabled": True,
+            "deliver": "telegram",
+            "next_run_at": None,
+            "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            **managed,
+        })
+        print(f"cron: {name} seeded (no_agent)")
+    else:
+        changed = [key for key, value in managed.items() if existing.get(key) != value]
+        for key in changed:
+            existing[key] = managed[key]
+        print(f"cron: {name} migrated: " + ", ".join(sorted(changed)) if changed else f"cron: {name} unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
 # Seed daily log issue triage. The workdir is deliberately artifact-only: the
 # main agent may run the fixed wrappers but cannot browse a source checkout.
 mkdir -p /opt/data/log-issue-triage/snapshots

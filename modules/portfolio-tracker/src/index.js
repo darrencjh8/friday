@@ -18,6 +18,7 @@ import { ImapIdleHandler } from "./imap.js";
 import { dispatchEmail } from "./classify.js";
 import { createMcpServer } from "./mcp-server.js";
 import { mountProcessingRoute } from "./processing.js";
+import { mountBackupRoute } from "./actual_backup.js";
 
 // ── Startup guard: fail fast if critical env vars are missing ──
 function guardEnv() {
@@ -132,6 +133,10 @@ async function main() {
     // Processing contract for Hermes email-intake (#783): one signed request
     // per email; Hermes owns the mailbox and every user notification.
     mountProcessingRoute(app, { orchestrator, tools: registry, cfg });
+
+    // Nightly Actual Budget backup to OneDrive, triggered by a Hermes cron job.
+    // Deliberately not a tool, so no agent can call it through MCP.
+    mountBackupRoute(app);
 
     // Tool schemas endpoint
     app.get("/tools", (_req, res) => res.json(registry.getToolSchemas()));
