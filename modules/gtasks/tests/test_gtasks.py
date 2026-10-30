@@ -142,7 +142,7 @@ class TestTimeout(unittest.TestCase):
 class TestTokenErrors(unittest.TestCase):
     def test_expired_refresh_message(self):
         msg = gtasks.auth_expired_message()
-        self.assertIn("gtasks login", msg)
+        self.assertIn("google login", msg)
         self.assertNotIn("refresh_token", msg)
 
     def test_is_auth_expired(self):

@@ -19,16 +19,20 @@ Sources:
 - patch: the Mnemosyne cron read-only patch is missing (an upgrade or reinstall
   overwrote it), at most once a day.
 - mail: Gmail messages that arrived since the last tick (promotions, social and
-  forums skipped), through the read-only gmail.py. Off until `gmail login`; the
-  first tick after login only sets the cursor, so old mail is never replayed.
+  forums skipped), through the read-only gmail.py. Off until `google login`
+  grants gmail.readonly; the first tick only sets the cursor, so old mail is
+  never replayed.
+- calendar: events in the next CALENDAR_DAYS that were added, moved, or
+  cancelled since the last tick (the first tick only takes the baseline), and
+  once a day the agenda for the next 24 hours, through the read-only gcal.py.
 - tasks: open items on Friday's own Google Tasks list that are due today or
   earlier, at most once a day each.
 When any source has something, the open Friday tasks and Darren's notify
 preferences are added as context so the agent can match mail to what it
-already tracks.
+already tracks, along with the next 24 hours of calendar.
 
-Reads only: the Mnemosyne DB is opened read-only and Gmail access is the
-gmail.readonly scope.
+Reads only: the Mnemosyne DB is opened read-only, and the Google login's mail
+and calendar scopes are gmail.readonly and calendar.readonly.
 """
 
 import datetime
@@ -49,6 +53,7 @@ SGT = datetime.timezone(datetime.timedelta(hours=8))
 SCRIPTS = os.path.dirname(os.path.abspath(__file__))
 TASK_LIST = "Friday"
 MAIL_PER_TICK = 20
+CALENDAR_DAYS = 14
 
 
 def parse_body(body):
@@ -113,24 +118,94 @@ def patch_source(today, seen, cursors):
     return []
 
 
-def mail_source(today, seen, cursors):
+def google(name):
+    """The gmail or gcal module when the Google login grants it, else None."""
     sys.path.insert(0, SCRIPTS)
-    import gmail
+    module = __import__(name)
+    return module if module.enabled() else None
 
-    if not gmail.load_token():
+
+def now_ms():
+    return int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
+
+
+def mail_source(today, seen, cursors):
+    gmail = google("gmail")
+    if not gmail:
         return []
     after = cursors.get("gmail")
     if after is None:
-        cursors["gmail"] = int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1000)
+        cursors["gmail"] = now_ms()
         return []
-    try:
-        messages = gmail.list_messages(after_ms=after, limit=MAIL_PER_TICK)
-    except gmail.AuthExpired:
-        raise RuntimeError("Gmail login expired or was revoked; run `gmail login` again")
+    messages = gmail.list_messages(after_ms=after, limit=MAIL_PER_TICK)
     if messages:
         cursors["gmail"] = messages[-1]["received_ms"]
     return [(f"mail:{m['id']}", f"mail id={m['id']} | from: {m['from']} | subject: {m['subject']} | {m['date']}\n"
              f"snippet: {m['snippet']}") for m in messages]
+
+
+def event_start(event):
+    """Start as an aware datetime; all-day events start at midnight SGT."""
+    value = event.get("start") or ""
+    try:
+        if len(value) == 10:
+            return datetime.datetime.combine(datetime.date.fromisoformat(value), datetime.time(), SGT)
+        return datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def event_line(event):
+    start = event_start(event)
+    when = start.astimezone(SGT).strftime("%a %d %b %H:%M") if start and len(event.get("start", "")) > 10 \
+        else (start.strftime("%a %d %b all day") if start else event.get("start", ""))
+    line = f"- {when}: {event.get('summary') or '(no title)'}"
+    if event.get("location"):
+        line += f" @ {event['location']}"
+    description = " ".join((event.get("description") or "").split())[:200]
+    return line + (f" — {description}" if description else "")
+
+
+@functools.lru_cache(maxsize=None)
+def upcoming_events():
+    gcal = google("gcal")
+    return tuple(gcal.list_events(CALENDAR_DAYS)) if gcal else ()
+
+
+def next_day(events):
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return [e for e in events if (s := event_start(e)) and s <= now + datetime.timedelta(hours=24)]
+
+
+def calendar_source(today, seen, cursors):
+    if not google("gcal"):
+        return []
+    events = [e for e in upcoming_events() if e.get("status") != "cancelled"]
+    horizon = now_ms() + CALENDAR_DAYS * 86400000
+    current = {e["id"]: {"sig": "|".join(str(e.get(k, "")) for k in ("start", "end", "summary", "location")),
+                         "start_ms": int(s.timestamp() * 1000) if (s := event_start(e)) else 0,
+                         "line": event_line(e)} for e in events}
+    previous = cursors.get("calendar")
+    cursors["calendar"] = {"horizon_ms": horizon, "events": current}
+    if previous is None:
+        return []
+    items = []
+    before = previous.get("events", {})
+    for event_id, now_event in current.items():
+        old = before.get(event_id)
+        if old is None and now_event["start_ms"] < previous.get("horizon_ms", 0):
+            # Events that only scrolled into the window are not news.
+            items.append((f"cal:new:{event_id}", "new event " + now_event["line"]))
+        elif old is not None and old["sig"] != now_event["sig"]:
+            items.append((f"cal:moved:{event_id}:{now_event['sig']}", f"changed event {now_event['line']} (was {old['line'][2:]})"))
+    for event_id, old in before.items():
+        if event_id not in current and old["start_ms"] > now_ms():
+            items.append((f"cal:cancelled:{event_id}", "cancelled event " + old["line"]))
+    key = "cal:agenda"
+    soon = next_day(events)
+    if soon and seen.get(key) != today.isoformat():
+        items.append((key, "agenda, next 24 hours:\n" + "\n".join(event_line(e) for e in soon)))
+    return items
 
 
 @functools.lru_cache(maxsize=None)
@@ -161,7 +236,8 @@ def tasks_source(today, seen, cursors):
     return items
 
 
-SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "tasks": tasks_source}
+SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "calendar": calendar_source,
+           "tasks": tasks_source}
 
 
 def save_state(today, seen, cursors):
@@ -205,6 +281,13 @@ def main():
         sections.append(f"## Friday tasks\nunavailable: {error}")
     if open_tasks:
         sections.append("## Friday tasks (open)\n" + "\n".join(task_line(t) for t in open_tasks))
+    if "## calendar\n" not in "\n".join(sections):
+        try:
+            soon = next_day(upcoming_events())
+        except Exception:
+            soon = []  # the calendar source already reported the failure
+        if soon:
+            sections.append("## calendar (next 24 hours)\n" + "\n".join(event_line(e) for e in soon))
     try:
         preferences = dict(read_slots("notify")).get("preferences")
     except sqlite3.Error:

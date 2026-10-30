@@ -98,12 +98,13 @@ Edits rewrite the wiki table atomically and take effect from the next
 already-created Google Tasks are never deleted; clear them in Google
 Tasks. Titles/notes may not contain `|`, backticks, or newlines.
 
-Google Tasks OAuth uses a loopback redirect (`http://localhost:9090/callback`,
+Google OAuth (`google login`, one token for gtasks plus read-only gmail and
+gcal) uses a loopback redirect (`http://localhost:9090/callback`,
 exempt from Google's own-your-domain redirect policy, which rejects
 tailnet-host redirects with a 400 policy page). There is deliberately no
 serve mount for it: the browser device reaches the container listener on
 `127.0.0.1:8299` via `ssh -L 9090:localhost:8299`, or the code comes back
-through `gtasks login --manual`. Verify with `tailscale serve status`.
+through `google login --manual`. Verify with `tailscale serve status`.
 
 Verify with `tailscale serve status`. Any client that hardcoded
 `https://your-host.your-tailnet.ts.net/v1` moves to `https://your-host.your-tailnet.ts.net/router/v1`.

@@ -9,6 +9,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Own Google Tasks CLI (stdlib only, no third-party binary).
 COPY scripts/gtasks.py /usr/local/bin/gtasks
 RUN chmod 0755 /usr/local/bin/gtasks
+# `google` (the one Google login), `gmail` and `gcal` (read-only) import gtasks.py
+# from the seeded scripts directory, so they are wrappers rather than copies.
+RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
+        printf '#!/bin/sh\nexec python3 /opt/data/scripts/%s.py "$@"\n' "${cli#*:}" > "/usr/local/bin/${cli%%:*}"; \
+        chmod 0755 "/usr/local/bin/${cli%%:*}"; \
+    done
 # The dev-loop checkout is refreshed at runtime, but its Python imports must be
 # available in the image before gateway startup. Keep this manifest local to the
 # Hermes image so the build does not depend on a runtime-mounted checkout.
