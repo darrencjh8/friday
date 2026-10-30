@@ -182,6 +182,11 @@ class HermesSlackComposeTests(unittest.TestCase):
             "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, the Tasks callback, and reminders",
         )
         self.assertIn(
+            "127.0.0.1:9119:9119",
+            [str(p) for p in ports],
+            "the dashboard must stay on host loopback; Tailscale serves it",
+        )
+        self.assertIn(
             "127.0.0.1:8787:8787",
             [str(p) for p in ports],
             "the WebUI must stay on host loopback; Tailscale serves it",
