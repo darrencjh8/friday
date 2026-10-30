@@ -2,8 +2,9 @@
 """Own Google Tasks CLI (stdlib only).
 
 Covers the upstream skill surface without the BRO3886 binary:
-login/logout, tasklists view/add/rm, tasks
-view/info/add/done/undo/clear/update/rm.
+tasklists view/add/rm, tasks view/info/add/done/undo/clear/update/rm.
+Login lives in `google login` (google_login.py), which grants one token shared
+with the read-only gmail and gcal CLIs; the OAuth helpers stay here.
 
 OAuth uses a fixed https redirect served over the existing tailnet:
   https://<tailnet-host>/gtasks/callback
@@ -28,6 +29,11 @@ import urllib.request
 
 VERSION = "0.1.0"
 SCOPE = "https://www.googleapis.com/auth/tasks"
+GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+# Everything `google login` asks for. Login refuses a token granting anything
+# else, which is what keeps Gmail and Calendar read-only.
+LOGIN_SCOPES = (SCOPE, GMAIL_SCOPE, CALENDAR_SCOPE)
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API_BASE = "https://tasks.googleapis.com/tasks/v1"
@@ -47,7 +53,7 @@ def audit(event, **fields):
 
 def auth_expired_message():
     return ("Google token expired or revoked. "
-            "Run `gtasks login` again interactively to reconnect.")
+            "Run `google login` again interactively to reconnect.")
 
 
 def is_auth_expired(payload):
@@ -59,6 +65,11 @@ def is_auth_expired(payload):
 
 
 class AuthExpired(Exception):
+    def __str__(self):
+        return auth_expired_message()
+
+
+class MissingScope(Exception):
     pass
 
 
@@ -159,6 +170,8 @@ def _config_dir():
 
 
 def _token_path():
+    # ponytail: the shared Google token keeps the gtasks path so the existing
+    # tasks-only login keeps working until the next `google login`.
     return os.path.join(_config_dir(), "token.json")
 
 
@@ -207,7 +220,10 @@ def _post_token(payload):
 
 
 def _refresh(token):
-    cid, csec = _client_env()
+    # The client saved at login lets refresh work where GTASKS_* are unset.
+    cid, csec = token.get("client_id"), token.get("client_secret")
+    if not cid or not csec:
+        cid, csec = _client_env()
     if not token.get("refresh_token"):
         raise AuthExpired()
     payload = {"grant_type": "refresh_token",
@@ -233,6 +249,24 @@ def _valid_token():
             _dt.timezone.utc).timestamp():
         return token
     return _refresh(token)
+
+
+def granted_scopes(token=None):
+    """Scopes the saved token carries; a token saved before `google login`
+    recorded them was a tasks-only login."""
+    token = token if token is not None else _load_token()
+    if not token:
+        return set()
+    return set(token.get("scopes") or [SCOPE])
+
+
+def token_for(scope):
+    """Valid access token whose grant includes scope."""
+    token = _valid_token()
+    if scope not in granted_scopes(token):
+        raise MissingScope("The Google login does not include %s. Run `google login` again "
+                           "and allow it." % scope.rsplit("/", 1)[-1])
+    return token["access_token"]
 
 
 def _api(method, path, body=None, _retried=False):
@@ -416,12 +450,13 @@ def parse_pasted_callback(text, expected_state):
 
 
 def cmd_login(args):
+    """`google login`: one consent for tasks, read-only Gmail and read-only Calendar."""
     cid, csec = _client_env()
     redirect_uri = args.redirect_uri or os.environ.get(
         "GTASKS_REDIRECT_URI", DEFAULT_REDIRECT_URI)
     state = secrets.token_urlsafe(32)
     verifier, challenge = pkce_pair()
-    url = build_auth_url(cid, redirect_uri, state, challenge)
+    url = build_auth_url(cid, redirect_uri, state, challenge, scope=" ".join(LOGIN_SCOPES))
     print("Open this URL in your PC/phone browser:\n%s\n" % url)
     if args.manual:
         print("If the browser cannot reach the callback (connection refused), "
@@ -451,15 +486,24 @@ def cmd_login(args):
                        "client_secret": csec, "code_verifier": verifier})
     if out.get("error") or not out.get("access_token"):
         raise SystemExit("Login failed at token exchange.")
+    granted = set(out.get("scope", "").split())
+    if not granted or granted - set(LOGIN_SCOPES):
+        # Never keep a token that could send, delete, or edit mail or events.
+        raise SystemExit("Login refused: Google granted scopes beyond tasks, "
+                         "gmail.readonly and calendar.readonly.")
     token = {"access_token": out["access_token"],
              "refresh_token": out.get("refresh_token", ""),
              "expiry": _dt.datetime.now(_dt.timezone.utc).timestamp()
-             + out.get("expires_in", 3600)}
+             + out.get("expires_in", 3600),
+             "scopes": sorted(granted), "client_id": cid, "client_secret": csec}
     if not token["refresh_token"]:
         raise SystemExit("No refresh_token returned; retry login with consent.")
     _save_token(token)
-    audit("login", ok=True)
-    print("Login saved.")
+    audit("login", ok=True, scopes=len(granted))
+    names = ", ".join(sorted(s.rsplit("/", 1)[-1] for s in granted))
+    print("Login saved: %s." % names)
+    if granted != set(LOGIN_SCOPES):
+        print("Some access was left unticked; run `google login` again to add it.")
 
 
 def cmd_tasklists(args):
@@ -574,16 +618,6 @@ def build_parser():
                         version="gtasks version %s" % VERSION)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    login = sub.add_parser("login")
-    login.add_argument("--redirect-uri", default="")
-    login.add_argument("--port", type=int, default=CALLBACK_PORT)
-    login.add_argument("--timeout", type=int, default=LOGIN_TIMEOUT)
-    login.add_argument("--manual", action="store_true",
-                       help="paste the redirect URL by hand instead of "
-                            "receiving the callback (no port forward needed)")
-
-    sub.add_parser("logout").set_defaults(command="logout")
-
     tasklists = sub.add_parser("tasklists")
     tasklists.add_argument("action", choices=("view", "add", "rm"))
     tasklists.add_argument("-t", "--title", default="")
@@ -615,20 +649,15 @@ def build_parser():
 def main(argv=None):
     args = build_parser().parse_args(_hoist_action(list(argv) if argv is not None else sys.argv[1:]))
     try:
-        if args.command == "login":
-            cmd_login(args)
-        elif args.command == "logout":
-            try:
-                os.remove(_token_path())
-            except OSError:
-                pass
-            print("Logged out.")
-        elif args.command == "tasklists":
+        if args.command == "tasklists":
             cmd_tasklists(args)
         elif args.command == "tasks":
             cmd_tasks(args)
     except AuthExpired:
         sys.stderr.write(auth_expired_message() + "\n")
+        raise SystemExit(EXIT_AUTH_EXPIRED)
+    except MissingScope as exc:
+        sys.stderr.write("%s\n" % exc)
         raise SystemExit(EXIT_AUTH_EXPIRED)
     except BrokenPipeError:
         raise SystemExit(0)
