@@ -289,7 +289,7 @@ services:
             # The redirect is loopback (http://localhost:9090/callback), which
             # is exempt from Google's own-your-domain redirect policy; the
             # browser device reaches it via `ssh -L 9090:localhost:8299`,
-            # or the code is pasted back with `gtasks login --manual`.
+            # or the code is pasted back with `google login --manual`.
             - "127.0.0.1:8299:8299"
         volumes:
             - /home/runner/data/hermes/data:/opt/data
