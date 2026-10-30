@@ -22,16 +22,13 @@ describe("backupActual", () => {
     afterEach(() => vi.restoreAllMocks());
 
     it("exports every configured budget and uploads a dated zip", async () => {
-        const upload = vi.fn(async (_folder, name) => name);
+        const upload = vi.fn(async (name) => name);
         const out = await backupActual({ budgets: ["Main SGD", "Main MYR"], actualApiUrl: "http://a", upload, date: "2026-11-01" });
         expect(global.fetch.mock.calls.map(([u]) => u)).toEqual([
             "http://a/export?budget_id=Main%20SGD",
             "http://a/export?budget_id=Main%20MYR",
         ]);
-        expect(upload.mock.calls.map(([f, n]) => [f, n])).toEqual([
-            ["Actual", "Main SGD 2026-11-01.zip"],
-            ["Actual", "Main MYR 2026-11-01.zip"],
-        ]);
+        expect(upload.mock.calls.map(([n]) => n)).toEqual(["Main SGD 2026-11-01.zip", "Main MYR 2026-11-01.zip"]);
         expect(out.files.map((f) => f.name)).toEqual(["Main SGD 2026-11-01.zip", "Main MYR 2026-11-01.zip"]);
     });
 
@@ -59,20 +56,35 @@ describe("backupActual", () => {
 describe("uploadBackup", () => {
     afterEach(() => vi.restoreAllMocks());
 
-    it("PUTs to /Backups/<folder>/<name> with replace", async () => {
+    function graph(searchHits) {
+        return vi.fn(async (url) => {
+            if (url.includes("login.microsoftonline.com")) return { ok: true, json: async () => ({ access_token: "t" }) };
+            if (url.includes("/search(")) return { ok: true, json: async () => ({ value: searchHits }) };
+            return { ok: true, json: async () => ({ name: "Main SGD 2026-11-01.zip" }) };
+        });
+    }
+
+    it("PUTs into the shared folder on its owner's drive, replacing", async () => {
         process.env.ONEDRIVE_CLIENT_ID = "cid";
-        global.fetch = vi.fn(async (url) =>
-            url.includes("login.microsoftonline.com")
-                ? { ok: true, json: async () => ({ access_token: "t" }) }
-                : { ok: true, json: async () => ({ name: "Main SGD 2026-11-01.zip" }) });
-        const name = await uploadBackup("Actual", "Main SGD 2026-11-01.zip", new Uint8Array([1]));
-        const [url, opts] = global.fetch.mock.calls[1];
-        expect(url).toBe("https://graph.microsoft.com/v1.0/me/drive/root:/Backups/Actual/Main%20SGD%202026-11-01.zip:/content?@microsoft.graph.conflictBehavior=replace");
+        delete process.env.ONEDRIVE_BACKUP_FOLDER;
+        global.fetch = graph([
+            { name: "Flyio notes", file: {} },
+            { name: "Flyio", remoteItem: { id: "F1", folder: {}, parentReference: { driveId: "D9" } } },
+        ]);
+        const name = await uploadBackup("Main SGD 2026-11-01.zip", new Uint8Array([1]));
+        const [url, opts] = global.fetch.mock.calls[2];
+        expect(global.fetch.mock.calls[1][0]).toContain("search(q='Flyio')");
+        expect(url).toBe("https://graph.microsoft.com/v1.0/drives/D9/items/F1:/Main%20SGD%202026-11-01.zip:/content?@microsoft.graph.conflictBehavior=replace");
         expect(opts.method).toBe("PUT");
         expect(name).toBe("Main SGD 2026-11-01.zip");
     });
 
+    it("fails when the shared folder is not visible", async () => {
+        global.fetch = graph([{ name: "Other", folder: {} }]);
+        await expect(uploadBackup("x.zip", new Uint8Array())).rejects.toThrow(/not found; share it/);
+    });
+
     it("rejects a name that could escape the folder", async () => {
-        await expect(uploadBackup("Actual", "../x.zip", new Uint8Array())).rejects.toThrow(/Unsafe/);
+        await expect(uploadBackup("../x.zip", new Uint8Array())).rejects.toThrow(/Unsafe/);
     });
 });
