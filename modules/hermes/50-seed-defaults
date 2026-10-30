@@ -884,6 +884,50 @@ with open(jobs_path + ".tmp", "w") as f:
 os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
+# Seed gtasks-clear-completed (no_agent, zero tokens): on the 1st of each
+# month, clear completed tasks in every Google Tasks list. Clearing hides
+# them; gtasks still lists hidden tasks with --include-completed, so the wiki
+# reminder dedup keeps seeing them. Silent on success; a failure is alerted.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+MANAGED = {"script": "gtasks-clear-completed.py", "no_agent": True}
+existing = next((j for j in jobs if isinstance(j, dict) and j.get("name") == "gtasks-clear-completed"), None)
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "gtasks-clear-completed",
+        "schedule": {"kind": "cron", "expr": "0 7 1 * *", "display": "1st of the month 7am"},
+        "schedule_display": "1st of the month 7am",
+        "enabled": True,
+        "deliver": "telegram",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **MANAGED,
+    })
+    print("cron: gtasks-clear-completed seeded (no_agent)")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    print("cron: gtasks-clear-completed migrated: " + ", ".join(sorted(changed)) if changed else "cron: gtasks-clear-completed unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
 # Seed daily log issue triage. The workdir is deliberately artifact-only: the
 # main agent may run the fixed wrappers but cannot browse a source checkout.
 mkdir -p /opt/data/log-issue-triage/snapshots
