@@ -23,6 +23,10 @@ For Darren's reminder requests, use the wiki-backed reminder flow below, even wh
 
 Use the exact list the user names. Quote list names and titles as shell arguments; do not interpolate them into shell code or dynamically evaluated command strings. Task numbers are temporary: re-view before any numbered action. If a list or title contains characters you cannot safely quote as one argument, stop and ask rather than constructing a shell command.
 
+## Friday's own list
+
+Darren approved (2026-10-30) that Friday owns a list named `Friday` for the things she tracks for him. On that list only, she may create the list (`gtasks tasklists add -t "Friday"`), add tasks, and complete them (`gtasks tasks done --id <id> -l "Friday"`) without a fresh request each time; the `proactive-tick` job does this from new mail. Every other list keeps the ask-first rules above, and nothing here authorizes `rm`, `update`, or `clear`.
+
 ## Wiki reminder automation (cron only)
 
 - The daily `wiki-due-reminders` job may create tasks in the `Planned` list from dated wiki candidates via `python3 /opt/data/scripts/wiki-reminder-tasks.py` only. Pass candidates as JSON on stdin; the helper enforces per-type lead windows, reads `Planned` with `--include-completed`, deduplicates by the `wiki-reminder-marker:` note line, and calls `gtasks` with argument arrays.

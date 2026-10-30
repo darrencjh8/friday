@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import tempfile
@@ -186,12 +187,41 @@ class ProactiveTickSeedTest(unittest.TestCase):
         self.assertNotEqual(job["prompt"], "old")
 
 
+# Stand-ins the pre-check imports or runs from its own directory. Each reads
+# its canned data from $FAKE_DIR so a test controls mail, tasks and login.
+FAKE_GMAIL = '''
+import json, os
+FAKE = os.environ["FAKE_DIR"]
+class AuthExpired(Exception):
+    pass
+def load_token():
+    return os.path.exists(os.path.join(FAKE, "gmail-token"))
+def list_messages(after_ms=0, limit=20):
+    if os.path.exists(os.path.join(FAKE, "gmail-expired")):
+        raise AuthExpired()
+    with open(os.path.join(FAKE, "mail.json")) as fh:
+        return [m for m in json.load(fh) if m["received_ms"] > after_ms][:limit]
+'''
+FAKE_GTASKS = '''
+import os, sys
+path = os.path.join(os.environ["FAKE_DIR"], "tasks.json")
+if not os.path.exists(path):
+    sys.exit("List not found: Friday")
+print(open(path).read())
+'''
+
+
 class ProactiveTickScriptTest(unittest.TestCase):
     """The pre-check prints only what is new; empty output means the agent never runs."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
+        self.scripts = self.home / "scripts"
+        self.scripts.mkdir()
+        shutil.copy(TICK_SCRIPT, self.scripts / "proactive-tick.py")
+        (self.scripts / "gmail.py").write_text(FAKE_GMAIL)
+        (self.scripts / "gtasks.py").write_text(FAKE_GTASKS)
         data = self.home / "mnemosyne" / "data"
         data.mkdir(parents=True)
         self.db = sqlite3.connect(data / "mnemosyne.db")
@@ -214,8 +244,9 @@ class ProactiveTickScriptTest(unittest.TestCase):
 
     def tick(self):
         env = {k: v for k, v in os.environ.items() if k != "MNEMOSYNE_DATA_DIR"}
-        result = subprocess.run(["python3", str(TICK_SCRIPT)], text=True, capture_output=True,
-                                env={**env, "HERMES_HOME": str(self.home)})
+        result = subprocess.run(["python3", str(self.scripts / "proactive-tick.py")], text=True,
+                                capture_output=True,
+                                env={**env, "HERMES_HOME": str(self.home), "FAKE_DIR": str(self.home)})
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
@@ -244,6 +275,48 @@ class ProactiveTickScriptTest(unittest.TestCase):
         self.module(marker=False)
         out = self.tick()
         self.assertIn("ALERT: the Mnemosyne cron read-only patch is not applied", out)
+        self.assertEqual(self.tick(), "")
+
+    def fake(self, name, data):
+        (self.home / name).write_text(json.dumps(data) if not isinstance(data, str) else data)
+
+    def test_mail_is_off_until_login_and_starts_from_now(self):
+        self.module()
+        self.fake("mail.json", [{"id": "old", "received_ms": 1, "from": "a", "subject": "old", "date": "",
+                                 "snippet": ""}])
+        self.assertEqual(self.tick(), "")  # no login: source off
+        self.fake("gmail-token", "x")
+        self.assertEqual(self.tick(), "")  # first tick after login only sets the cursor
+        later = int(__import__("time").time() * 1000) + 60_000
+        self.fake("mail.json", [{"id": "m1", "received_ms": later, "from": "landlord@example.com",
+                                 "subject": "Lease renewal", "date": "", "snippet": "please sign by Friday"}])
+        self.fake("tasks.json", [{"id": "t1", "title": "Pay water bill", "status": "needsAction",
+                                  "notes": "gmail:abc"}])
+        out = self.tick()
+        self.assertIn("mail id=m1 | from: landlord@example.com | subject: Lease renewal", out)
+        self.assertIn("snippet: please sign by Friday", out)
+        self.assertIn("## Friday tasks (open)\n- [id=t1] Pay water bill — gmail:abc", out)
+        self.assertEqual(self.tick(), "")  # each message is reported once
+
+    def test_expired_gmail_login_alerts_once_a_day(self):
+        self.module()
+        self.fake("gmail-token", "x")
+        self.tick()
+        self.fake("gmail-expired", "x")
+        out = self.tick()
+        self.assertIn("ALERT: source mail failed: Gmail login expired or was revoked", out)
+        self.assertEqual(self.tick(), "")
+
+    def test_due_friday_task_is_raised_once_a_day(self):
+        self.module()
+        self.fake("tasks.json", [
+            {"id": "t1", "title": "Renew passport", "status": "needsAction", "due": "2026-01-01T00:00:00.000Z"},
+            {"id": "t2", "title": "Later thing", "status": "needsAction", "due": "2999-01-01T00:00:00.000Z"},
+            {"id": "t3", "title": "Done thing", "status": "completed", "due": "2026-01-01T00:00:00.000Z"}])
+        out = self.tick()
+        self.assertIn("due: - [id=t1] Renew passport (due 2026-01-01)", out)
+        self.assertNotIn("due: - [id=t2]", out)
+        self.assertNotIn("Done thing", out)
         self.assertEqual(self.tick(), "")
 
     def test_never_writes_the_memory_db(self):
