@@ -40,9 +40,7 @@ Darren approved (2026-10-30) that Friday owns a list named `Friday` for the thin
 ## OAuth and data safety
 
 - The token comes from `google login`, which asks for exactly three scopes: `https://www.googleapis.com/auth/tasks`, `https://www.googleapis.com/auth/gmail.readonly` ("View your email messages and settings") and `https://www.googleapis.com/auth/calendar.readonly`. If Google consent shows anything broader, cancel; the CLI also refuses to save such a token.
-- The OAuth redirect is loopback: `http://localhost:9090/callback` (already registered; loopback is exempt from Google's own-your-domain redirect policy, which rejects tailnet-host redirects with a 400 policy page).
-- `GTASKS_CLIENT_ID` and `GTASKS_CLIENT_SECRET` are supplied through the container environment. Check only whether each is set; never print, log, copy, or expose either value.
-- Run `google login` only when the user asks to set up or renew Google access (Tasks, Gmail, or Calendar). Two routes, automatic first: run it as a background process, give the user the printed authorization URL plus the printed `ssh -L 9090:localhost:8299 ...` forward for their PC/phone, and poll until completion. Fallback `google login --manual` needs no forward: the user opens the URL, copies the full `localhost` address their browser fails to open, and pastes it back; the CLI validates state and exchanges the code once. Never ask for a code except through this explicit manual flow, and never handle secrets or tokens.
+- To log in or renew access, follow the `google-login` skill (automatic flow with the SSH tunnel, or `--manual`). Run it only when the user asks to set up or renew Google access.
 - If a command reports the token expired, tell the user to run `google login` again interactively. Never inspect, export, or display token/config files. Never run `google logout` unless the user explicitly asks.
 - This skill does not authorize deletion, updating, or moving tasks or lists. Do not run `rm`, `update`, or other destructive commands from this CLI.
 - Never export task data to files or send it to another service unless the user explicitly requests that action and destination.
