@@ -642,6 +642,29 @@ app.get("/schedules", async (req, res) => {
     }
 });
 
+/**
+ * The budget as Actual's own export zip (db.sqlite + metadata.json), the file
+ * "Import Actual" restores. Synced first so the backup is current, and only
+ * for a named budget, so a missing parameter never backs up the wrong one.
+ */
+app.get("/export", async (req, res) => {
+    try {
+        if (!getBudgetId(req)) {
+            return res.status(400).json({ error: "budget_id is required" });
+        }
+        const zip = await withBudget(req, async () => {
+            await actual.sync();
+            return actual.exportBudget();
+        });
+        if (zip === UNKNOWN_BUDGET) {
+            return res.status(400).json({ error: "Unknown budget" });
+        }
+        res.type("application/zip").send(Buffer.from(zip));
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 app.get("/payees", async (req, res) => {
     try {
         const payees = await withBudget(req, () => actual.getPayees());

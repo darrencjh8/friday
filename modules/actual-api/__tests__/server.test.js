@@ -230,6 +230,33 @@ describe("Route handlers", () => {
         actual.getBudgetMonth.mockResolvedValue({ month: "2026-08" });
     });
 
+    test("GET /export syncs, then sends the named budget's export zip", async () => {
+        const order = [];
+        actual.sync = jest.fn(async () => order.push("sync"));
+        actual.exportBudget = jest.fn(async () => {
+            order.push("export");
+            return new Uint8Array([80, 75, 3, 4]);
+        });
+        const handler = findHandler("get", "/export");
+        const res = { ...mockRes(), type: jest.fn().mockReturnThis(), send: jest.fn() };
+        await handler(mockReq({ query: { budget_id: "test-budget" } }), res);
+        expect(order).toEqual(["sync", "export"]);
+        expect(res.type).toHaveBeenCalledWith("application/zip");
+        expect(res.send).toHaveBeenCalledWith(Buffer.from([80, 75, 3, 4]));
+    });
+
+    test("GET /export requires a budget and rejects an unknown one", async () => {
+        actual.exportBudget = jest.fn();
+        const handler = findHandler("get", "/export");
+        const missing = mockRes();
+        await handler(mockReq(), missing);
+        expect(missing.status).toHaveBeenCalledWith(400);
+        const unknown = mockRes();
+        await handler(mockReq({ query: { budget_id: "nope" } }), unknown);
+        expect(unknown.status).toHaveBeenCalledWith(400);
+        expect(actual.exportBudget).not.toHaveBeenCalled();
+    });
+
     test("GET /schedules returns the schedule list", async () => {
         actual.getSchedules = jest.fn().mockResolvedValue([
             { id: "s1", name: "Prepare: Rent", next_date: "2026-09-19" },
