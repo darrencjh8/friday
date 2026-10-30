@@ -1,4 +1,4 @@
-"""Cron sessions recall Mnemosyne memory but never write it; goal-tick is seeded to use it.
+"""Cron sessions recall Mnemosyne memory but never write it; proactive-tick is seeded to use it.
 
 The patch is applied to a stand-in provider module with the same method names
 the pinned mnemosyne-hermes 0.7.1 provider has, because the real plugin is not
@@ -8,7 +8,9 @@ installed in CI. The pinned-hash guard is what binds the patch to the real file.
 import hashlib
 import importlib.util
 import json
+import os
 import re
+import sqlite3
 import subprocess
 import tempfile
 import unittest
@@ -18,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 PATCH_PATH = HERE.parent / "patches" / "patch-mnemosyne-cron-readonly.py"
 SEED = (HERE.parent / "50-seed-defaults").read_text(encoding="utf-8")
 DOCKERFILE = (HERE.parent / "Dockerfile").read_text(encoding="utf-8")
+TICK_SCRIPT = HERE.parent / "scripts" / "proactive-tick.py"
 
 STUB = '''
 import json
@@ -145,31 +148,33 @@ class CronReadOnlyTest(unittest.TestCase):
 
 
 BLOCKS = re.findall(r"<<'PYEOF'[^\n]*\n(.*?)\nPYEOF", SEED, re.DOTALL)
-GOAL_TICK = next(b for b in BLOCKS if '"goal-tick"' in b)
+TICK_SEED = next(b for b in BLOCKS if '"proactive-tick"' in b)
 
 
-class GoalTickSeedTest(unittest.TestCase):
+class ProactiveTickSeedTest(unittest.TestCase):
     def run_seed(self, jobs):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "jobs.json"
             path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
-            result = subprocess.run(["python3", "-c", GOAL_TICK.replace("/opt/data/cron/jobs.json", str(path))],
+            result = subprocess.run(["python3", "-c", TICK_SEED.replace("/opt/data/cron/jobs.json", str(path))],
                                     text=True, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             return json.loads(path.read_text(encoding="utf-8"))["jobs"]
 
-    def test_new_install_gets_an_attached_job_that_reads_goal_slots(self):
+    def test_new_install_gets_an_hourly_script_gated_attached_job(self):
         [job] = self.run_seed([])
-        self.assertEqual(job["name"], "goal-tick")
+        self.assertEqual(job["name"], "proactive-tick")
+        self.assertEqual(job["script"], "proactive-tick.py")
+        self.assertEqual(job["schedule"]["expr"], "0 8-21 * * *")
         self.assertIs(job["attach_to_session"], True)
-        self.assertEqual(job["context_from"], ["self"])
-        self.assertEqual(job["skills"], ["goals"])
+        self.assertNotIn("skills", job)
+        self.assertNotIn("context_from", job)
         self.assertEqual(job["deliver"], "telegram")
-        self.assertIn('mnemosyne_recall_canonical(category="goal")', job["prompt"])
         self.assertIn("[SILENT]", job["prompt"])
+        self.assertIn("[CRON_FAILURE]", job["prompt"])
 
     def test_existing_job_keeps_operator_schedule_and_gets_managed_fields(self):
-        mine = {"id": "abc", "name": "goal-tick", "prompt": "old", "attach_to_session": False,
+        mine = {"id": "abc", "name": "proactive-tick", "prompt": "old", "attach_to_session": False,
                 "schedule": {"kind": "cron", "expr": "0 12 * * *"}, "enabled": False, "deliver": "local"}
         [job] = self.run_seed([mine])
         self.assertEqual(job["id"], "abc")
@@ -177,7 +182,76 @@ class GoalTickSeedTest(unittest.TestCase):
         self.assertIs(job["enabled"], False)
         self.assertEqual(job["deliver"], "local")
         self.assertIs(job["attach_to_session"], True)
+        self.assertEqual(job["script"], "proactive-tick.py")
         self.assertNotEqual(job["prompt"], "old")
+
+
+class ProactiveTickScriptTest(unittest.TestCase):
+    """The pre-check prints only what is new; empty output means the agent never runs."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.home = Path(self.tmp.name)
+        data = self.home / "mnemosyne" / "data"
+        data.mkdir(parents=True)
+        self.db = sqlite3.connect(data / "mnemosyne.db")
+        self.db.execute("CREATE TABLE canonical_facts (id INTEGER PRIMARY KEY, owner_id TEXT, category TEXT,"
+                        " name TEXT, body TEXT, valid_until TEXT)")
+
+    def tearDown(self):
+        self.db.close()
+        self.tmp.cleanup()
+
+    def slot(self, category, name, body, valid_until=None):
+        self.db.execute("INSERT INTO canonical_facts (owner_id, category, name, body, valid_until)"
+                        " VALUES ('o', ?, ?, ?, ?)", (category, name, body, valid_until))
+        self.db.commit()
+
+    def module(self, marker=True):
+        site = self.home / "installs/a/environments/b/venv/lib/python3.14/site-packages/mnemosyne_hermes"
+        site.mkdir(parents=True, exist_ok=True)
+        (site / "__init__.py").write_text("x = 1\n" + ("# friday-patch: mnemosyne read-only in cron\n" if marker else ""))
+
+    def tick(self):
+        env = {k: v for k, v in os.environ.items() if k != "MNEMOSYNE_DATA_DIR"}
+        result = subprocess.run(["python3", str(TICK_SCRIPT)], text=True, capture_output=True,
+                                env={**env, "HERMES_HOME": str(self.home)})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return result.stdout
+
+    def test_nothing_due_prints_nothing(self):
+        self.module()
+        self.assertEqual(self.tick(), "")
+        self.slot("goal", "future", "status: active\ncheck_in: 2999-01-01")
+        self.slot("goal", "paused", "status: paused\ncheck_in: daily")
+        self.slot("goal", "old", "status: active\ncheck_in: daily", valid_until="2026-01-01")
+        self.assertEqual(self.tick(), "")
+
+    def test_due_goal_is_raised_once_a_day_with_preferences(self):
+        self.module()
+        self.slot("goal", "car-fund", "status: active\ncheck_in: 2026-01-01\nkeywords: car")
+        self.slot("goal", "gym", "status: active\ncheck_in: weekly\nupdated: 2026-01-01")
+        self.slot("goal", "fresh", "status: active\ncheck_in: weekly\nupdated: 2999-01-01")
+        self.slot("notify", "preferences", "no dividend pings")
+        out = self.tick()
+        self.assertIn("goal `car-fund`", out)
+        self.assertIn("goal `gym`", out)
+        self.assertNotIn("fresh", out)
+        self.assertIn("## notify preferences\nno dividend pings", out)
+        self.assertEqual(self.tick(), "")
+
+    def test_missing_patch_alerts_once_a_day(self):
+        self.module(marker=False)
+        out = self.tick()
+        self.assertIn("ALERT: the Mnemosyne cron read-only patch is not applied", out)
+        self.assertEqual(self.tick(), "")
+
+    def test_never_writes_the_memory_db(self):
+        self.module()
+        self.slot("goal", "car-fund", "status: active\ncheck_in: daily")
+        before = self.db.execute("SELECT * FROM canonical_facts").fetchall()
+        self.tick()
+        self.assertEqual(self.db.execute("SELECT * FROM canonical_facts").fetchall(), before)
 
 
 class WiringTest(unittest.TestCase):
@@ -186,10 +260,16 @@ class WiringTest(unittest.TestCase):
         self.assertIn("/opt/hermes-defaults/patches/patch-mnemosyne-cron-readonly.py", SEED)
         self.assertIn("site-packages/mnemosyne_hermes/__init__.py", SEED)
 
+    def test_seed_pins_the_mnemosyne_version_the_patch_targets(self):
+        # Bumping the pin without re-checking the patch and its hash must fail here.
+        version = load_patch_module().PINNED_VERSION
+        self.assertIn(f'"mnemosyne-hermes": "mnemosyne-hermes=={version}"', SEED)
+
     def test_goals_skill_ships(self):
         skill = (HERE.parent / "skills" / "goals" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("name: goals", skill)
         self.assertIn('category="goal"', skill)
+        self.assertIn('category="notify", name="preferences"', skill)
 
 
 if __name__ == "__main__":

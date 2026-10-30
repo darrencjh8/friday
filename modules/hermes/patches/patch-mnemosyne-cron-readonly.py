@@ -20,7 +20,9 @@ import sys
 from pathlib import Path
 
 MARKER = "# friday-patch: mnemosyne read-only in cron"
-# sha256 of mnemosyne_hermes/__init__.py in the mnemosyne-hermes 0.7.1 wheel.
+# The version 50-seed-defaults pins, and the sha256 of mnemosyne_hermes/__init__.py
+# in that wheel. The patch test fails when the seed pin moves without these.
+PINNED_VERSION = "0.7.1"
 PINNED_SHA256 = "f18551124ba86e58cf2b6d31bcb2628d9dd93588f06b822877c139a52d2fc77f"
 
 TAIL = f'''
@@ -93,7 +95,7 @@ def patch(text: str, expected_sha256: str = PINNED_SHA256) -> str:
         return text
     digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
     if digest != expected_sha256:
-        raise PatchError(f"unexpected mnemosyne_hermes module (sha256 {digest}); not the pinned 0.7.1")
+        raise PatchError(f"unexpected mnemosyne_hermes module (sha256 {digest}); not the pinned {PINNED_VERSION}")
     return text + TAIL
 
 

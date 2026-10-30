@@ -5,7 +5,7 @@ description: Track Darren's standing goals in Mnemosyne and follow up on them. U
 
 # Goals
 
-A goal is something Darren wants to reach over days or weeks ("build a 20k car fund by June 2027"), not a one-off task or reminder. Goals live only in Mnemosyne canonical slots: category `goal`, one slot per goal, named by a short kebab-case slug. There is no goals file. The `goal-tick` cron job reads these slots to decide when to check in.
+A goal is something Darren wants to reach over days or weeks ("build a 20k car fund by June 2027"), not a one-off task or reminder. Goals live only in Mnemosyne canonical slots: category `goal`, one slot per goal, named by a short kebab-case slug. There is no goals file. The hourly `proactive-tick` cron job reads these slots and raises a due goal at most once a day.
 
 ## Slot body
 
@@ -30,6 +30,10 @@ log: dated one-line notes of decisions and progress, newest first, at most 5
 - **Reply to a check-in**: the check-in message names the goal slug. Record what he decided in `log` and `next_step`, and move `check_in` to the next date he agreed to. A plain "done" sets `status: done`; "drop it" sets `status: dropped`.
 - **List**: `mnemosyne_recall_canonical(category="goal")` and show slug, status, next step and next check-in.
 - **Finish or drop**: set the status rather than calling `mnemosyne_forget_canonical`, so the history stays readable.
+
+## Notify preferences
+
+What Darren wants to hear about lives in one slot: category `notify`, name `preferences`, as short plain lines ("no dividend pings", "flag any trade over 5k", "quiet before 9am"). `proactive-tick` passes it to every run and follows it. When he says what he does or does not want to be told, read the slot, change only that line, show him the result, and write it back with `mnemosyne_remember_canonical(category="notify", name="preferences", body=...)` after he confirms.
 
 ## Approval
 
