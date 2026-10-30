@@ -643,7 +643,7 @@ checks = {
     "display": j.get("schedule_display") == "every monday 4am",
     "enabled": j.get("enabled") is True,
     "deliver": j.get("deliver") == "telegram",
-    "skills": j.get("skills") == ["llm-wiki", "expense-tracker", "notion", "notion-pitfalls", "hermes-operations", "portfolio-tracker"],
+    "skills": j.get("skills") == ["llm-wiki", "hermes-operations"],
     "skill": j.get("skill") == "llm-wiki",
     "prompt_len": len(prompt) > 500,
     "raw_snapshot": "dated raw file" in prompt,
@@ -719,7 +719,7 @@ checks = {
     "id_preserved": j.get("id") == "wikilegacy1",
     "user_field_preserved": j.get("user_note") == "keep me",
     "prompt_updated": "dated raw file" in prompt,
-    "skills_updated": j.get("skills") == ["llm-wiki", "expense-tracker", "notion", "notion-pitfalls", "hermes-operations", "portfolio-tracker"],
+    "skills_updated": j.get("skills") == ["llm-wiki", "hermes-operations"],
     "schedule_not_reverted": j.get("schedule_display") == "custom",
     "disabled_stays_disabled": j.get("enabled") is False,
     "deliver_not_reverted": j.get("deliver") == "origin",
@@ -1427,7 +1427,8 @@ checks = {
     "display": j.get("schedule_display") == "0 8 * * *",
     "enabled": j.get("enabled") is True,
     "deliver": j.get("deliver") == "telegram",
-    "skills": j.get("skills") == ["hermes-troubleshooting"],
+    "skills": j.get("skills") == [] and j.get("skill") is None,
+    "gate": j.get("script") == "memory-queue-gate.py",
     "prompt_len": len(prompt) > 500,
     "safe_rollback": "memory-triage.sh restore" in prompt,
     "cap": "--max-records" in prompt or "40 records" in prompt,
@@ -1446,7 +1447,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$mt_fields" in
-    pass) ok "job: cron 0 8 * * * · telegram · hermes-troubleshooting · safe prompt (snapshot/cap/audit)" ;;
+    pass) ok "job: cron 0 8 * * * · telegram · gated, no skill · safe prompt (snapshot/cap/audit)" ;;
     *) nope "memory-approve-queue fields" "$mt_fields" ;;
 esac
 
@@ -1558,7 +1559,8 @@ checks = {
     "display": j.get("schedule_display") == "30 7 * * *",
     "enabled": j.get("enabled") is True,
     "deliver": j.get("deliver") == "telegram",
-    "skills": j.get("skills") == ["hermes-troubleshooting"],
+    "skills": j.get("skills") == [] and j.get("skill") is None,
+    "gate": j.get("script") == "memory-compact-gate.py",
     "uses_compact_cmd": "memory-triage.sh compact --plan" in prompt,
     "dry_run_first": "--dry-run" in prompt,
     "rollback": "memory-triage.sh restore" in prompt,
