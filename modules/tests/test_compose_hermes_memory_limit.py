@@ -27,8 +27,8 @@ class HermesComposeConfigTests(unittest.TestCase):
 
         environment = compose["services"]["hermes"]["environment"]
 
-        # The dashboard binds non-loopback (9119), so its auth gate fails
-        # closed without a provider. Credentials come from CI secrets, so the
+        # The dashboard is published on host loopback and served on the
+        # tailnet; its auth gate still fails closed without a provider. Credentials come from CI secrets, so the
         # repo carries only ${VAR} references, never values.
         self.assertIn(
             "HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}",
