@@ -60,6 +60,8 @@ COPY config.yaml SOUL.md.template /opt/hermes-defaults/
 COPY skills/ /opt/hermes-defaults/skills/
 COPY scripts/ /opt/hermes-defaults/scripts/
 COPY profiles/ /opt/hermes-defaults/profiles/
+# Applied at boot by 50-seed-defaults: the Mnemosyne plugin lives on the volume, not the image.
+COPY patches/patch-mnemosyne-cron-readonly.py /opt/hermes-defaults/patches/
 COPY plugins/log-issue-triage/ /opt/hermes/plugins/log-issue-triage/
 COPY plugins/learning-commands/ /opt/hermes/plugins/learning-commands/
 # /replay_<id>_<tx|stmt|pf> for email-intake review requests (#783).

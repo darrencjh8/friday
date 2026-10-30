@@ -185,6 +185,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_stale_open_webhook_patch.py
             - name: Test session count/size cap patch
               run: python -m unittest modules/hermes/tests/test_session_caps_patch.py
+            - name: Test Mnemosyne cron read-only patch and goal-tick seed
+              run: python -m unittest modules/hermes/tests/test_mnemosyne_cron_readonly_patch.py
             - name: Test Slack send fallback patch
               run: python -m unittest modules/hermes/tests/test_slack_send_fallback_patch.py
             - name: Test memory backup script

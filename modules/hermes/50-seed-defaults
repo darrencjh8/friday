@@ -335,6 +335,9 @@ chown -R hermes:hermes /opt/data/mnemosyne 2>/dev/null || true
 # file: the wrapper's own ">=0.7.3" floor resolved 0.7.4 + 4.0.0b4 there and the
 # provider stopped loading ("no binding for the current home"). The older
 # lazy-packages pin was dead code: the image ships no `uv` on PATH.
+# Bumping mnemosyne-hermes also needs patches/patch-mnemosyne-cron-readonly.py
+# re-checked against the new module and its pinned hash updated; the patch
+# test fails until both agree.
 python3 <<'PYMNPIN' || true
 import os, re
 path = "/opt/data/plugins/mnemosyne/pyproject.toml"
@@ -368,6 +371,17 @@ if [ -f "$mn_wrapper" ] && ! cmp -s "$mn_wrapper" "$mn_marker"; then
         echo "WARNING: mnemosyne dependency sync failed; provider may not load" >&2
     fi
 fi
+
+# Read-only Mnemosyne in cron (patches/patch-mnemosyne-cron-readonly.py): cron
+# jobs recall chat memory but never write it. Runs every boot because a
+# provider re-sync reinstalls the module unpatched. The patch only accepts the
+# pinned 0.7.1 module; on any other file it refuses, and the plugin keeps its
+# own default of skipping cron entirely, so a failure costs recall, not data.
+for mn_init in /opt/data/installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py; do
+    [ -f "$mn_init" ] || continue
+    python3 /opt/hermes-defaults/patches/patch-mnemosyne-cron-readonly.py "$mn_init" \
+        || echo "WARNING: mnemosyne cron read-only patch not applied; cron keeps no Mnemosyne recall" >&2
+done
 
 # Cross-session recall (operator decision 2026-10-11). Mnemosyne reads
 # cross_session only from its own config.yaml (mnemosyne.core.config
@@ -1506,6 +1520,78 @@ else:
         print("cron: wiki-due-reminders migrated: " + ", ".join(sorted(changed)))
     else:
         print("cron: wiki-due-reminders unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
+# Seed proactive-tick cron job (MANAGED prompt/script/attach). scripts/proactive-tick.py
+# gathers what changed (due goals from Mnemosyne, a missing cron read-only patch)
+# and prints nothing when nothing did, so most hourly ticks never reach the model.
+# The agent decides what is worth a message. Delivery is attached to the Telegram
+# DM session so a reply continues with the message in context.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+PROMPT = """The data block above lists what changed since the last tick: due goals, alerts, and Darren's notify preferences if he set any. Decide what is worth telling him now.
+
+1. Alerts: if the data has any line starting with ALERT, make the first line of your reply exactly [CRON_FAILURE], then relay each alert in one line.
+2. Goals: each due goal shows its Mnemosyne slot body. For a goal you will mention, run one mnemosyne_recall with its keywords to see what he said since its updated date. Use only what he actually said; never invent progress, numbers, or decisions.
+3. Decide. Follow his notify preferences. Mention a goal only when a check-in or a concrete next step helps him; skip it when there is nothing useful to say. At most 3 goals, most overdue first.
+4. Write one short Telegram message: for each goal, the slug in backticks, one line on where it stands, and one question or proposed next step he can answer briefly. End with: reply "done", "pause", "drop", or a new check-in date.
+5. Read and message only. Never contact anyone else, pay, book, buy, change an account, or edit files; propose the action instead. Mnemosyne is read-only here, so never try to update a goal; his reply is recorded from chat.
+6. If nothing is worth saying, reply exactly [SILENT].
+
+FAILURE: when a required step failed (a tool error, Mnemosyne unavailable or reporting not initialized), make the first line of your reply exactly [CRON_FAILURE], then report what failed. Never reply [SILENT] after a failed step.
+"""
+
+MANAGED = {
+    "prompt": PROMPT,
+    "script": "proactive-tick.py",
+    "attach_to_session": True,
+}
+DEFAULTS = {
+    "schedule": {"kind": "cron", "expr": "0 8-21 * * *", "display": "hourly 8am-9pm"},
+    "schedule_display": "hourly 8am-9pm",
+    "enabled": True,
+    "deliver": "telegram",
+}
+
+existing = next(
+    (j for j in jobs if isinstance(j, dict) and j.get("name") == "proactive-tick"),
+    None,
+)
+
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "proactive-tick",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **DEFAULTS,
+        **MANAGED,
+    })
+    print("cron: proactive-tick seeded")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    if changed:
+        print("cron: proactive-tick migrated: " + ", ".join(sorted(changed)))
+    else:
+        print("cron: proactive-tick unchanged")
 
 with open(jobs_path + ".tmp", "w") as f:
     json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
