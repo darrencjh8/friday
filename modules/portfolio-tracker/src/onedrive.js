@@ -206,6 +206,49 @@ export async function pushToOneDrive(localPath) {
     }
 }
 
+/**
+ * Upload one backup file into the folder Darren shares with this account
+ * (ONEDRIVE_BACKUP_FOLDER, default "Flyio"), replacing a file of the same
+ * name. A shared folder lives on his drive, not this account's, so it is found
+ * by search (sharedWithMe does not list every share) and written by drive id.
+ * A single PUT is fine up to 250 MB; the bytes are never written to disk here.
+ * @param {string} name - file name, no slashes
+ * @param {Uint8Array} bytes
+ */
+export async function uploadBackup(name, bytes) {
+    // name may hold subfolders ("2026-11/x.zip"); Graph creates any that are missing.
+    const parts = name.split("/");
+    if (parts.some((p) => !p || p === "." || p === ".." || /[\\:]/.test(p))) {
+        throw new Error(`Unsafe backup name: ${name}`);
+    }
+    const folder = process.env.ONEDRIVE_BACKUP_FOLDER || "Flyio";
+    const token = await getAccessToken();
+    const headers = { Authorization: `Bearer ${token}` };
+    const search = await fetch(
+        `https://graph.microsoft.com/v1.0/me/drive/search(q='${encodeURIComponent(folder)}')`,
+        { headers, signal: AbortSignal.timeout(15000) },
+    );
+    if (!search.ok) throw new Error(`OneDrive search for ${folder} failed: HTTP ${search.status}`);
+    const match = ((await search.json()).value || []).find(
+        (i) => i.name === folder && (i.remoteItem?.folder || i.folder),
+    );
+    if (!match) throw new Error(`OneDrive folder "${folder}" not found; share it with this account`);
+    const ref = match.remoteItem || match;
+    const resp = await fetch(
+        `https://graph.microsoft.com/v1.0/drives/${ref.parentReference.driveId}/items/${ref.id}:/${parts.map(encodeURIComponent).join("/")}:/content?@microsoft.graph.conflictBehavior=replace`,
+        {
+            method: "PUT",
+            headers: { ...headers, "Content-Type": "application/octet-stream" },
+            body: bytes,
+            signal: AbortSignal.timeout(120000),
+        },
+    );
+    if (!resp.ok) {
+        throw new Error(`OneDrive upload ${name} failed: HTTP ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
+    }
+    return (await resp.json()).name || name;
+}
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
