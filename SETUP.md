@@ -94,7 +94,7 @@ This changes the group to `runner` and adds group read permission without touchi
 | Codex Router (front) | `modules-codex-router-1` | 0.0.0.0:4100 | 4100 | `/health/liveliness` |
 | Codex Router (colours) | `modules-codex-router-a-1`, `modules-codex-router-b-1` | — | 4100 | `/health/liveliness` |
 
-Expense Tracker, Portfolio Tracker, and Actual API bind to `127.0.0.1` (localhost only). Hermes publishes `9119` and `8644` on all interfaces and `8642` (the API server) on `127.0.0.1` only, and the Codex Router front publishes `4100` on all interfaces so Hermes providers can reach `http://codex-router:4100/v1`.
+Expense Tracker, Portfolio Tracker, and Actual API bind to `127.0.0.1` (localhost only). Hermes publishes `8644` on all interfaces and `8642` (the API server) and `9119` (the dashboard) on `127.0.0.1` only, and the Codex Router front publishes `4100` on all interfaces so Hermes providers can reach `http://codex-router:4100/v1`.
 
 Codex Router is three containers: the caddy front `codex-router`, which owns port 4100, and the two identical router colours `codex-router-a` and `codex-router-b`, which publish nothing and are only reachable through the front. A deploy replaces one colour at a time, so 4100 keeps serving.
 

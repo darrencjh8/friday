@@ -277,7 +277,10 @@ services:
             # Hermes API server (Conduit). Host loopback only: Tailscale serve
             # terminates TLS on the tailnet and proxies to 127.0.0.1:8642.
             - "127.0.0.1:8642:8642"
-            - "9119:9119"
+            # Hermes dashboard. Host loopback only: Tailscale serve terminates TLS
+            # on the tailnet and proxies to 127.0.0.1:9119. An all-interfaces
+            # publish also claims the tailnet address, which that serve holds.
+            - "127.0.0.1:9119:9119"
             - "8644:8644"
             # Hermes WebUI. Host loopback only: Tailscale serve terminates TLS on
             # the tailnet and proxies to 127.0.0.1:8787, so nothing binds the LAN.
@@ -352,7 +355,7 @@ services:
             - SOUL_VOICE_RULES=${SOUL_VOICE_RULES}
             - SOUL_DELEGATION=${SOUL_DELEGATION}
             - HERMES_DASHBOARD=1
-            # Dashboard on 9119, LAN-only (no Tailscale serve); basic auth required.
+            # Dashboard on 9119, tailnet only (Tailscale serve); basic auth required.
             - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
             - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
             # WebUI CSP frame-ancestors allowlist for Tailscale-serve framing.
