@@ -1067,10 +1067,13 @@ def _configured_cap(key, default):
 PROMPT = PROMPT.replace("__MEM_CAP__", str(_configured_cap("memory_char_limit", 2200)))
 PROMPT = PROMPT.replace("__USER_CAP__", str(_configured_cap("user_char_limit", 1375)))
 
+# The pre-run gate skips the model on days with nothing to do. The prompt is
+# self-contained, so no skill is attached: a skill is injected into every turn.
 MANAGED = {
     "prompt": PROMPT,
-    "skills": ["hermes-troubleshooting"],
-    "skill": "hermes-troubleshooting",
+    "script": "memory-compact-gate.py",
+    "skills": [],
+    "skill": None,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "30 7 * * *", "display": "30 7 * * *"},
@@ -1217,10 +1220,13 @@ PROMPT = PROMPT.replace("__USER_CAP__", str(_configured_cap("user_char_limit", 1
 # production). Scheduling fields are minted once at creation and left alone
 # afterwards, so a dashboard change to the time, enabled flag, or delivery target
 # is not reverted on every boot.
+# The pre-run gate skips the model on days with nothing to do. The prompt is
+# self-contained, so no skill is attached: a skill is injected into every turn.
 MANAGED = {
     "prompt": PROMPT,
-    "skills": ["hermes-troubleshooting"],
-    "skill": "hermes-troubleshooting",
+    "script": "memory-queue-gate.py",
+    "skills": [],
+    "skill": None,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "0 8 * * *", "display": "0 8 * * *"},
@@ -1296,10 +1302,10 @@ PROMPT = """Maintain the private wiki using its SCHEMA.md, the llm-wiki skill, a
 
 Every Monday run a complete refresh, not a spot check. Repos and GitHub issues are refreshed by the wiki-repo-docs job at 03:30; read its newest raw/articles/repo-freshness-* file and the log entry it appended instead of fetching the repos yourself.
 0. Orient. From the wiki root run `/opt/hermes/.venv/bin/python3 scripts/lint.py` and keep its report. Read the wiki index, schema, log, and the previous run output, then only the pages the lint report flags or that the source snapshots below touch; the lint already covers structure, so do not read every page. Do a full read of all entities/concepts instead when the day of the month is 7 or less (the first Monday of the month), or when scripts/lint.py is missing, exits with an error, or prints no report: a missing lint is not a clean wiki. State which mode you used. Inventory page/source counts before work.
-1. Source snapshots. The pre-run script wiki-source-snapshot.py has already captured Actual Budget (Darren SGD and MYR balances plus recent transactions), the Notion Accounts data source a21b499b-79ae-497b-9221-0ad59a75e812, the Notion Insurance Plans data source fb21acfd-b555-4a99-8b54-54ed43d4b020, the portfolio-tracker read-only tools (portfolio_get_all, portfolio_taxonomy, portfolio_onedrive_status; portfolio_sync is never called because it writes to the portfolio and OneDrive), and live codex-router status. Actual transactions deliberately cover only the last 8 days and are complete for that window; full transaction history is not required, and zero rows for a budget is a valid result, not a truncation. Each is a sanitized dated raw file with a verified SHA-256 and its capture time, window, counts, and has_more in the frontmatter; the report above lists one JSON line per source. Read only the files marked changed, and only the parts that touch wiki facts; an unchanged source needs no re-read and no new raw file. For a source marked error, call that one source's tool yourself and save its sanitized dated raw file the same way. The wiki is the authority for card suffix, merchant, payee, category, people and account-type mappings (entities/accounts/card-suffix-mappings, merchant-payee-mappings, payee-categories, people-transfers, banks-cards); the expense-tracker only reads them, so never import mappings from it. Instead read its proposal queue /opt/data/expense-tracker-data/wiki-proposals.jsonl (read-only; one JSON object per line with op, fact, at) and list the proposals added since the last run under a "Proposed mappings" section of the digest for Darren to approve; never write a proposal into the wiki yourself. Never write full card/PAN values, passwords, credentials, statement passwords, Notion notes/relations/task IDs, or unrelated personal data. Never infer an account mapping.
+1. Source snapshots. The pre-run script wiki-source-snapshot.py has already captured Actual Budget (Darren SGD and MYR balances plus recent transactions), the Notion Accounts data source a21b499b-79ae-497b-9221-0ad59a75e812, the Notion Insurance Plans data source fb21acfd-b555-4a99-8b54-54ed43d4b020, the portfolio-tracker read-only tools (portfolio_get_all, portfolio_taxonomy, portfolio_onedrive_status; portfolio_sync is never called because it writes to the portfolio and OneDrive), and live codex-router status. Actual transactions deliberately cover only the last 8 days and are complete for that window; full transaction history is not required, and zero rows for a budget is a valid result, not a truncation. Each is a sanitized dated raw file with a verified SHA-256 and its capture time, window, counts, and has_more in the frontmatter; the report above lists one JSON line per source. Read only the files marked changed, and only the parts that touch wiki facts; an unchanged source needs no re-read and no new raw file. For a source marked error, load that source's skill with skill_view (notion, expense-tracker or portfolio-tracker), call its tool yourself, and save its sanitized dated raw file the same way. The wiki is the authority for card suffix, merchant, payee, category, people and account-type mappings (entities/accounts/card-suffix-mappings, merchant-payee-mappings, payee-categories, people-transfers, banks-cards); the expense-tracker only reads them, so never import mappings from it. Instead read its proposal queue /opt/data/expense-tracker-data/wiki-proposals.jsonl (read-only; one JSON object per line with op, fact, at) and list the proposals added since the last run under a "Proposed mappings" section of the digest for Darren to approve; never write a proposal into the wiki yourself. Never write full card/PAN values, passwords, credentials, statement passwords, Notion notes/relations/task IDs, or unrelated personal data. Never infer an account mapping.
 2. Memory. Do not call Mnemosyne recall tools: they answer memory_unavailable in cron sessions by design (skip_contexts: cron). Instead, read the live memory DB read-only at /opt/data/mnemosyne/data/mnemosyne.db (SQLite mode=ro; the gateway holds the write lock) plus /opt/data/memories/USER.md, MEMORY.md, and relevant topic files. Compare durable, explicit user preferences and confirmed decisions with entities/darren.md. A direct user correction outranks imported or merely observed values; record it with its effective date. Record only useful stable preferences; omit birth dates, legal identifiers, credentials, and unrelated account details. Retain immutable snapshots and state why a value is superseded.
 3. Reconcile. Keep expected (contractual amount/currency/frequency) and observed (ledger amount/currency/posting date) values in separate fields and never collapse them. Invoice, due, posting, renewal, and reimbursement dates are distinct. Record planned versus completed payment-route changes. Leave ambiguous mappings unresolved and flagged with the check that would settle them.
-4. Update every affected knowledge page (not just the index): provenance, facts, balances, date windows, repo baselines, updated dates, source lists, backlinks, and index summary. Dates and balances are volatile: show capture date and refresh before presenting as current. Notion, Actual, the portfolio, and PP are read-only; do not edit them and never deploy anything.
+4. Update every affected knowledge page (not just the index): provenance, facts, balances, date windows, repo baselines, updated dates, source lists, backlinks, and index summary. Dates and balances are volatile: show capture date and refresh before presenting as current. Notion, Actual, the portfolio, and PP are read-only; do not edit them and never deploy anything. Every tool call re-sends the whole conversation, so batch edits: change one page in a single call (one execute_code that rewrites it, or one patch over the whole changed block), never one patch per field.
 5. Lint. Re-run scripts/lint.py after your edits and fix every defect it reports that is evidence-backed; if it is missing or fails, do the full read of step 0 and check the same rules by hand: required frontmatter, taxonomy tags, every declared source file exists, every raw hash verifies, every page is indexed exactly once, index page count is correct, all wikilinks resolve, every entity/concept has inbound links, and each content page has at least two outbound wikilinks. Also scan the pages you read for stale/conflicting claims, accidental secrets/whole card numbers, and outdated dates. Fix what is evidence-backed; preserve ambiguities with a named settling check.
 6. Report. Append a dated log entry for all changes and audit results. Write an audit artifact recording each source's status, capture time, and completeness, and each structural check's result. If any mandatory source is unavailable or truncated, the run is partial: make the first digest line "incomplete: <reason>" and never claim a failed or unverified check passed. Send the weekly digest to Telegram formatted as Markdown (Telegram renders tables), no code blocks and no raw JSON: a "📚 *Wiki weekly · <YYYY-MM-DD>*" heading, then a table of what moved:
 
@@ -1316,7 +1322,7 @@ FAILURE: when a required step failed (a tool or script error, a failed, partial 
 MANAGED = {
     "prompt": PROMPT,
     "script": "wiki-source-snapshot.py",
-    "skills": ["llm-wiki", "expense-tracker", "notion", "notion-pitfalls", "hermes-operations", "portfolio-tracker"],
+    "skills": ["llm-wiki", "hermes-operations"],
     "skill": "llm-wiki",
 }
 DEFAULTS = {
@@ -1475,7 +1481,7 @@ FAILURE: when a required step failed (a tool or script error, a failed, partial 
 
 MANAGED = {
     "prompt": PROMPT,
-    "skills": ["llm-wiki", "expense-tracker", "notion", "hermes-operations", "gtasks-cli"],
+    "skills": ["llm-wiki", "expense-tracker", "hermes-operations", "gtasks-cli"],
     "skill": "llm-wiki",
 }
 DEFAULTS = {
