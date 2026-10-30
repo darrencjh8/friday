@@ -1,5 +1,5 @@
 /**
- * Nightly Actual Budget backup to OneDrive. Each budget named in
+ * Monthly Actual Budget backup to OneDrive. Each budget named in
  * ACTUAL_PRIMARY_BUDGET_FILE / ACTUAL_SECONDARY_BUDGET_FILE is exported by
  * actual-api (Actual's own export zip) and uploaded to OneDrive
  * /Backups/Actual/<budget> <YYYY-MM-DD>.zip, the file "Import Actual" restores.

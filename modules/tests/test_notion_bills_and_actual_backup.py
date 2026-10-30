@@ -118,7 +118,7 @@ class SeedTest(unittest.TestCase):
             seeded = {j["name"]: j for j in json.loads(jobs.read_text())["jobs"]}
             self.assertEqual({n: (j["script"], j["no_agent"], j["schedule"]["expr"], j["deliver"]) for n, j in seeded.items()}, {
                 "notion-monthly-bills-reset": ("notion-monthly-bills-reset.py", True, "0 0 1 * *", "telegram"),
-                "actual-backup": ("actual-backup.sh", True, "0 0 * * *", "telegram"),
+                "actual-backup": ("actual-backup.sh", True, "0 0 1 * *", "telegram"),
             })
             data = json.loads(jobs.read_text())
             for j in data["jobs"]:

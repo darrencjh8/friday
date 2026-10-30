@@ -134,7 +134,7 @@ async function main() {
     // per email; Hermes owns the mailbox and every user notification.
     mountProcessingRoute(app, { orchestrator, tools: registry, cfg });
 
-    // Nightly Actual Budget backup to OneDrive, triggered by a Hermes cron job.
+    // Monthly Actual Budget backup to OneDrive, triggered by a Hermes cron job.
     // Deliberately not a tool, so no agent can call it through MCP.
     mountBackupRoute(app);
 

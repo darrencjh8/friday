@@ -931,7 +931,7 @@ PYEOF
 # Seed two no_agent jobs (zero tokens, silent on success, alerted on failure):
 # notion-monthly-bills-reset sets every Monthly Bill row back to "Not started" at
 # midnight on the 1st; actual-backup has portfolio-tracker export both Actual
-# budgets and upload them to OneDrive /Backups/Actual every midnight.
+# budgets and upload them to OneDrive /Backups/Actual at midnight on the 1st.
 python3 <<'PYEOF' || true
 import os, json, uuid, datetime
 jobs_path = "/opt/data/cron/jobs.json"
@@ -948,7 +948,7 @@ except json.JSONDecodeError as error:
 
 SEEDS = {
     "notion-monthly-bills-reset": ("notion-monthly-bills-reset.py", "0 0 1 * *", "1st of the month 12am"),
-    "actual-backup": ("actual-backup.sh", "0 0 * * *", "every day 12am"),
+    "actual-backup": ("actual-backup.sh", "0 0 1 * *", "1st of the month 12am"),
 }
 for name, (script, expr, display) in SEEDS.items():
     managed = {"script": script, "no_agent": True}

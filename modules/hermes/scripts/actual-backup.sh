@@ -1,5 +1,5 @@
 #!/bin/bash
-# Nightly Actual Budget backup — deterministic REST call, zero LLM tokens.
+# Monthly Actual Budget backup — deterministic REST call, zero LLM tokens.
 # portfolio-tracker exports each budget through actual-api and uploads the
 # zips to OneDrive /Backups/Actual. Silent on success; a failure exits non-zero
 # so the no_agent cron job alerts.
