@@ -1,4 +1,4 @@
-litellm[proxy]==1.99.0
+litellm[proxy]==1.100.4
 httpx==0.28.1
 PyYAML==6.0.3
 uvicorn==0.35.0
