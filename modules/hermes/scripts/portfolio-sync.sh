@@ -139,7 +139,7 @@ log "sync complete"
 # quiet day with nothing new to import, so it stays a warning.
 # No grep -q: exiting early could SIGPIPE the writer, which pipefail turns into "no match".
 FAILED=$(printf '%s\n' "$SUMMARY" | grep -v 'nothing imported - all' \
-    | grep -E '^  (error:|\(parse error|[a-z_]+: error \()' || true)
+    | grep -E '^  (error:|\(parse error|.*: error \()' || true)
 if [ -n "$FAILED" ]; then
     log "ERROR: a sync step failed"
     exit 1

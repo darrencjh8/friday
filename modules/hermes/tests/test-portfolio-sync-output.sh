@@ -286,6 +286,10 @@ check_exit "a partial Sheets export exits non-zero" "$TAX_PARTIAL" 1
 check_exit "a dead grant exits non-zero" "$DEAD_GRANT" 1
 check_exit "an aborted sync exits non-zero" "$AB_ABORT" 1
 check_exit "a failed deposit match exits non-zero" "$DEPOSIT_FAILED" 1
+# Review H1: a failed balance-sync target prints only "<Name>: error (delta=0)",
+# and target names carry capitals, spaces and hyphens.
+TARGET_FAILED='{"sync_targets":[{"name":"Emergency Funds - MYR","status":"error","delta":0}],"pull":{"status":"ok","detail":"downloaded"},"push":{"status":"ok","detail":"uploaded"}}'
+check_exit "portfolio_sync.failed_target_exits_nonzero" "$TARGET_FAILED" 1
 check_exit "a healthy run exits zero" "$HEALTHY" 0
 check_exit "a skipped Sheets export exits zero" "$TAX_SKIPPED" 0
 check_exit "an unconfigured flex leg exits zero" "$FLEX_UNCONFIGURED" 0
