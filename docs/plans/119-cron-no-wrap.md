@@ -1,5 +1,5 @@
 QUESTIONS
-q: Should the header and footer be removed for every cron job, or only proactive-tick? | a: Every job. Hermes has only the global `cron.wrap_response` switch, and Darren asked to omit the prefix and footer.
+q: Should the header and footer be removed for every cron job, or only proactive-tick? | a: Every job. Hermes has only the global `cron.wrap_response` switch, and the operator asked to omit the prefix and footer.
 q: Does the live /opt/data/config.yaml already carry a `cron:` block that a baked block would replace? | a: No. Read-only check on 2026-10-31 found no `cron` or `wrap_response` key in the live file.
 
 # Plan: deliver Hermes cron output without the wrapper (#119)
