@@ -1998,6 +1998,31 @@ PY
 [ "$wording" = "pass" ] && ok "digests use tables; triage surfaces 7-day holds; wiki runs lint with full-read fallback; Telegram rich messages on" \
     || nope "digest/lint wording" "$wording"
 
+echo "--- proactive-tick adds dated mail to the calendar (from real seed) ---"
+prime_seed_jobs
+proactive_snippet="$(extract_seed_block "# Seed proactive-tick")"
+python3 -c "$proactive_snippet" >/dev/null
+proactive=$(python3 - "$TMPDIR/cron/jobs.json" <<'PY'
+import json, sys
+jobs = [j for j in json.load(open(sys.argv[1]))["jobs"] if j.get("name") == "proactive-tick"]
+prompt = jobs[0].get("prompt", "") if len(jobs) == 1 else ""
+checks = {
+    "one_job": len(jobs) == 1,
+    "gcal_add": "gcal add" in prompt and "--source gmail:<id>" in prompt,
+    "all_day_due_dates": "--date" in prompt and "--reminder-minutes 1440" in prompt,
+    "no_invites": "no attendees" in prompt and "no invites" in prompt,
+    "no_edits": "never change, move or delete an existing event" in prompt,
+    "exists_is_not_news": '"exists"' in prompt,
+    "not_read_only_any_more": "Gmail and Calendar are read-only" not in prompt,
+    "added_events_reported": "events you added" in prompt,
+}
+bad = [k for k, v in checks.items() if not v]
+print("pass" if not bad else "fail " + repr(bad))
+PY
+)
+[ "$proactive" = "pass" ] && ok "proactive-tick adds dated mail to the calendar with gcal add, no invites, no edits" \
+    || nope "proactive-tick calendar step" "$proactive"
+
 echo ""
 echo "========================================="
 echo -e " Results: ${GREEN}$pass passed${NC}, ${RED}$fail failed${NC}"
