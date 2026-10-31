@@ -129,6 +129,18 @@ except Exception as e:
     print(f'  (parse error: {e})')
 PARSE_EOF
 
-echo "$BODY" | python3 -c "$PARSE_PROG" 2>/dev/null || true
+SUMMARY=$(echo "$BODY" | python3 -c "$PARSE_PROG" 2>/dev/null || true)
+[ -n "$SUMMARY" ] && printf '%s\n' "$SUMMARY"
 
 log "sync complete"
+
+# Hermes judges a no_agent script cron by its exit code alone (#81), so a step
+# that printed an error line must fail the run. An all-skipped flex import is a
+# quiet day with nothing new to import, so it stays a warning.
+# No grep -q: exiting early could SIGPIPE the writer, which pipefail turns into "no match".
+FAILED=$(printf '%s\n' "$SUMMARY" | grep -v 'nothing imported - all' \
+    | grep -E '^  (error:|\(parse error|.*: error \()' || true)
+if [ -n "$FAILED" ]; then
+    log "ERROR: a sync step failed"
+    exit 1
+fi
