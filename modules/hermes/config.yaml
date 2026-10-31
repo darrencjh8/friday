@@ -224,6 +224,13 @@ secrets:
 
 timezone: Asia/Singapore
 
+# Deliver cron output as plain text. Hermes wraps every cron message by default
+# with a "Cronjob Response: <name> / (job_id: ...)" header and a "To stop or
+# manage this job..." footer (issue #119). The live config has no cron block,
+# so this baked block drops no live keys on the top-level merge.
+cron:
+  wrap_response: false
+
 mcp_servers:
     expense-tracker:
         url: http://expense-tracker:8080/mcp
