@@ -31,9 +31,14 @@ VERSION = "0.1.0"
 SCOPE = "https://www.googleapis.com/auth/tasks"
 GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 CALENDAR_SCOPE = "https://www.googleapis.com/auth/calendar.readonly"
+# Make one secondary "Friday" calendar and manage events only on calendars this
+# app created (gcal add). Google itself refuses any change to the user's own
+# calendars and events, unlike calendar.events(.owned).
+CALENDAR_APP_SCOPE = "https://www.googleapis.com/auth/calendar.app.created"
 # Everything `google login` asks for. Login refuses a token granting anything
-# else, which is what keeps Gmail and Calendar read-only.
-LOGIN_SCOPES = (SCOPE, GMAIL_SCOPE, CALENDAR_SCOPE)
+# else, which is what keeps Gmail read-only and the user's own calendars
+# unchangeable.
+LOGIN_SCOPES = (SCOPE, GMAIL_SCOPE, CALENDAR_SCOPE, CALENDAR_APP_SCOPE)
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 API_BASE = "https://tasks.googleapis.com/tasks/v1"
@@ -463,7 +468,8 @@ def parse_pasted_callback(text, expected_state):
 
 
 def cmd_login(args):
-    """`google login`: one consent for tasks, read-only Gmail and read-only Calendar."""
+    """`google login`: one consent for tasks, read-only Gmail, read-only Calendar
+    and events on the app-created "Friday" calendar (gcal add)."""
     cid, csec = _client_env()
     redirect_uri = args.redirect_uri or os.environ.get(
         "GTASKS_REDIRECT_URI", DEFAULT_REDIRECT_URI)
@@ -501,9 +507,10 @@ def cmd_login(args):
         raise SystemExit("Login failed at token exchange.")
     granted = set(out.get("scope", "").split())
     if not granted or granted - set(LOGIN_SCOPES):
-        # Never keep a token that could send, delete, or edit mail or events.
+        # Never keep a token that could send or delete mail, or change the
+        # user's own calendars.
         raise SystemExit("Login refused: Google granted scopes beyond tasks, "
-                         "gmail.readonly and calendar.readonly.")
+                         "gmail.readonly, calendar.readonly and calendar.app.created.")
     token = {"access_token": out["access_token"],
              "refresh_token": out.get("refresh_token", ""),
              "expiry": _dt.datetime.now(_dt.timezone.utc).timestamp()

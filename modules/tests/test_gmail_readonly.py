@@ -1,4 +1,4 @@
-"""`google login` grants one token; gmail and gcal only read with it."""
+"""`google login` grants one token; gmail only reads with it, gcal reads and (see test_gcal_add) only inserts."""
 
 import base64
 import importlib
@@ -17,6 +17,7 @@ sys.path.insert(0, str(SCRIPTS))
 TASKS = "https://www.googleapis.com/auth/tasks"
 GMAIL = "https://www.googleapis.com/auth/gmail.readonly"
 CAL = "https://www.googleapis.com/auth/calendar.readonly"
+CAL_APP = "https://www.googleapis.com/auth/calendar.app.created"
 
 
 class _Response:
@@ -61,12 +62,12 @@ class GoogleLoginTest(unittest.TestCase):
             token["scopes"] = scopes
         self.gtasks._save_token(token)
 
-    def test_login_asks_for_exactly_tasks_and_read_only_mail_and_calendar(self):
-        url = self.login(" ".join([TASKS, GMAIL, CAL]))
+    def test_login_asks_for_exactly_tasks_read_only_mail_and_calendar_and_friday_calendar(self):
+        url = self.login(" ".join([TASKS, GMAIL, CAL, CAL_APP]))
         scope = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)["scope"][0]
-        self.assertEqual(set(scope.split()), {TASKS, GMAIL, CAL})
+        self.assertEqual(set(scope.split()), {TASKS, GMAIL, CAL, CAL_APP})
         token = self.gtasks._load_token()
-        self.assertEqual(set(token["scopes"]), {TASKS, GMAIL, CAL})
+        self.assertEqual(set(token["scopes"]), {TASKS, GMAIL, CAL, CAL_APP})
         self.assertEqual((token["client_id"], token["client_secret"]), ("cid", "csec"))
 
     def test_login_refuses_a_token_with_any_broader_scope(self):
@@ -129,8 +130,9 @@ class GoogleLoginTest(unittest.TestCase):
         self.assertEqual(self.gmail.message_text(html_only), "Pay by Friday")
 
     def test_read_clis_have_no_write_or_login_commands(self):
-        for name in ("gmail.py", "gcal.py"):
-            self.assertNotIn('method="POST"', (SCRIPTS / name).read_text(encoding="utf-8"))
+        self.assertNotIn('method="POST"', (SCRIPTS / "gmail.py").read_text(encoding="utf-8"))
+        # gcal's one POST helper writes only to the app-created calendar; test_gcal_add covers it.
+        self.assertEqual((SCRIPTS / "gcal.py").read_text(encoding="utf-8").count('method="POST"'), 1)
         for cli, commands in ((self.gmail, ("send", "trash", "delete", "modify", "login")),
                               (self.gcal, ("create", "delete", "update", "login")),
                               (self.gtasks, ("login", "logout"))):
