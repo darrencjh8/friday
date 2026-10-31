@@ -53,6 +53,21 @@ class WikiSourceSnapshotTest(unittest.TestCase):
         self.assertEqual(hashlib.sha256(body.lstrip().encode()).hexdigest(), declared)
         self.assertEqual(CARD_RE.findall(body), [])
 
+    def test_snapshot_is_markdown_because_it_carries_frontmatter(self) -> None:
+        result = self.mod.record("actual-sgd", self.fetch, self.now)
+
+        self.assertTrue(result["file"].endswith("actual-sgd-2026-10-12.md"), result["file"])
+
+    def test_a_legacy_json_snapshot_still_counts_as_unchanged(self) -> None:
+        first = self.mod.record("actual-sgd", self.fetch, self.now)
+        legacy = Path(self.mod.WIKI, first["file"]).with_suffix(".json")
+        Path(self.mod.WIKI, first["file"]).rename(legacy)
+
+        second = self.mod.record("actual-sgd", self.fetch, self.now + datetime.timedelta(days=7))
+
+        self.assertEqual(second["status"], "unchanged")
+        self.assertEqual(second["file"], os.path.relpath(legacy, self.mod.WIKI))
+
     def test_unchanged_data_writes_no_new_file(self) -> None:
         first = self.mod.record("actual-sgd", self.fetch, self.now)
         later = self.now + datetime.timedelta(days=7)

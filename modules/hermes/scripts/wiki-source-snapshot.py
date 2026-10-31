@@ -168,7 +168,9 @@ def scrub(value):
 
 
 def latest(name):
-    paths = sorted(glob.glob(os.path.join(RAW, f"{name}-20*.json")), key=os.path.getmtime)
+    # Older snapshots were named .json despite their frontmatter (#3); still match them.
+    paths = sorted(glob.glob(os.path.join(RAW, f"{name}-20*.md")) + glob.glob(os.path.join(RAW, f"{name}-20*.json")),
+                   key=os.path.getmtime)
     return paths[-1] if paths else None
 
 
@@ -183,7 +185,8 @@ def record(name, fetch, now):
     if prev and re.search(rf"sha256:\s*{sha}", open(prev, encoding="utf-8").read(2000)):
         return {"source": name, "status": "unchanged", "file": os.path.relpath(prev, WIKI), **meta}
     stem = os.path.join(RAW, f"{name}-{now:%Y-%m-%d}")
-    path = f"{stem}.json" if not os.path.exists(f"{stem}.json") else f"{stem}-{now:%H%M}.json"
+    # .md, not .json: the wiki schema's frontmatter makes the file invalid JSON (#3).
+    path = f"{stem}.md" if not os.path.exists(f"{stem}.md") else f"{stem}-{now:%H%M}.md"
     front = {**meta, "captured_at": now.isoformat(timespec="minutes"), "ingested": now.date().isoformat(), "sha256": sha}
     with open(path, "w", encoding="utf-8") as f:
         f.write("---\n" + "".join(f"{k}: {v}\n" for k, v in front.items()) + "---\n" + body)
