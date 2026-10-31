@@ -268,6 +268,35 @@ check "a matched deposit is reported" "$DEPOSIT_MATCHED" "deposit_matches: ok (1
 DEPOSIT_NONE='{"sync_targets":[],"deposit_matches":[]}'
 check "a run with no deposit prints no deposit line" "$DEPOSIT_NONE" "" "deposit_matches:"
 
+# Issue #81: Hermes judges a no_agent script cron by its exit code alone, so a
+# run whose summary carries an error line must exit non-zero or the job records ok.
+check_exit() {
+    local label="$1" body="$2" expected="$3" rc=0
+    PATH="$TMPDIR_TEST/bin:$PATH" STUB_BODY="$body" STUB_CODE=200 \
+        bash "$SYNC_SCRIPT" >/dev/null 2>&1 || rc=$?
+    if { [ "$expected" = 0 ] && [ "$rc" -eq 0 ]; } || { [ "$expected" != 0 ] && [ "$rc" -ne 0 ]; }; then
+        echo "ok: $label"
+    else
+        echo "FAIL: $label - expected exit $expected, got $rc" >&2
+        FAILURES=$((FAILURES + 1))
+    fi
+}
+check_exit "a failed Sheets export exits non-zero" "$TAX_ERROR" 1
+check_exit "a partial Sheets export exits non-zero" "$TAX_PARTIAL" 1
+check_exit "a dead grant exits non-zero" "$DEAD_GRANT" 1
+check_exit "an aborted sync exits non-zero" "$AB_ABORT" 1
+check_exit "a failed deposit match exits non-zero" "$DEPOSIT_FAILED" 1
+# Review H1: a failed balance-sync target prints only "<Name>: error (delta=0)",
+# and target names carry capitals, spaces and hyphens.
+TARGET_FAILED='{"sync_targets":[{"name":"Emergency Funds - MYR","status":"error","delta":0}],"pull":{"status":"ok","detail":"downloaded"},"push":{"status":"ok","detail":"uploaded"}}'
+check_exit "portfolio_sync.failed_target_exits_nonzero" "$TARGET_FAILED" 1
+check_exit "a healthy run exits zero" "$HEALTHY" 0
+check_exit "a skipped Sheets export exits zero" "$TAX_SKIPPED" 0
+check_exit "an unconfigured flex leg exits zero" "$FLEX_UNCONFIGURED" 0
+# An all-skipped flex import is a quiet day (every trade already imported), not a
+# failed step, so it stays a printed warning and does not fail the cron.
+check_exit "an all-skipped flex import exits zero" "$FLEX_IMPORT_ALL_SKIPPED" 0
+
 if [ -n "$SENTINEL_FROM_JS" ] && [ "$PARSER_SENTINEL" != "$SENTINEL_FROM_JS" ]; then
     echo "FAIL: the shell parser matches on '$PARSER_SENTINEL' but NOT_CONFIGURED_ERROR is '$SENTINEL_FROM_JS'" >&2
     echo "      the M4 not-configured guard would silently stop working" >&2
