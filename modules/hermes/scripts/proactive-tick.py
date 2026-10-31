@@ -24,15 +24,17 @@ Sources:
   never replayed.
 - calendar: events in the next CALENDAR_DAYS that were added, moved, or
   cancelled since the last tick (the first tick only takes the baseline), and
-  once a day the agenda for the next 24 hours, through the read-only gcal.py.
+  once a day the agenda for the next 24 hours, read through gcal.py.
 - tasks: open items on Friday's own Google Tasks list that are due today or
   earlier, at most once a day each.
 When any source has something, the open Friday tasks and Darren's notify
 preferences are added as context so the agent can match mail to what it
 already tracks, along with the next 24 hours of calendar.
 
-Reads only: the Mnemosyne DB is opened read-only, and the Google login's mail
-and calendar scopes are gmail.readonly and calendar.readonly.
+Reads only: the Mnemosyne DB is opened read-only and this script only reads
+mail and calendar. The agent may add calendar events with `gcal add` (scope
+calendar.app.created: insert only, on the "Friday" calendar, no attendees,
+no invites).
 """
 
 import datetime

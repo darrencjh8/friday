@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Own Google Tasks CLI (stdlib only, no third-party binary).
 COPY scripts/gtasks.py /usr/local/bin/gtasks
 RUN chmod 0755 /usr/local/bin/gtasks
-# `google` (the one Google login), `gmail` and `gcal` (read-only) import gtasks.py
+# `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
 # from the seeded scripts directory, so they are wrappers rather than copies.
 RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
         printf '#!/bin/sh\nexec python3 /opt/data/scripts/%s.py "$@"\n' "${cli#*:}" > "/usr/local/bin/${cli%%:*}"; \
