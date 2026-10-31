@@ -17,7 +17,7 @@
         "mailparser": "^3.7.2",
         "pino": "^9.10.0",
         "express": "^5.1.0",
-        "googleapis": "^148.0.0",
+        "googleapis": "^189.0.0",
         "@modelcontextprotocol/sdk": "^1.9.0",
         "zod": "^3.24.0"
     },
