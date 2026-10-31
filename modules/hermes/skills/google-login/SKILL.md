@@ -1,15 +1,15 @@
 ---
 name: google-login
-description: Set up or renew Friday's Google access (Tasks, Gmail read-only, Calendar read plus adding events) with `google login`, including the SSH tunnel from Darren's Windows PC. Use when he asks to log in to Google, or when gtasks, gmail or gcal report an expired or missing login.
+description: Set up or renew Friday's Google access (Tasks, Gmail read-only, Calendar read-only plus a Friday calendar for added events) with `google login`, including the SSH tunnel from Darren's Windows PC. Use when he asks to log in to Google, or when gtasks, gmail or gcal report an expired or missing login.
 ---
 
 # Google login
 
-One login covers all three CLIs: `gtasks` (Tasks, read and write), `gmail` (read-only) and `gcal` (reads the calendar and adds events to Darren's own calendars). The token is saved once and shared. Run a login only when Darren asks to set up or renew Google access, or after a CLI reports the login expired and he agrees.
+One login covers all three CLIs: `gtasks` (Tasks, read and write), `gmail` (read-only) and `gcal` (reads the calendar, and adds events only to the secondary "Friday" calendar it creates). The token is saved once and shared. Run a login only when Darren asks to set up or renew Google access, or after a CLI reports the login expired and he agrees.
 
 ## Check first
 
-`google status` prints `logged in: calendar.events.owned, calendar.readonly, gmail.readonly, tasks` when all is well. A login from before adding events was supported lacks `calendar.events.owned`; `gcal add` then asks for a new login. A missing name means that box was left unticked at consent; log in again to add it. `not logged in` means there is no token.
+`google status` prints `logged in: calendar.app.created, calendar.readonly, gmail.readonly, tasks` when all is well. A login from before adding events was supported lacks `calendar.app.created`; `gcal add` then asks for a new login. A missing name means that box was left unticked at consent; log in again to add it. `not logged in` means there is no token.
 
 ## Why a tunnel is needed
 
@@ -24,8 +24,8 @@ Hermes runs in a Docker container on the production host. `google login` listens
    - Open the authorization URL in a browser on that same PC.
 3. On the consent screens:
    - "Google hasn't verified this app" is expected; this is his own personal-use OAuth app. Click Advanced, then "Go to ... (unsafe)".
-   - Tick all four boxes: Tasks, "View your email messages and settings", Calendar read-only and "See, create, change, and delete events on Google calendars you own".
-   - If Google asks for anything broader than those four (for example access to every calendar, or sending mail), cancel. The CLI also refuses to save a token with more.
+   - Tick all four boxes: Tasks, "View your email messages and settings", Calendar read-only and "Make secondary Google calendars, and see, create, change, and delete events on them".
+   - If Google asks for anything broader than those four (for example editing his own calendars or events, or sending mail), cancel. The CLI also refuses to save a token with more.
 4. The browser shows "Done. Return to your terminal." and the background process prints `Login saved: ...`. Confirm with `google status`. Darren can then close the SSH window.
 
 The listener gives up after 300 seconds. If it timed out, start a fresh `google login`; an old URL is not reused.

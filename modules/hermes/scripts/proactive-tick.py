@@ -33,7 +33,8 @@ already tracks, along with the next 24 hours of calendar.
 
 Reads only: the Mnemosyne DB is opened read-only and this script only reads
 mail and calendar. The agent may add calendar events with `gcal add` (scope
-calendar.events.owned: insert only, no attendees, no invites).
+calendar.app.created: insert only, on the "Friday" calendar, no attendees,
+no invites).
 """
 
 import datetime
