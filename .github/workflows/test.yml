@@ -175,6 +175,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_memory_triage_apply.py
             - name: Test mnemosyne-vacuum script
               run: bash modules/hermes/tests/test-mnemosyne-vacuum.sh
+            - name: Test cron response wrapper disabled
+              run: python -m unittest modules/hermes/tests/test_cron_wrap_config.py
             - name: Test seeded cron job renames
               run: python -m unittest modules/hermes/tests/test_cron_job_renames.py
             - name: Test curator merge proposals script
