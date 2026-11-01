@@ -202,6 +202,7 @@ def build_runner(settings: Settings):
         classify=lambda text, context="": jev.classify(state_text=text, api_key=settings.jev_api_key, context=context),
         senders=lambda: senders.load(settings.senders_file),
         notify_rules=lambda: senders.load_rules(settings.senders_file),
+        ignore_rules=lambda: senders.load_ignore_rules(settings.senders_file),
         fetch=refresh_box.fetch,
         unlock=open_pdfs,
     )

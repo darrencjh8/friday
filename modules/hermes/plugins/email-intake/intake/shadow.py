@@ -36,7 +36,7 @@ _JEV_STATUSES = tuple(_STATUS.values())
 
 
 class ShadowRunner:
-    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list, fetch=None, unlock=None):
+    def __init__(self, scanner, journal, classify, senders=dict, notify_rules=list, ignore_rules=list, fetch=None, unlock=None):
         """`fetch(folder, uidvalidity, uid)` re-reads one email so stale decisions can be refreshed;
         `unlock(raw)` opens its password-protected PDFs, None while one stays locked."""
         self._scanner = scanner
@@ -44,6 +44,7 @@ class ShadowRunner:
         self._classify = classify
         self._senders = senders
         self._notify_rules = notify_rules
+        self._ignore_rules = ignore_rules
         self._fetch = fetch
         self._unlock = unlock
 
@@ -86,9 +87,9 @@ class ShadowRunner:
             summary["refreshed"] += 1
 
     def run_once(self):
-        summary = {"seen": 0, "classified": 0, "copies": 0, "blocked": 0, "notified": 0, "refreshed": 0}
+        summary = {"seen": 0, "classified": 0, "copies": 0, "blocked": 0, "notified": 0, "ignored": 0, "refreshed": 0}
         account = self._scanner._account
-        known, rules = self._senders(), self._notify_rules()
+        known, rules, ignores = self._senders(), self._notify_rules(), self._ignore_rules()
         if self._fetch is not None:
             self._refresh(account, known, summary)
         for found in self._scanner.scan():
@@ -104,6 +105,11 @@ class ShadowRunner:
                 summary["notified"] += 1
                 status, decision = "shadow_notify", {"version": CLASSIFIER_VERSION, "destination": "notify",
                                                      "message": rule.message, "sender_domain": parsed.sender_domain}
+            elif senders.match_ignore(ignores, parsed.sender_domain, parsed.auth, parsed.subject):
+                # An ignore rule needs nothing: "ignored_rule" is never refreshed, dispatched or reported.
+                summary["ignored"] += 1
+                status, decision = "ignored_rule", {"version": CLASSIFIER_VERSION, "destination": "neither",
+                                                    "reason": "ignore_rule", "sender_domain": parsed.sender_domain}
             elif parsed.encrypted_pdf and (self._unlock is None or self._unlock(found.raw) is None):
                 summary["blocked"] += 1
                 status, decision = "blocked_encrypted", {"version": CLASSIFIER_VERSION}
