@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Google Calendar CLI (stdlib only): events, add.
+"""Google Calendar CLI (stdlib only): events, add, delete.
 
 Uses the shared token from `google login`. Reading uses calendar.readonly.
 Adding uses calendar.app.created: events go on one secondary "Friday" calendar
 that this CLI creates, and Google refuses any change to the user's own
 calendars and events whoever holds the token. `add` inserts one event with no
 attendees, sends no invites or updates, strips links from its text, and
-refuses a second event for the same source message. There is no update, move,
-accept or delete command.
+refuses a second event for the same source message. A similar event on any of
+the user's calendars the same day is reported as a possible duplicate instead
+of being added (unless --confirm-new). `delete` removes an event Friday added,
+and only from the Friday calendar. There is no update, move or accept command.
 """
 import argparse
 import datetime
@@ -29,7 +31,14 @@ DEFAULT_TZ = "Asia/Singapore"
 SOURCE_KEY = "friday_source"
 FRIDAY_CALENDAR = "Friday"
 FRIDAY_MARKER = "Events Friday added from email (gcal add)."
-URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)\S+")
+URL_RE = re.compile(r"(?i)\b(?:https?://|www\.)\S+"
+                    r"|\b(?:[a-z0-9-]+\.)+[a-z]{2,24}(?:/\S*)?(?![\w.@-])")
+STOP = {"a", "an", "the", "for", "to", "of", "and", "on", "at", "in", "with", "my", "me", "her", "his",
+        "their", "your", "from", "by", "s", "re", "fw", "fwd"}
+
+
+class NotFound(RuntimeError):
+    pass
 
 
 def enabled():
@@ -124,18 +133,25 @@ def build_event(title, date=None, start=None, end=None, tz=DEFAULT_TZ, location=
     return body, anchor
 
 
-def _post(url, body):
-    """The only writes: create the Friday calendar, or insert an event on it."""
-    token = gtasks.token_for(gtasks.CALENDAR_APP_SCOPE)
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST")
+def _request(method, url, params=None, body=None, scope=None):
+    """Calendar request with the given scope; NotFound on 404."""
+    token = gtasks.token_for(scope or gtasks.CALENDAR_APP_SCOPE)
+    url += "?" + urllib.parse.urlencode(params, doseq=True) if params else ""
+    data = json.dumps(body).encode() if body is not None else None
+    req = urllib.request.Request(url, data=data, method=method)
     req.add_header("Authorization", "Bearer " + token)
-    req.add_header("Content-Type", "application/json")
+    if body is not None:
+        req.add_header("Content-Type", "application/json")
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.load(resp)
+            raw = resp.read()
+            return json.loads(raw) if raw else {}
     except Exception as exc:
-        if getattr(exc, "code", None) == 401:
+        code = getattr(exc, "code", None)
+        if code == 401:
             raise gtasks.AuthExpired()
+        if code in (404, 410):
+            raise NotFound("not found: %s" % url.split("?")[0].rsplit("/", 2)[-2:])
         raw = ""
         try:
             raw = exc.read().decode()[:200]
@@ -144,8 +160,20 @@ def _post(url, body):
         raise RuntimeError("Google API error: %s" % (raw or exc))
 
 
+def _post(url, body):
+    """Writes go only to the app-created Friday calendar (calendar.app.created)."""
+    return _request("POST", url, body=body, scope=gtasks.CALENDAR_APP_SCOPE)
+
+
 def _state_path():
     return os.path.join(gtasks._config_dir(), "gcal-friday-calendar.json")
+
+
+def _forget_friday_calendar():
+    try:
+        os.remove(_state_path())
+    except OSError:
+        pass
 
 
 def friday_calendar_id():
@@ -175,41 +203,100 @@ def _events_url(calendar_id):
     return CAL_API + "/calendars/%s/events" % urllib.parse.quote(calendar_id, safe="")
 
 
+def _words(title):
+    text = re.sub(r"['\u2019]s\b", "", (title or "").lower())
+    return {w for w in re.findall(r"[a-z0-9]+", text) if w not in STOP and len(w) > 1}
+
+
+def _similar(a, b):
+    """Same thing in other words: most key words of the shorter title appear in the other."""
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return False
+    shared = wa & wb
+    return len(shared) >= min(2, len(wa), len(wb)) and len(shared) / min(len(wa), len(wb)) >= 0.6
+
+
 def _existing(body, anchor, calendar_id):
-    """An event already made from the same source, or one with the same title
-    starting within a day of this one on the primary or Friday calendar."""
+    """("exists", event) for an event made from the same source or with the same
+    title within a day; ("possible_duplicate", matches) for similar titles on any
+    calendar the user can see; (None, None) otherwise."""
     source = body["extendedProperties"]["private"][SOURCE_KEY]
-    found = gmail.get(_events_url(calendar_id), {"privateExtendedProperty": "%s=%s" % (SOURCE_KEY, source),
-                                                 "maxResults": 5},
-                      scope=gtasks.CALENDAR_APP_SCOPE).get("items", [])
+    found = _request("GET", _events_url(calendar_id), {"privateExtendedProperty": "%s=%s" % (SOURCE_KEY, source),
+                                                       "maxResults": 5}).get("items", [])
     if found:
-        return found[0]
+        return "exists", found[0]
     window = {"timeMin": (anchor - datetime.timedelta(days=1)).isoformat(),
               "timeMax": (anchor + datetime.timedelta(days=1)).isoformat(),
               "singleEvents": "true", "maxResults": 2500}
-    title = _norm(body["summary"])
-    for url, scope in ((API_BASE, gtasks.CALENDAR_SCOPE),
-                       (_events_url(calendar_id), gtasks.CALENDAR_APP_SCOPE)):
-        items = gmail.get(url, window, scope=scope).get("items", [])
-        match = next((e for e in items if _norm(e.get("summary")) == title), None)
-        if match:
-            return match
-    return None
+    calendars = [("primary", "Primary", gtasks.CALENDAR_SCOPE)]
+    listed = _request("GET", CAL_API + "/users/me/calendarList", {"maxResults": 250},
+                      scope=gtasks.CALENDAR_SCOPE).get("items", [])
+    for cal in listed:
+        if cal.get("id") != calendar_id and not cal.get("primary") and cal.get("id"):
+            calendars.append((cal["id"], cal.get("summaryOverride") or cal.get("summary", ""), gtasks.CALENDAR_SCOPE))
+    calendars.append((calendar_id, FRIDAY_CALENDAR, gtasks.CALENDAR_APP_SCOPE))
+    title, similar = _norm(body["summary"]), []
+    for cid, name, scope in calendars:
+        try:
+            items = _request("GET", _events_url(cid), window, scope=scope).get("items", [])
+        except NotFound:
+            if cid == calendar_id:
+                raise
+            continue
+        for e in items:
+            if e.get("status") == "cancelled":
+                continue
+            if _norm(e.get("summary")) == title:
+                return "exists", e
+            if _similar(body["summary"], e.get("summary")):
+                similar.append({"calendar": name, "id": e.get("id", ""), "summary": e.get("summary", ""),
+                                "start": _start(e), "htmlLink": e.get("htmlLink", "")})
+    return ("possible_duplicate", similar) if similar else (None, None)
 
 
-def add_event(**kwargs):
+def add_event(confirm_new=False, **kwargs):
     body, anchor = build_event(**kwargs)
     if not (can_add() and enabled()):
         raise gtasks.MissingScope("The Google login does not include calendar.app.created and "
                                   "calendar.readonly. Run `google login` again and allow both.")
+    for attempt in (1, 2):
+        calendar_id = friday_calendar_id()
+        try:
+            kind, found = _existing(body, anchor, calendar_id)
+            if kind == "exists":
+                return {"status": "exists", "id": found.get("id", ""), "htmlLink": found.get("htmlLink", ""),
+                        "summary": found.get("summary", ""), "start": _start(found)}
+            if kind == "possible_duplicate" and not confirm_new:
+                return {"status": "possible_duplicate", "matches": found[:5],
+                        "note": "not added; rerun with --confirm-new only if it is a different event"}
+            made = _post(_events_url(calendar_id) + "?" + urllib.parse.urlencode({"sendUpdates": "none"}), body)
+        except NotFound:
+            if attempt == 2:
+                raise
+            _forget_friday_calendar()  # the user deleted the Friday calendar: find or make it again
+            continue
+        return {"status": "created", "id": made.get("id", ""), "htmlLink": made.get("htmlLink", ""),
+                "summary": body["summary"], "start": _start(body), "calendar": FRIDAY_CALENDAR}
+
+
+def delete_event(event_id):
+    """Delete one event Friday added. Only the Friday calendar, only events with a source mark."""
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,1024}", event_id or ""):
+        raise ValueError("--id must be an event id from gcal add")
+    if not can_add():
+        raise gtasks.MissingScope("The Google login does not include calendar.app.created. "
+                                  "Run `google login` again and allow it.")
     calendar_id = friday_calendar_id()
-    found = _existing(body, anchor, calendar_id)
-    if found:
-        return {"status": "exists", "id": found.get("id", ""), "htmlLink": found.get("htmlLink", ""),
-                "summary": found.get("summary", ""), "start": _start(found)}
-    made = _post(_events_url(calendar_id) + "?" + urllib.parse.urlencode({"sendUpdates": "none"}), body)
-    return {"status": "created", "id": made.get("id", ""), "htmlLink": made.get("htmlLink", ""),
-            "summary": body["summary"], "start": _start(body), "calendar": FRIDAY_CALENDAR}
+    url = _events_url(calendar_id) + "/" + event_id
+    try:
+        event = _request("GET", url)
+    except NotFound:
+        raise ValueError("no such event on the Friday calendar; Friday can only delete events she added")
+    if not ((event.get("extendedProperties") or {}).get("private") or {}).get(SOURCE_KEY):
+        raise ValueError("that event was not added by Friday; ask Darren to remove it himself")
+    _request("DELETE", url, {"sendUpdates": "none"})
+    return {"status": "deleted", "id": event_id, "summary": event.get("summary", ""), "start": _start(event)}
 
 
 def main(argv=None):
@@ -227,14 +314,21 @@ def main(argv=None):
     add.add_argument("--description", default="")
     add.add_argument("--reminder-minutes", type=int, default=None)
     add.add_argument("--source", default="", help="the email it came from: gmail:<message id>")
+    add.add_argument("--confirm-new", action="store_true",
+                     help="add even though a similar event is on the calendar (only after checking)")
+    delete = sub.add_parser("delete", help="delete one event Friday added (Friday calendar only)")
+    delete.add_argument("--id", required=True)
     args = parser.parse_args(argv)
     try:
         if args.command == "events":
             print(json.dumps(list_events(min(args.days, 31)), indent=2, ensure_ascii=False))
+        elif args.command == "delete":
+            print(json.dumps(delete_event(args.id), ensure_ascii=False))
         else:
             print(json.dumps(add_event(title=args.title, date=args.date, start=args.start, end=args.end,
                                        tz=args.tz, location=args.location, description=args.description,
-                                       reminder_minutes=args.reminder_minutes, source=args.source),
+                                       reminder_minutes=args.reminder_minutes, source=args.source,
+                                       confirm_new=args.confirm_new),
                              ensure_ascii=False))
     except gtasks.AuthExpired:
         sys.stderr.write(gtasks.auth_expired_message() + "\n")

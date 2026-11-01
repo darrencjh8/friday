@@ -113,6 +113,30 @@ class WikiSourceSnapshotTest(unittest.TestCase):
         self.assertEqual(kept, {"Name", "Status"})
         self.assertEqual(self.mod.notion_value(props["Name"]), "Card A")
 
+    def test_only_captures_just_the_named_source(self) -> None:
+        calls = []
+        self.mod.notion = lambda ds: (calls.append(ds) or ([{"id": "r1", "Action date": {"start": "2026-11-20", "end": None}}],
+                                                         {"source_url": "notion", "rows": 1}))
+        self.mod.actual = lambda budget: self.fail("actual must not run")
+        self.mod.portfolio = lambda: self.fail("portfolio must not run")
+        self.mod.codex_router = lambda: self.fail("codex-router must not run")
+        from unittest import mock
+        with mock.patch("builtins.print") as printed:
+            self.assertEqual(self.mod.main(["--only", "notion-accounts"]), 0)
+        self.assertEqual(calls, [self.mod.NOTION_SOURCES["notion-accounts"]])
+        out = "\n".join(str(c.args[0]) for c in printed.call_args_list)
+        self.assertIn('"source": "notion-accounts"', out)
+        self.assertNotIn("actual-sgd", out)
+
+    def test_only_rejects_an_unknown_source(self) -> None:
+        with self.assertRaises(SystemExit):
+            self.mod.main(["--only", "nope"])
+
+    def test_daily_wrapper_runs_only_notion_accounts(self) -> None:
+        wrapper = SCRIPT.with_name("notion-accounts-snapshot.py").read_text(encoding="utf-8")
+        self.assertIn("wiki-source-snapshot.py", wrapper)
+        self.assertIn('"--only", "notion-accounts"', wrapper)
+
     def test_actual_meta_marks_the_transaction_window_complete(self) -> None:
         # actual-api /transactions returns every row in the window (no paging, no cap),
         # so the meta must not read as possibly truncated (an "incomplete" digest).

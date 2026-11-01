@@ -832,6 +832,9 @@ checks = {
     "habits": "daily-habits" in prompt,
     "silent_rule": "[SILENT]" in prompt,
     "skills": "gtasks-cli" in (j.get("skills") or []),
+    # Notion Accounts action dates are refreshed every morning, not only by the weekly wiki job.
+    "notion_daily_script": j.get("script") == "notion-accounts-snapshot.py",
+    "notion_daily_prompt": "Notion Accounts snapshot" in prompt and "action date" in prompt.lower(),
 }
 bad = [k for k, v in checks.items() if not v]
 print("pass" if not bad else "fail " + repr(bad))
@@ -2015,6 +2018,7 @@ checks = {
     "exists_is_not_news": '"exists"' in prompt,
     "not_read_only_any_more": "Gmail and Calendar are read-only" not in prompt,
     "added_events_reported": "events you added" in prompt,
+    "possible_duplicate_asks": "possible_duplicate" in prompt and "--confirm-new" in prompt,
 }
 bad = [k for k, v in checks.items() if not v]
 print("pass" if not bad else "fail " + repr(bad))

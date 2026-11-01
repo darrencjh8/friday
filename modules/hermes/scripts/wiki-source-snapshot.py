@@ -193,7 +193,12 @@ def record(name, fetch, now):
     return {"source": name, "status": "changed", "file": os.path.relpath(path, WIKI), "previous": prev and os.path.relpath(prev, WIKI), **meta}
 
 
-def main():
+def main(argv=None):
+    import argparse
+    parser = argparse.ArgumentParser(description="Capture read-only source snapshots into the wiki.")
+    parser.add_argument("--only", action="append", default=[],
+                        help="capture just this source (repeatable), e.g. notion-accounts")
+    args = parser.parse_args(argv)
     os.makedirs(RAW, exist_ok=True)
     now = datetime.datetime.now(SGT)
     sources = {
@@ -203,6 +208,11 @@ def main():
         "portfolio-tracker": portfolio,
         "codex-router-status": codex_router,
     }
+    unknown = [name for name in args.only if name not in sources]
+    if unknown:
+        parser.error("unknown source: " + ", ".join(unknown))
+    if args.only:
+        sources = {name: fetch for name, fetch in sources.items() if name in args.only}
     results = [record(name, fetch, now) for name, fetch in sources.items()]
     print(f"Source snapshots captured {now:%Y-%m-%d %H:%M} SGT by wiki-source-snapshot.py (read-only).")
     print("Read only the files marked changed; an unchanged source still matches the snapshot named.")
