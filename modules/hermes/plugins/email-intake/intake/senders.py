@@ -9,6 +9,11 @@ From header gets no hint.
 The same page's `Notify rules` table names mail that needs no model at all,
 only a message to the owner (e.g. "contract note ready, download it"). A rule
 matches on the exact sender domain, DMARC pass and subject text.
+
+Its `Ignore rules` table names mail that needs nothing at all: no model, no
+booking, no message. A rule needs subject text; with a sender domain it
+also needs that exact domain and DMARC pass, and with none (blank or `*`)
+the subject alone matches, from any sender.
 """
 
 import re
@@ -17,6 +22,8 @@ from pathlib import Path
 
 SECTION = "sender domains"
 RULES_SECTION = "notify rules"
+IGNORE_SECTION = "ignore rules"
+ANY_SENDER = ("", "*", "any")
 EXPECTED = {
     "actual_budget": "usually actual_budget",
     "portfolio": "usually portfolio",
@@ -37,6 +44,12 @@ class NotifyRule:
     domain: str
     subject_contains: str
     message: str
+
+
+@dataclass(frozen=True)
+class IgnoreRule:
+    domain: str  # "" matches any sender
+    subject_contains: str
 
 
 def _cells(line):
@@ -102,6 +115,30 @@ def match_rule(rules, sender_domain, auth, subject):
         return None
     domain, subject = (sender_domain or "").lower(), (subject or "").lower()
     return next((r for r in rules if r.domain == domain and r.subject_contains in subject), None)
+
+
+def _subject_text(text):
+    """Lower case, single spaces, straight apostrophes: how a rule's subject text is compared."""
+    return " ".join(str(text or "").replace("\u2019", "'").lower().split())
+
+
+def load_ignore_rules(path):
+    """Confirmed rows of the page's `Ignore rules` table that name subject text."""
+    rules = []
+    for row in _confirmed_rows(path, IGNORE_SECTION):
+        subject = _subject_text(row.get("subject contains", "").strip("`"))
+        if subject:
+            domain = _domain(row)
+            rules.append(IgnoreRule("" if domain in ANY_SENDER else domain, subject))
+    return rules
+
+
+def match_ignore(rules, sender_domain, auth, subject):
+    """The first rule whose text is in the subject and whose sender, if it names one, is this authenticated one."""
+    domain, subject = (sender_domain or "").lower(), _subject_text(subject)
+    authenticated = (auth or {}).get("dmarc") == "pass"
+    return next((r for r in rules if r.subject_contains in subject
+                 and (not r.domain or (authenticated and r.domain == domain))), None)
 
 
 def hint(known, sender_domain, auth):
