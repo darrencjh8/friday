@@ -39,7 +39,16 @@ class _Response:
         return False
 
     def read(self):
-        return json.dumps(self.payload).encode()
+        return b"" if self.payload is None else json.dumps(self.payload).encode()
+
+
+class _HTTPError(Exception):
+    def __init__(self, code):
+        super().__init__("HTTP %d" % code)
+        self.code = code
+
+    def read(self):
+        return json.dumps({"error": {"code": self.code}}).encode()
 
 
 class GcalAddTest(unittest.TestCase):
@@ -56,6 +65,8 @@ class GcalAddTest(unittest.TestCase):
         self.calendars = []      # calendarList items
         self.primary = []        # events on the user's primary calendar
         self.friday = []         # events on the Friday calendar
+        self.others = {}         # calendar id -> events, for other calendars in the list
+        self.gone = set()        # calendar ids that answer 404
 
     def save(self, scopes):
         self.gtasks._save_token({"access_token": "a", "refresh_token": "r", "expiry": 9e12,
@@ -65,13 +76,26 @@ class GcalAddTest(unittest.TestCase):
         self.requests.append(req)
         url = urllib.parse.urlparse(req.full_url)
         query = urllib.parse.parse_qs(url.query)
+        for gone in self.gone:
+            if urllib.parse.quote(gone, safe="") in url.path:
+                raise _HTTPError(404)
+        if req.get_method() == "DELETE":
+            return _Response(None)
         if req.get_method() == "POST":
             if url.path.endswith("/calendar/v3/calendars"):
                 return _Response({"id": FRI, "summary": "Friday"})
             return _Response({"id": "new1", "htmlLink": "https://calendar.google.com/event?eid=new1"})
         if url.path.endswith("/users/me/calendarList"):
             return _Response({"items": self.calendars})
-        items = self.primary if url.path.endswith(PRIMARY_EVENTS) else self.friday
+        if "/events/" in url.path:  # one event
+            eid = url.path.rsplit("/", 1)[1]
+            match = [e for e in self.friday if e["id"] == eid]
+            if not match:
+                raise _HTTPError(404)
+            return _Response(match[0])
+        other = next((cid for cid in self.others if urllib.parse.quote(cid, safe="") in url.path), None)
+        items = (self.others[other] if other else
+                 self.primary if url.path.endswith(PRIMARY_EVENTS) else self.friday)
         if "privateExtendedProperty" in query:
             wanted = query["privateExtendedProperty"][0].split("=", 1)[1]
             items = [e for e in items if e.get("extendedProperties", {}).get("private", {})
@@ -215,14 +239,83 @@ class GcalAddTest(unittest.TestCase):
                 self.assertNotEqual(code, 0)
         self.assertEqual(self.requests, [])
 
-    def test_there_is_still_no_edit_or_delete_command(self):
-        for command in ("update", "delete", "move", "accept", "respond", "invite"):
+    def test_there_is_still_no_edit_move_or_invite_command(self):
+        for command in ("update", "move", "accept", "respond", "invite"):
             with self.subTest(command=command), self.assertRaises(SystemExit), mock.patch("sys.stderr"):
                 self.gcal.main([command])
         source = (SCRIPTS / "gcal.py").read_text(encoding="utf-8")
-        for verb in ('"PUT"', '"PATCH"', '"DELETE"', '"attendees"', "conferenceData"):
+        for verb in ('"PUT"', '"PATCH"', '"attendees"', "conferenceData"):
             self.assertNotIn(verb, source)
-        self.assertEqual(source.count('method="POST"'), 1)
+
+    def run_cli(self, *args):
+        with mock.patch("urllib.request.urlopen", self.urlopen), \
+                mock.patch("builtins.print") as printed, mock.patch("sys.stderr"):
+            code = self.gcal.main(list(args))
+        out = json.loads(printed.call_args.args[0]) if printed.call_args else None
+        return code, out
+
+    def test_delete_removes_a_friday_event_without_notifying_anyone(self):
+        self.save(ALL)
+        self.calendars = [{"id": FRI, "summary": "Friday", "description": self.gcal.FRIDAY_MARKER}]
+        self.friday = [{"id": "ev00001", "summary": "Dental", "extendedProperties": {"private": {"friday_source": "gmail:m1"}}}]
+        code, out = self.run_cli("delete", "--id", "ev00001")
+        self.assertEqual((code, out["status"], out["id"]), (0, "deleted", "ev00001"))
+        [gone] = [r for r in self.requests if r.get_method() == "DELETE"]
+        url = urllib.parse.urlparse(gone.full_url)
+        self.assertTrue(url.path.endswith(FRI_EVENTS + "/ev00001"))
+        self.assertEqual(urllib.parse.parse_qs(url.query)["sendUpdates"], ["none"])
+
+    def test_delete_refuses_anything_not_on_the_friday_calendar(self):
+        self.save(ALL)
+        self.calendars = [{"id": FRI, "summary": "Friday", "description": self.gcal.FRIDAY_MARKER}]
+        self.friday = [{"id": "hand1", "summary": "Added by hand"}]  # no friday_source
+        for eid in ("primaryEvent1", "hand1", "../primary/events/x"):
+            with self.subTest(eid=eid):
+                code, _ = self.run_cli("delete", "--id", eid)
+                self.assertNotEqual(code, 0)
+        self.assertEqual([r for r in self.requests if r.get_method() == "DELETE"], [])
+
+    def test_a_similar_event_on_any_calendar_is_a_possible_duplicate(self):
+        self.save(ALL)
+        bday = "bday123@group.calendar.google.com"
+        self.calendars = [{"id": "me@example.com", "summary": "Personal"},
+                          {"id": bday, "summary": "Birthdays"}]
+        self.others = {bday: [{"id": "b1", "summary": "Mum's Birthday", "start": {"date": "2026-11-01"},
+                               "htmlLink": "https://calendar.google.com/event?eid=b1"}]}
+        code, out = self.add("--title", "Call Mum for her birthday", "--date", "2026-11-01", "--source", "gmail:m7")
+        self.assertEqual((code, out["status"]), (0, "possible_duplicate"))
+        self.assertEqual(out["matches"][0]["calendar"], "Birthdays")
+        self.assertEqual(out["matches"][0]["summary"], "Mum's Birthday")
+        self.assertEqual(self.posts(FRI_EVENTS), [])
+        code, out = self.add("--title", "Call Mum for her birthday", "--date", "2026-11-01", "--source", "gmail:m7",
+                             "--confirm-new")
+        self.assertEqual((code, out["status"]), (0, "created"))
+
+    def test_unrelated_events_the_same_day_do_not_block(self):
+        self.save(ALL)
+        self.primary = [{"id": "x", "summary": "Gym", "start": {"date": "2026-11-01"}}]
+        code, out = self.add("--title", "Dental: Example Clinic", "--date", "2026-11-01", "--source", "gmail:m8")
+        self.assertEqual((code, out["status"]), (0, "created"))
+
+    def test_a_deleted_friday_calendar_is_recreated_once(self):
+        self.save(ALL)
+        old = "old@group.calendar.google.com"
+        os.makedirs(self.gtasks._config_dir(), exist_ok=True)
+        with open(self.gcal._state_path(), "w") as fh:
+            json.dump({"id": old}, fh)
+        self.gone = {old}
+        code, out = self.add("--title", "Pay card bill", "--date", "2026-11-20", "--source", "gmail:m10")
+        self.assertEqual((code, out["status"]), (0, "created"))
+        self.assertEqual(len(self.posts("/calendar/v3/calendars")), 1)
+        self.assertEqual(len(self.posts(FRI_EVENTS)), 1)
+
+    def test_bare_domain_links_are_stripped_too(self):
+        self.save(ALL)
+        self.add("--title", "Pay now", "--date", "2026-11-20", "--description",
+                 "go to pay-here.example.com/login or bit.ly/abc", "--source", "gmail:m11")
+        body = json.loads(self.posts(FRI_EVENTS)[0].data)
+        self.assertNotIn("example.com", body["description"])
+        self.assertNotIn("bit.ly", body["description"])
 
     def test_login_asks_for_app_created_and_nothing_broader(self):
         login = importlib.reload(importlib.import_module("google_login"))

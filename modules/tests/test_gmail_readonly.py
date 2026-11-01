@@ -131,8 +131,14 @@ class GoogleLoginTest(unittest.TestCase):
 
     def test_read_clis_have_no_write_or_login_commands(self):
         self.assertNotIn('method="POST"', (SCRIPTS / "gmail.py").read_text(encoding="utf-8"))
-        # gcal's one POST helper writes only to the app-created calendar; test_gcal_add covers it.
-        self.assertEqual((SCRIPTS / "gcal.py").read_text(encoding="utf-8").count('method="POST"'), 1)
+        # gcal writes (POST, DELETE) only with the app-created-calendar scope; test_gcal_add covers the targets.
+        import re
+        gcal_src = (SCRIPTS / "gcal.py").read_text(encoding="utf-8")
+        writes = re.findall(r'_request\("(POST|DELETE)"[^\n]*', gcal_src)
+        self.assertTrue(writes)
+        self.assertNotIn("scope=gtasks.CALENDAR_SCOPE", "".join(re.findall(r'_request\("(?:POST|DELETE)"[^\n]*', gcal_src)))
+        for verb in ('"PUT"', '"PATCH"'):
+            self.assertNotIn(verb, gcal_src)
         for cli, commands in ((self.gmail, ("send", "trash", "delete", "modify", "login")),
                               (self.gcal, ("create", "delete", "update", "login")),
                               (self.gtasks, ("login", "logout"))):
