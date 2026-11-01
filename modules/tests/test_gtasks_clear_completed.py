@@ -1,4 +1,4 @@
-"""Monthly clear of completed Google Tasks, and the dedup listing it relies on."""
+"""Monthly clear of completed Google Tasks, and the dedup listing it relies on (deletion: test_gtasks_delete_completed)."""
 
 import importlib.util
 import json
@@ -46,6 +46,7 @@ class ClearCompletedTest(unittest.TestCase):
             load_clear().main()
         self.assertEqual([c for c in calls if c[0] == "POST"],
                          [("POST", f"/lists/{i}/clear", {}) for i in "abc"])
+        # No list holds tasks here, so nothing is deleted.
         self.assertFalse([c for c in calls if c[0] not in ("GET", "POST")])
 
     def test_api_error_fails_the_run(self):

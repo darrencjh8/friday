@@ -885,9 +885,10 @@ os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
 # Seed gtasks-clear-completed (no_agent, zero tokens): on the 1st of each
-# month, clear completed tasks in every Google Tasks list. Clearing hides
-# them; gtasks still lists hidden tasks with --include-completed, so the wiki
-# reminder dedup keeps seeing them. Silent on success; a failure is alerted.
+# month, delete completed tasks in every Google Tasks list, except completed
+# wiki reminders dated today or later (the reminder dedup still needs them)
+# and their parents, which are cleared (hidden) instead. Silent on success; a
+# failure is alerted.
 python3 <<'PYEOF' || true
 import os, json, uuid, datetime
 jobs_path = "/opt/data/cron/jobs.json"
