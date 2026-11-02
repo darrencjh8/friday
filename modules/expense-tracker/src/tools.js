@@ -1915,23 +1915,27 @@ export class ToolRegistry {
   async _check_ab_duplicate(date, amount_cents, account_id, budget_id = "") {
     try {
       // Expand to ±1 day to handle bank posting lag;
-      // query all transactions regardless of cleared status
-      const d = new Date(date + "T00:00:00Z");
-      const before = new Date(d);
-      before.setUTCDate(before.getUTCDate() - 1);
-      const after = new Date(d);
-      after.setUTCDate(after.getUTCDate() + 1);
-      const since = before.toISOString().slice(0, 10);
-      const until = after.toISOString().slice(0, 10);
+      // query all transactions regardless of cleared status.
+      // A schedule posts on its due date while the bank can charge days later
+      // (a weekend month-end), so a schedule's own row gets ±3 days.
+      const day = (offset) => {
+        const d = new Date(date + "T00:00:00Z");
+        d.setUTCDate(d.getUTCDate() + offset);
+        return d.toISOString().slice(0, 10);
+      };
+      const since = day(-1);
+      const until = day(1);
 
       const transactions = await this._get("/transactions", budget_id, {
-        since_date: since,
-        until_date: until,
+        since_date: day(-3),
+        until_date: day(3),
         account_id: account_id,
       });
       if (!Array.isArray(transactions)) return false;
       return transactions.some(
-        (tx) => tx.amount === amount_cents && tx.date >= since && tx.date <= until,
+        (tx) =>
+          tx.amount === amount_cents &&
+          (tx.schedule || (tx.date >= since && tx.date <= until)),
       );
     } catch {
       return false;
