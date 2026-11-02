@@ -176,7 +176,11 @@ function namedAccount(value, fallbackBank) {
   if (!value) return null;
   // The flattened DBS body runs "To: NAME A/C ending 2555" into the footer
   // ("If unauthorised, please call ..."), so the account ends at its digits.
-  const text = String(value).replace(/^(.*?\bA\/C\s+ending\s+\d{4,})\b.*$/i, "$1");
+  // "(Ref ending 2666)" ends the same way; the footer names the sending bank,
+  // which would otherwise be read as the destination's bank.
+  const text = String(value)
+    .replace(/^(.*?\bA\/C\s+ending\s+\d{4,})\b.*$/i, "$1")
+    .replace(/^(.*?\(Ref\s+ending\s+\d{4,}\)).*$/i, "$1");
   return {
     name: text.replace(/\s*\((?:A\/C|Ref)?\s*(?:ending\s+)?-?\*{0,}\d+\)[^)]*$/i, "")
       .replace(/\s+A\/C\s+ending\s+\d{4,}$/i, "")

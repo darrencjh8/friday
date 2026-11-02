@@ -984,6 +984,31 @@ describe("ToolRegistry — budget_id validation", () => {
         );
     });
 
+    describe("check_duplicate against a schedule-posted row", () => {
+        const check = (rows) => {
+            mockFetch.mockResolvedValueOnce({ ok: true, json: () => rows });
+            return registry.executeTool("check_duplicate", {
+                date: "2026-11-02",
+                amount_cents: -4321,
+                account_id: "acc-1",
+                payee_name: "Insurance",
+                budget_id: "My Budget",
+            });
+        };
+
+        test("treats the alert as that payment when the schedule posted two days earlier", async () => {
+            await expect(check([
+                { id: "txn-1", amount: -4321, date: "2026-10-31", account: "acc-1", schedule: "sched-1" },
+            ])).resolves.toBe(true);
+        });
+
+        test("keeps the one-day window for a row no schedule posted", async () => {
+            await expect(check([
+                { id: "txn-1", amount: -4321, date: "2026-10-31", account: "acc-1", schedule: null },
+            ])).resolves.toBe(false);
+        });
+    });
+
     describe("resolve_merchant", () => {
         test("returns error when budget_id is missing", async () => {
             const result = await registry.executeTool("resolve_merchant", {

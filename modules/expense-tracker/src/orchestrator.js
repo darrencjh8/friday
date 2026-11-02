@@ -1058,9 +1058,13 @@ export class AgentOrchestrator {
         const ctx = await this._tools.executeTool("fetch_context", { budget_id: budgetId });
         const accounts = ctx?.accounts || [];
         const facts = [];
+        // Recall is verbatim, and a bank can print more digits than the fact
+        // holds, so "-447788" must also find "Account ending 7788".
         const queries = new Set([
             movement.own_account?.suffix,
+            movement.own_account?.suffix?.slice(-4),
             movement.counterparty?.suffix,
+            movement.counterparty?.suffix?.slice(-4),
             movement.counterparty?.name,
             movement.recipient_bank ? `${movement.recipient_bank} alert recipient` : "",
         ].filter(Boolean));
@@ -3360,8 +3364,10 @@ export class AgentOrchestrator {
                 // destination wording alone ("... CREDIT CARDS") identifies a
                 // card PRODUCT, not one of the holder's own accounts, and the
                 // same wording is used for cards that are not the holder's.
+                // A name can have both a plain and a transfer payee. Only the
+                // transfer payee moves the money onto the card.
                 const cardPayee = output._card_repayment === true
-                    ? payees.find((payee) =>
+                    ? transferPayee || payees.find((payee) =>
                         !payee.transfer_acct &&
                         payee.name?.toLowerCase() === output.payee_name.toLowerCase(),
                     )
