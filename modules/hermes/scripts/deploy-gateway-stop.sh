@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Sourced by modules/deploy.sh. Stops the hermes gateways before the container
 # goes away, because a container stop can reach them only at Docker's kill limit
 # (#107). Both functions tolerate a missing container: a first deploy has none.
