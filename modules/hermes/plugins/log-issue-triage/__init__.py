@@ -316,7 +316,7 @@ def _collect(args):
     if snapshot.get("component") != component:
         return {"status": "collection_failed", "detail": "snapshot component mismatch"}
     collection_id = uuid.uuid4().hex
-    if snapshot.get("collection_errors") or snapshot.get("truncated"):
+    if snapshot.get("collection_errors"):
         return {"status": "partial", "snapshot": snapshot}
     _SNAPSHOTS[collection_id] = snapshot
     _persist_record(_COLLECTION_DIR, collection_id, snapshot)
