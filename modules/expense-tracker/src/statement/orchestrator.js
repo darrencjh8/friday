@@ -142,11 +142,15 @@ const DUE_AMOUNT_RE =
 const TOTAL_LABEL_RE =
   /\b(?:total(?: amount| payment)? due|amount due|(?:statement|new|outstanding) balance)$/i;
 const DUE_DATE_RE = /\bdue date\b\W{0,4}(\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}|\d{1,2} [a-z]{3,9} \d{4})/i;
+// A currency-marked or two-decimal amount anywhere in the body; dates and card digits are neither.
+const MONEY_RE =
+  /(?:RM|MYR|SGD|S\$|USD|\$)\s*\d[\d,.]*|(?<![\d.,/-])\d[\d,]*[.,]\d{2}(?![.,/-]?\d)/gi;
 
 /**
  * A summary-only statement email: no PDF attached, a total-type due/balance
- * label, and every due/balance amount exactly zero. Returns { amount, dueDate }
- * or null; null keeps the LLM reconciliation path, so any doubt falls back.
+ * label, and every money amount in the body exactly zero. Returns
+ * { amount, dueDate } or null; null keeps the LLM reconciliation path, so any
+ * doubt falls back.
  */
 export function zeroDueSummary(raw, text) {
   const rawText = Buffer.isBuffer(raw) ? raw.toString("latin1") : String(raw || "");
@@ -154,6 +158,7 @@ export function zeroDueSummary(raw, text) {
   const matches = [...String(text || "").matchAll(DUE_AMOUNT_RE)];
   if (!matches.some((m) => TOTAL_LABEL_RE.test(m[1].trim()))) return null;
   if (!matches.every((m) => /^[^\d]*0+(?:[.,]0{1,2})?$/.test(m[2].trim()))) return null;
+  if ((String(text).match(MONEY_RE) || []).some((amount) => /[1-9]/.test(amount))) return null;
   const total = matches.find((m) => TOTAL_LABEL_RE.test(m[1].trim()));
   return {
     amount: total[2].trim(),
