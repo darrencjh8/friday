@@ -254,13 +254,7 @@ jobs:
                   if ! docker exec hermes sh -c 'command -v ntn' >/dev/null 2>&1; then
                       docker exec hermes npm install --global --prefix /opt/data/.local ntn
                   fi
-                  # Gated on the installed version rather than on binary presence, so a
-                  # later bump of the pin replaces the volume copy instead of no-opping.
-                  # The match is anchored: the pin is a prefix of a longer version.
-                  if ! docker exec hermes npm ls --global --prefix /opt/data/.local --depth=0 @notionhq/notion-mcp-server 2>/dev/null | grep -qE '@notionhq/notion-mcp-server@2\.5\.2([[:space:]]|$)'; then
-                      docker exec hermes npm install --global --prefix /opt/data/.local @notionhq/notion-mcp-server@2.5.2
-                  fi
-                  docker exec hermes sh -c 'gh --version && ntn --version && command -v notion-mcp-server'
+                  docker exec hermes sh -c 'gh --version && ntn --version'
 
             - name: Record deployed Codex Router revision
               if: >-

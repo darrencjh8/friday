@@ -242,41 +242,25 @@ mcp_servers:
         tools:
             exclude: []
         supports_parallel_tool_calls: false
-    # Two entries over the same stdio server, because `include` cannot be
-    # conditioned on approval and `trust: untrusted` gates every tool without a
-    # readOnlyHint. Search and query are POSTs, so one entry would either expose
-    # writes ungated or demand approval for every read.
+    # Notion's hosted server, authorized once with `hermes mcp login notion`; the
+    # tokens live on the volume. No `trust: untrusted`, so writes run unprompted:
+    # the allowlist is the guard, and it withholds delete, move and schema tools.
     notion:
-        command: notion-mcp-server
-        env:
-            NOTION_TOKEN: ${NOTION_API_KEY}
+        url: https://mcp.notion.com/mcp
+        auth: oauth
         supports_parallel_tool_calls: false
         tools:
             include:
-                - API-get-self
-                - API-post-search
-                - API-query-data-source
-                - API-retrieve-a-data-source
-                - API-retrieve-a-database
-                - API-retrieve-a-page
-                - API-retrieve-a-page-property
-                - API-retrieve-page-markdown
-                - API-get-block-children
-                - API-list-data-source-templates
-            resources: false
-            prompts: false
-    notion-write:
-        command: notion-mcp-server
-        env:
-            NOTION_TOKEN: ${NOTION_API_KEY}
-        supports_parallel_tool_calls: false
-        trust: untrusted
-        tools:
-            include:
-                - API-post-page
-                - API-patch-page
-                - API-update-page-markdown
-                - API-create-a-comment
+                - notion-create-comment
+                - notion-create-pages
+                - notion-fetch
+                - notion-get-async-task
+                - notion-get-comments
+                - notion-get-self
+                - notion-get-tool-access
+                - notion-query-data-sources
+                - notion-search
+                - notion-update-page
             resources: false
             prompts: false
 platforms:
