@@ -1019,7 +1019,7 @@ SCHEDULER HEALTH
 
 COLLECTION
 3. Call `triage_collect_snapshot` once for each component. Record its `collection_id`; only snapshots with status `ok` are eligible for reproduction.
-4. Preserve each tool result as evidence. Missing/invalid JSON, failed collection, collection errors, or truncation means partial/blocked, never an empty healthy result.
+4. Preserve each tool result as evidence. Missing/invalid JSON, failed collection, or collection errors mean partial/blocked, never an empty healthy result. A snapshot with `truncated: true` is a capped sample: it is usable evidence and not a failure, so mention the cap in the report only when you have something else to report.
 5. Candidate leads are bounded: no more than three per component. Clean empty snapshots are healthy no-lead results.
 
 INVESTIGATION
