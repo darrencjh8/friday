@@ -50,6 +50,8 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 # that file for the two gates it has to cover and why a false failure loops.
 # shellcheck source=modules/hermes/scripts/deploy-ready-budget.sh
 . "$ROOT/modules/hermes/scripts/deploy-ready-budget.sh"
+# shellcheck source=modules/hermes/scripts/deploy-gateway-stop.sh
+. "$ROOT/modules/hermes/scripts/deploy-gateway-stop.sh"
 MODULES_DIR="$ROOT/modules"
 PT_DIR="$ROOT/modules/portfolio-tracker"
 ET_DIR="$ROOT/modules/expense-tracker"
@@ -985,6 +987,12 @@ if ! $SKIP_BUILD; then
 fi
 
 # Deploy
+# ponytail: restarts the gateways even when compose then keeps the container.
+# That restart is clean; asking compose first would need a dry run it may not have.
+if should_deploy "hermes"; then
+  stop_hermes_gateways
+fi
+
 FORCE_RECREATE="${FORCE_ALL:-false}"
 if [[ " ${COMPONENTS[*]} " =~ " all " ]]; then
   # `|| true` rather than `; true`: under `set -e` a command followed by `; true`
@@ -1009,10 +1017,18 @@ fi
 # argument reconciles the whole project, which is not what a router deploy is
 # asking for.
 if [ -n "$UP_TARGETS" ]; then
+    up_status=0
     if [ "$FORCE_RECREATE" = "true" ]; then
-        $COMPOSE up -d --remove-orphans --force-recreate $UP_TARGETS
+        $COMPOSE up -d --remove-orphans --force-recreate $UP_TARGETS || up_status=$?
     else
-        $COMPOSE up -d --remove-orphans $UP_TARGETS
+        $COMPOSE up -d --remove-orphans $UP_TARGETS || up_status=$?
+    fi
+    # Before the failure ends the deploy, so a kept container is not left without gateways.
+    if should_deploy "hermes"; then
+        start_hermes_gateways
+    fi
+    if [ "$up_status" -ne 0 ]; then
+        exit "$up_status"
     fi
 fi
 
