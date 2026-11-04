@@ -1,5 +1,6 @@
 # TruffleHog has no PII detectors of its own, so these add PII shapes to its
-# default credential detectors. Used by .github/workflows/pii-scan.yml.
+# default credential detectors. Used by .github/workflows/pii-scan.yml. Names have
+# no fixed shape, so scripts/pii-scan-names.py covers those.
 
 detectors:
     - name: PII email
@@ -21,3 +22,7 @@ detectors:
       keywords: ["3", "4", "5"]
       regex:
           value: '\b(?:4[0-9]{3}|5[1-5][0-9]{2}|3[47][0-9]{2})(?:[ -]?[0-9]{4}){2}[ -]?[0-9]{3,4}\b'
+    - name: PII SG address
+      keywords: ["Singapore", "Blk", "Road", "Rd", "Street", "Avenue", "Ave", "Drive", "Lane", "Crescent", "Walk", "Close"]
+      regex:
+          value: '\bSingapore\s+[0-9]{6}\b|\bBlk\s*[0-9]+[A-Z]?\b|\b[0-9]+[A-Z]? [A-Z][a-z]+(?: [A-Z][a-z]+)? (?:Road|Rd|Street|Avenue|Ave|Drive|Lane|Crescent|Walk|Close)\b'

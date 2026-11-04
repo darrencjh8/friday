@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
-"""Email the findings of a TruffleHog scan to the owner, and print none of them.
+"""Email scan findings to the owner, and print none of them.
 
 This repository's Actions logs are public, so output must not reveal a value or
 even whether anything was found: the same line prints either way, and an error
 prints only its exception type, because its message could quote a value.
 
-Run: python3 scripts/pii-scan-alert.py findings.jsonl
+Run: python3 scripts/pii-scan-alert.py findings.jsonl [more.jsonl ...]
 Env: SMTP_USERNAME, SMTP_PASSWORD, PII_SCAN_EMAIL_TO, FULL_HISTORY ("true" to
 report every commit; otherwise only commits from the last 2 days).
 Exit: 0 scan handled, 1 failed.
 """
 from __future__ import annotations
 
+import fileinput
 import json
 import os
 import smtplib
@@ -64,11 +65,11 @@ def main(argv: list[str]) -> int:
         if not (user and password and to):
             raise ValueError
         recent = None if os.environ.get("FULL_HISTORY") == "true" else recent_commits()
-        with open(argv[1], encoding="utf-8") as handle:
-            found = collect(handle, recent)
+        with fileinput.input(files=argv[1:], encoding="utf-8") as lines:
+            found = collect(lines, recent)
         if found:
             message = EmailMessage()
-            message["Subject"] = "friday: TruffleHog scan found PII or secrets"
+            message["Subject"] = "friday: scheduled scan found PII or secrets"
             message["From"] = user
             message["To"] = to
             message.set_content(render(found))

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Prove pii-scan-alert.py emails findings and never prints them.
+"""Prove pii-scan-alert.py emails findings and never prints them, and that
+pii-scan-names.py reads git history correctly and fails quietly.
 
 The repository's Actions logs are public, so the assertions that matter most are
 the ones about stdout and stderr. Values here are synthetic.
@@ -20,6 +21,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 spec = importlib.util.spec_from_file_location("pii_scan_alert", os.path.join(HERE, "pii-scan-alert.py"))
 alert = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(alert)
+spec = importlib.util.spec_from_file_location("pii_scan_names", os.path.join(HERE, "pii-scan-names.py"))
+names = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(names)
 
 VALUE = "zed.quill@example.com"
 ENV = {"SMTP_USERNAME": "sender@example.com", "SMTP_PASSWORD": "hunter2-synthetic", "PII_SCAN_EMAIL_TO": "owner@example.com"}
@@ -63,15 +67,17 @@ def run(lines, full=True, recent=(), env=ENV, error=None):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl") as handle:
         handle.write("\n".join(lines) + ("\n" if lines else ""))
         handle.flush()
+        empty = tempfile.NamedTemporaryFile("r", suffix=".jsonl")
         saved = dict(os.environ)
         os.environ.update(env)
         os.environ["FULL_HISTORY"] = "true" if full else "false"
         try:
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
-                code = alert.main(["pii-scan-alert.py", handle.name])
+                code = alert.main(["pii-scan-alert.py", empty.name, handle.name])
         finally:
             os.environ.clear()
             os.environ.update(saved)
+            empty.close()
     return code, out.getvalue(), FakeSMTP.sent
 
 
@@ -141,6 +147,68 @@ def test_duplicates_collapse_and_list_every_location():
     text = body(sent[0])
     assert text.count(VALUE) == 1
     assert "one.txt" in text and "two.txt" in text
+
+
+LOG = """\0aaa111
+Payment for Wei Ling Tan
+
+Co-Authored-By: Claude Opus <noreply@example.com>
+
+diff --git a/notes.txt b/notes.txt
+--- a/notes.txt
++++ b/notes.txt
+@@ -1,0 +7,2 @@
++first line
++Second Line
+--- removed Line Here
+@@ -9 +20 @@
+-Old Name
++Third Line
+\0bbb222
+Second commit
+diff --git a/gone.txt b/gone.txt
+--- a/gone.txt
++++ /dev/null
+@@ -1 +0,0 @@
+-Old Name
+"""
+
+
+def test_history_parser_reports_added_lines_and_messages():
+    parsed = list(names.added_lines(LOG.split("\n")))
+    assert ("aaa111", None, 0, "Payment for Wei Ling Tan") in parsed
+    assert ("aaa111", "notes.txt", 7, "first line") in parsed
+    assert ("aaa111", "notes.txt", 8, "Second Line") in parsed
+    assert ("aaa111", "notes.txt", 20, "Third Line") in parsed
+    assert ("bbb222", None, 0, "Second commit") in parsed
+    assert not any("Old Name" in entry[3] or "removed" in entry[3] for entry in parsed)
+    assert not any("Claude" in entry[3] for entry in parsed)
+
+
+def test_name_shape_accepts_names_and_rejects_code():
+    for good in ("Wei Ling Tan", "TAN WEI LING", "Mary O'Neil"):
+        assert names.NAME.fullmatch(good), good
+    for bad in ("Payee", "getUserName", "user name", "Tan wei", "A B"):
+        assert not names.NAME.fullmatch(bad), bad
+
+
+def test_candidate_filter_skips_lines_with_no_name_shape():
+    assert names.CANDIDATE.search("from Wei Ling to you")
+    assert names.CANDIDATE.search("HOLDER TAN WEI")
+    assert not names.CANDIDATE.search("const userName = getUserName(accountId)")
+
+
+def test_names_failure_prints_only_the_exception_type():
+    def explode(*args):
+        raise RuntimeError(VALUE)
+
+    names.scan = explode
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+        code = names.main(["pii-scan-names.py", "/nonexistent/out.jsonl"])
+    assert code == 1
+    assert VALUE not in out.getvalue()
+    assert "RuntimeError" in out.getvalue()
 
 
 if __name__ == "__main__":

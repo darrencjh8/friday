@@ -1,6 +1,6 @@
 name: Scheduled PII scan
 
-# Emails TruffleHog findings to the owner. Schedule and manual runs only, so it
+# Emails TruffleHog and Presidio findings to the owner. Schedule and manual runs only, so it
 # can never block a pull request.
 #
 # Logs of this public repository are public, so nothing here may reveal a finding:
@@ -27,11 +27,18 @@ jobs:
     scan:
         runs-on: ubuntu-latest
         environment: darren-prod
+        env:
+            FULL_HISTORY: ${{ github.event.schedule == '23 19 * * 0' || inputs.full_history }}
         steps:
             - uses: actions/checkout@v7
               with:
                   fetch-depth: 0
                   persist-credentials: false
+
+            - uses: actions/setup-python@v5
+              with:
+                  # scripts/pii-scan-requirements.txt is hash-locked for this version.
+                  python-version: "3.13"
 
             - name: Install TruffleHog
               env:
@@ -52,10 +59,25 @@ jobs:
                       --no-update --no-verification --results=verified,unknown,unverified \
                       > "$RUNNER_TEMP/findings.jsonl" 2> /dev/null
 
+            # Names only. Hash-locked, because a later step in this job holds the mail
+            # password. A failure here must not stop the TruffleHog findings being
+            # emailed, so the run is failed at the end instead.
+            - name: Scan for names
+              id: names
+              continue-on-error: true
+              run: |
+                  touch "$RUNNER_TEMP/names.jsonl"
+                  python3 -m venv "$RUNNER_TEMP/presidio"
+                  "$RUNNER_TEMP/presidio/bin/pip" install -q --require-hashes -r scripts/pii-scan-requirements.txt
+                  "$RUNNER_TEMP/presidio/bin/python" scripts/pii-scan-names.py "$RUNNER_TEMP/names.jsonl" 2> /dev/null
+
             - name: Email findings
               env:
                   SMTP_USERNAME: ${{ secrets.IMAP_USERNAME }}
                   SMTP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
                   PII_SCAN_EMAIL_TO: ${{ secrets.PII_SCAN_EMAIL_TO }}
-                  FULL_HISTORY: ${{ github.event.schedule == '23 19 * * 0' || inputs.full_history }}
-              run: python3 scripts/pii-scan-alert.py "$RUNNER_TEMP/findings.jsonl"
+              run: python3 scripts/pii-scan-alert.py "$RUNNER_TEMP/findings.jsonl" "$RUNNER_TEMP/names.jsonl"
+
+            - name: Fail if the name scan failed
+              if: steps.names.outcome == 'failure'
+              run: exit 1
