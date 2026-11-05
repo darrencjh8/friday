@@ -168,18 +168,18 @@ class HermesSlackComposeTests(unittest.TestCase):
         """Socket Mode is outbound-only, so no additional inbound port may appear.
 
         The Hermes WebUI on 8787 was the first addition, the Google Tasks
-        OAuth callback on 8299 the second, and the reminders dashboard on
-        8300 the third. All three are published on host loopback only, so
-        none adds a LAN-reachable port: Tailscale serve terminates tailnet
+        OAuth callback on 8299 the second, the reminders dashboard on 8300
+        the third, and the Dots phone app gateway on 8788 the fourth. All four
+        are published on host loopback only, so none adds a LAN-reachable port: Tailscale serve terminates tailnet
         TLS and proxies to 127.0.0.1.
         """
         compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
         ports = compose["services"]["hermes"].get("ports") or []
 
         self.assertEqual(
-            {"8642", "9119", "8644", "8787", "8299", "8300"},
+            {"8642", "9119", "8644", "8787", "8299", "8300", "8788"},
             {str(p).rsplit(":", 1)[-1] for p in ports},
-            "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, the Tasks callback, and reminders",
+            "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, the Tasks callback, reminders, and Dots",
         )
         self.assertIn(
             "127.0.0.1:9119:9119",
