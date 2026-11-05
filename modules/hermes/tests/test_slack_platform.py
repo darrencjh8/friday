@@ -828,7 +828,7 @@ class HermesSlackConfigOrderingTests(unittest.TestCase):
 
         self.assertIsNotNone(routes, "platforms.webhook hoisted: slack block ordered before webhook")
         self.assertIn("notify", routes)
-        self.assertEqual("telegram", routes["notify"].get("deliver"))
+        self.assertEqual("dots", routes["notify"].get("deliver"))
 
 
 class HermesSlackManifestHelperTests(unittest.TestCase):

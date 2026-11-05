@@ -97,7 +97,8 @@ describe("hermes webhook config", () => {
 
         // Should NOT use deliver_only — agent is needed for personalization
         expect(routes.notify.deliver_only).toBeUndefined();
-        expect(routes.notify.deliver).toBe("telegram");
+        expect(routes.notify.deliver).toBe("dots");
+        expect(routes.notify.deliver_extra.chat_id).toBe("${DOTS_HOME_CHANNEL}");
     });
 
     test("notify webhook prompt prevents table wrapping for single-item notifications", () => {
