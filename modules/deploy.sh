@@ -617,6 +617,7 @@ if should_deploy "portfolio-tracker" || should_deploy "all"; then
 echo ""
 echo "--- Portfolio Tracker (.env) ---"
 PT_ENV="$PT_DIR/.env"
+check_file "/home/runner/data/hermes/data/home/wiki/entities/accounts/portfolio-sync-targets.md"
 if $GITHUB_MODE || check_file "$PT_ENV"; then
   for v in DEEPSEEK_API_KEY ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD \
            ACTUAL_PRIMARY_BUDGET_FILE ACTUAL_SECONDARY_BUDGET_FILE \

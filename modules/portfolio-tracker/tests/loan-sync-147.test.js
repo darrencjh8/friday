@@ -17,7 +17,10 @@ afterEach(() => {
     vi.restoreAllMocks();
     for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
-beforeEach(() => pullFlexXml.mockResolvedValue({ success: false, skipped: true }));
+beforeEach(() => {
+    pullFlexXml.mockClear();
+    pullFlexXml.mockResolvedValue({ success: false, skipped: true });
+});
 
 const defaultTargets = () => [
     { key: "emergency_primary", budget: "primary", metric: "emergency_total", portfolio_account_id: "pp-emergency" },
@@ -41,6 +44,7 @@ function setup({
     currencies = { "pp-emergency": "SGD", "pp-secondary": "MYR", "pp-warchest": "SGD", "pp-loan": "SGD" },
     failSecondaryBudget = false,
     failBalanceRead = false,
+    nullBudget = false,
 } = {}) {
     const config = new Config({
         DEEPSEEK_API_KEY: "test",
@@ -71,7 +75,7 @@ function setup({
         const failBudget = failSecondaryBudget && budget === "secondary";
         if (pathname === "/budget-12m") {
             if (failBudget) return { ok: false, status: 503, text: async () => "unavailable" };
-            return { ok: true, status: 200, json: async () => ({ emergency_total: 1000, investment_total: 2000 }) };
+            return { ok: true, status: 200, json: async () => nullBudget ? null : ({ emergency_total: 1000, investment_total: 2000 }) };
         }
         if (pathname === "/accounts") {
             return { ok: true, status: 200, json: async () => accounts ?? [
@@ -115,17 +119,37 @@ it("reconciles a changed loan source balance by delta", async () => {
 
 it.each([
     ["a missing mapping file", null],
-    ["duplicate destination accounts", defaultTargets().map((item) => item.key === "loans_primary" ? { ...item, portfolio_account_id: "pp-emergency" } : item)],
+    ["a mapping missing an existing target", defaultTargets().filter((item) => item.key !== "warchest_primary")],
+    ["duplicate non-loan destinations", defaultTargets().map((item) => item.key === "warchest_primary" ? { ...item, portfolio_account_id: "pp-emergency" } : item)],
     ["an unknown metric", defaultTargets().map((item) => item.key === "loans_primary" ? { ...item, metric: "unexpected_total" } : item)],
     ["an empty loan source list", defaultTargets().map((item) => item.key === "loans_primary" ? { ...item, actual_account_ids: [] } : item)],
-])("reports %s without updating any target", async (_label, targets) => {
+    ["a secondary-budget loan mapping", defaultTargets().map((item) => item.key === "loans_primary" ? { ...item, budget: "secondary" } : item)],
+])("fails closed when sync mapping has %s", async (_label, targets) => {
     const { registry, bridge } = setup({ targets });
     const result = await registry._computeSyncAll();
-    expect(result.sync_targets).toHaveLength(1);
-    expect(result.sync_targets[0]).toMatchObject({ status: "error", delta: 0 });
-    expect(result.sync_targets[0].error).toMatch(/^Sync target mapping/);
+    expect(result.sync_targets.map((item) => item.name)).toEqual(expect.arrayContaining([
+        "Loan balance", "Emergency Funds - SGD", "Emergency Funds - MYR", "Warchest",
+    ]));
+    expect(target(result)).toMatchObject({ status: "error", delta: 0 });
+    expect(result.sync_targets).toHaveLength(4);
+    expect(result.sync_targets.filter((item) => item.status === "error")).toHaveLength(4);
     expect(bridge.updateBalance).not.toHaveBeenCalled();
-    expect(bridge.push).toHaveBeenCalled();
+    expect(bridge.pull).not.toHaveBeenCalled();
+    expect(bridge.push).not.toHaveBeenCalled();
+    expect(pullFlexXml).not.toHaveBeenCalled();
+    expect(registry._exportTaxonomiesToSheet).not.toHaveBeenCalled();
+}, 20000);
+
+it("skips only a loan destination that collides with an existing target", async () => {
+    const targets = defaultTargets().map((item) => item.key === "loans_primary"
+        ? { ...item, portfolio_account_id: "pp-emergency" }
+        : item);
+    const { registry, bridge } = setup({ targets });
+    const result = await registry._computeSyncAll();
+    expect(target(result)).toMatchObject({ status: "error", delta: 0, error: "Loan destination conflicts with another sync target" });
+    expect(target(result, "Emergency Funds - SGD").status).toBe("updated");
+    expect(bridge.updateBalance).toHaveBeenCalledTimes(3);
+    expect(bridge.updateBalance).not.toHaveBeenCalledWith(expect.objectContaining({ accountId: "pp-emergency", amount: -3.25 }));
 }, 20000);
 
 it.each([
@@ -149,6 +173,15 @@ it("keeps primary targets syncing when the secondary budget fails", async () => 
     expect(bridge.push).toHaveBeenCalled();
 }, 20000);
 
+it("reports null budget JSON per target instead of aborting the summary", async () => {
+    const { registry, bridge } = setup({ nullBudget: true });
+    const result = await registry._computeSyncAll();
+    expect(result.sync_targets).toHaveLength(4);
+    expect(result.sync_targets.slice(0, 3).every((item) => item.status === "error")).toBe(true);
+    expect(target(result)).toMatchObject({ amount: -3.25, status: "unchanged", delta: 0 });
+    expect(bridge.push).toHaveBeenCalled();
+}, 20000);
+
 it("reports a non-SGD loan destination without updating it", async () => {
     const { registry, bridge } = setup({ currencies: { "pp-emergency": "SGD", "pp-secondary": "MYR", "pp-warchest": "SGD", "pp-loan": "MYR" } });
     const result = await registry._computeSyncAll();
@@ -159,6 +192,19 @@ it("reports a non-SGD loan destination without updating it", async () => {
 it("reports an invalid balance without exposing source identifiers", async () => {
     const { registry } = setup({ balances: { a: -200, b: null, c: 25 } });
     expect(target(await registry._computeSyncAll())).toMatchObject({ status: "error", error: "Loan balance is invalid" });
+}, 20000);
+
+it("rejects safe-integer cents that cannot round-trip through dollar amounts", async () => {
+    const { registry, bridge } = setup({
+        balances: { a: 8999999999999999, b: 0, c: 0 },
+    });
+    expect(target(await registry._computeSyncAll())).toMatchObject({
+        status: "error",
+        error: "Loan balance is invalid",
+    });
+    expect(bridge.updateBalance).not.toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: "pp-loan" }),
+    );
 }, 20000);
 
 it("reports a failed source read without leaking its error", async () => {

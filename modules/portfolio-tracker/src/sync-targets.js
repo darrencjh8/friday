@@ -7,35 +7,38 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-const METRICS = new Set([
-    "emergency_total",
-    "investment_total",
-    "account_balances",
-]);
-const BUDGETS = new Set(["primary", "secondary"]);
+const REQUIRED = {
+    emergency_primary: ["primary", "emergency_total"],
+    emergency_secondary: ["secondary", "emergency_total"],
+    warchest_primary: ["primary", "investment_total"],
+    loans_primary: ["primary", "account_balances"],
+};
 
 function invalid() {
     throw new Error("Sync target mapping is invalid");
 }
 
 function validate(doc) {
-    if (!doc || doc.version !== 1 || !Array.isArray(doc.targets) || doc.targets.length === 0) {
+    if (!doc || doc.version !== 1 || !Array.isArray(doc.targets)) {
         invalid();
     }
     const keys = new Set();
-    const destinations = new Set();
+    const nonLoanDestinations = new Set();
     const targets = doc.targets.map((item) => {
         if (!item || typeof item.key !== "string" || !item.key || keys.has(item.key)) invalid();
-        if (!BUDGETS.has(item.budget) || !METRICS.has(item.metric)) invalid();
+        const expected = REQUIRED[item.key];
+        if (!expected || item.budget !== expected[0] || item.metric !== expected[1]) invalid();
         if (
             typeof item.portfolio_account_id !== "string" ||
-            !item.portfolio_account_id ||
-            destinations.has(item.portfolio_account_id)
+            !item.portfolio_account_id
         ) {
             invalid();
         }
+        if (item.key !== "loans_primary") {
+            if (nonLoanDestinations.has(item.portfolio_account_id)) invalid();
+            nonLoanDestinations.add(item.portfolio_account_id);
+        }
         keys.add(item.key);
-        destinations.add(item.portfolio_account_id);
         const target = {
             key: item.key,
             budget: item.budget,
@@ -46,7 +49,7 @@ function validate(doc) {
             const ids = item.actual_account_ids;
             if (
                 !Array.isArray(ids) ||
-                ids.length === 0 ||
+                ids.length !== 3 ||
                 new Set(ids).size !== ids.length ||
                 ids.some((id) => typeof id !== "string" || !id)
             ) {
@@ -56,6 +59,9 @@ function validate(doc) {
         }
         return target;
     });
+    if (keys.size !== Object.keys(REQUIRED).length || Object.keys(REQUIRED).some((key) => !keys.has(key))) {
+        invalid();
+    }
     return targets;
 }
 
