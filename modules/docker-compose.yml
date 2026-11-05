@@ -173,6 +173,9 @@ services:
             - onedrive_data:/data/onedrive:rw
             - /home/runner/data/portfolio-tracker/onedrive_token:/app/config/onedrive:rw
             - /home/runner/data/portfolio-tracker/google-service-account.json:/app/config/google-service-account.json:ro
+            # Private balance-sync mapping for every target: the same read-only
+            # wiki finance subtree Hermes owns.
+            - /home/runner/data/hermes/data/home/wiki/entities/accounts:/wiki/accounts:ro
         environment:
             - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
             - LLM_BASE_URL=${LLM_BASE_URL:-http://codex-router:4100/v1}
@@ -183,6 +186,8 @@ services:
             - ACTUAL_BUDGET_PASSWORD=${ACTUAL_BUDGET_PASSWORD}
             - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
             - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE}
+            - WIKI_DIR=/wiki/accounts
+            - PORTFOLIO_SYNC_TARGETS_FILE=${PORTFOLIO_SYNC_TARGETS_FILE:-}
             - ONEDRIVE_CLIENT_ID=${ONEDRIVE_CLIENT_ID}
             - IBKR_FLEX_TOKEN=${IBKR_FLEX_TOKEN}
             - IBKR_FLEX_QUERY_ID=${IBKR_FLEX_QUERY_ID}
