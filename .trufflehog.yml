@@ -1,0 +1,28 @@
+# TruffleHog has no PII detectors of its own, so these add PII shapes to its
+# default credential detectors. Used by .github/workflows/pii-scan.yml. Names have
+# no fixed shape, so scripts/pii-scan-names.py covers those.
+
+detectors:
+    - name: PII email
+      keywords: ["@"]
+      regex:
+          value: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+      exclude_regexes_match:
+          - '(?i)@(.*\.)?(example\.(com|org|net)|test\.com|[a-z0-9-]+\.invalid|your-[a-z-]*\.[a-z.]+|users\.noreply\.github\.com)$'
+          - '(?i)^noreply@'
+    - name: PII SG phone
+      keywords: ["+65"]
+      regex:
+          value: '\+65[ -]?[3689][0-9]{3}[ -]?[0-9]{4}\b'
+    - name: PII NRIC
+      keywords: ["S", "T", "F", "G", "M"]
+      regex:
+          value: '\b[STFGM][0-9]{7}[A-Z]\b'
+    - name: PII card
+      keywords: ["3", "4", "5"]
+      regex:
+          value: '\b(?:4[0-9]{3}|5[1-5][0-9]{2}|3[47][0-9]{2})(?:[ -]?[0-9]{4}){2}[ -]?[0-9]{3,4}\b'
+    - name: PII SG address
+      keywords: ["Singapore", "Blk", "Road", "Rd", "Street", "Avenue", "Ave", "Drive", "Lane", "Crescent", "Walk", "Close"]
+      regex:
+          value: '\bSingapore\s+[0-9]{6}\b|\bBlk\s*[0-9]+[A-Z]?\b|\b[0-9]+[A-Z]? [A-Z][a-z]+(?: [A-Z][a-z]+)? (?:Road|Rd|Street|Avenue|Ave|Drive|Lane|Crescent|Walk|Close)\b'
