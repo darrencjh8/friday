@@ -990,7 +990,6 @@ export class ToolRegistry {
             }
 
             const targets = [];
-            const privateTargets = new Set();
 
             for (const spec of specs) {
                 const target = {
@@ -1081,7 +1080,6 @@ export class ToolRegistry {
                         }
                         target.amount = amount;
                         target.account_id = spec.portfolio_account_id;
-                        privateTargets.add(target);
                         targets.push(target);
                     } catch (e) {
                         const safeErrors = [
@@ -1135,31 +1133,23 @@ export class ToolRegistry {
                                 notes: `Synced from AB ${t.name}`,
                             },
                         );
-                        t.result = privateTargets.has(t)
-                            ? {
-                                  status: updateResult.status,
-                                  delta: updateResult.delta,
-                              }
-                            : updateResult;
+                        t.result = {
+                            status: updateResult.status,
+                            delta: updateResult.delta,
+                        };
                         t.delta = updateResult.delta ?? 0;
                         t.status = updateResult.status || "updated";
-                        if (
-                            privateTargets.has(t) &&
-                            t.status === "error"
-                        ) {
-                            t.error = "Loan balance update failed";
+                        if (t.status === "error") {
+                            t.error = "Balance update failed";
                         }
                     }
                 } catch (e) {
-                    t.result = {
-                        error: privateTargets.has(t)
-                            ? "Loan balance update failed"
-                            : e.message,
-                    };
+                    t.result = { error: "Balance update failed" };
                     t.delta = 0;
                     t.status = "error";
+                    t.error = "Balance update failed";
                 }
-                if (privateTargets.has(t)) delete t.account_id;
+                delete t.account_id;
                 results.push(t);
                 await sleep(500);
             }

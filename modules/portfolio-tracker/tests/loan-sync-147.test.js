@@ -45,6 +45,7 @@ function setup({
     failSecondaryBudget = false,
     failBalanceRead = false,
     nullBudget = false,
+    failUpdateAccount = "",
 } = {}) {
     const config = new Config({
         DEEPSEEK_API_KEY: "test",
@@ -61,10 +62,11 @@ function setup({
         push: vi.fn().mockResolvedValue({ status: "ok" }),
         getAccounts: vi.fn().mockResolvedValue(Object.entries(currencies).map(([id, currency]) => ({ id, currency }))),
         updateBalance: vi.fn(async ({ accountId, amount }) => {
+            if (accountId === failUpdateAccount) throw new Error("private bridge failure detail");
             const cents = Math.round(amount * 100);
             const delta = cents - (current[accountId] ?? 0);
             current[accountId] = cents;
-            return { status: delta ? "updated" : "unchanged", delta: delta / 100 };
+            return { status: delta ? "updated" : "unchanged", delta: delta / 100, private_ref: accountId };
         }),
         queryTaxonomies: vi.fn().mockResolvedValue({ taxonomies: [] }),
         getStatus: vi.fn().mockResolvedValue({ summary: { currencies: {}, equity_currencies: {} } }),
@@ -104,10 +106,23 @@ it("syncs every mapped target and reconciles the signed loan sum", async () => {
     ]);
     expect(target(result)).toMatchObject({ amount: -3.25, currency: "SGD", status: "unchanged", delta: 0 });
     expect(target(result)).not.toHaveProperty("account_id");
+    expect(result.sync_targets.every((item) => !Object.hasOwn(item, "account_id"))).toBe(true);
+    expect(JSON.stringify(result.sync_targets)).not.toContain("private_ref");
     expect(target(result, "Emergency Funds - SGD")).toMatchObject({ amount: 10, status: "updated" });
     expect(bridge.updateBalance).toHaveBeenCalledTimes(4);
     expect(bridge.push).toHaveBeenCalled();
     expect(registry._config.actualLoanAccountIds).toBeUndefined();
+}, 20000);
+
+it("sanitizes bridge errors before returning target results", async () => {
+    const { registry } = setup({ failUpdateAccount: "pp-emergency" });
+    const result = await registry._computeSyncAll();
+    expect(target(result, "Emergency Funds - SGD")).toMatchObject({
+        status: "error",
+        error: "Balance update failed",
+        result: { error: "Balance update failed" },
+    });
+    expect(JSON.stringify(result.sync_targets)).not.toContain("private bridge failure detail");
 }, 20000);
 
 it("reconciles a changed loan source balance by delta", async () => {
