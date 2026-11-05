@@ -1639,8 +1639,7 @@ PYEOF
 # read through gmail.py and gcal.py, due tasks on Darren's "Friday"
 # Google Tasks list, a missing cron patch)
 # and prints nothing when nothing did, so most hourly ticks never reach the model.
-# The agent decides what is worth a message. Delivery is attached to the Telegram
-# DM session so a reply continues with the message in context.
+# The agent decides what is worth a message. Delivery goes to the Dots app.
 python3 <<'PYEOF' || true
 import os, json, uuid, datetime
 jobs_path = "/opt/data/cron/jobs.json"
@@ -1680,12 +1679,13 @@ MANAGED = {
     "prompt": PROMPT,
     "script": "proactive-tick.py",
     "attach_to_session": True,
+    "deliver": "dots",
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "0 8-21 * * *", "display": "hourly 8am-9pm"},
     "schedule_display": "hourly 8am-9pm",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
