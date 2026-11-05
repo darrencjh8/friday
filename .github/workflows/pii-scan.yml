@@ -1,0 +1,83 @@
+name: Scheduled PII scan
+
+# Emails TruffleHog and Presidio findings to the owner. Schedule and manual runs only, so it
+# can never block a pull request.
+#
+# Logs of this public repository are public, so nothing here may reveal a finding:
+# no artifact, no cache, no job summary, and the official TruffleHog action is not
+# used because it prints findings. A run stays green when it finds something and
+# turns red only when the scan or the email fails.
+on:
+    schedule:
+        # Daily except Sunday: commits from the last 2 days only.
+        - cron: "41 18 * * 1-6"
+        # Sunday: full history. Keep in step with FULL_HISTORY below.
+        - cron: "23 19 * * 0"
+    workflow_dispatch:
+        inputs:
+            full_history:
+                description: "Report the entire git history (default: last 2 days)"
+                type: boolean
+                default: false
+
+permissions:
+    contents: read
+
+jobs:
+    scan:
+        runs-on: ubuntu-latest
+        environment: darren-prod
+        env:
+            FULL_HISTORY: ${{ github.event.schedule == '23 19 * * 0' || inputs.full_history }}
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - uses: actions/setup-python@v5
+              with:
+                  # scripts/pii-scan-requirements.txt is hash-locked for this version.
+                  python-version: "3.13"
+
+            - name: Install TruffleHog
+              env:
+                  VERSION: 3.99.8
+                  SHA256: 7c3b02f160f28929a467e29e20fba98746e0729f6e37c3c25761e4f8789abe08
+              run: |
+                  archive="$RUNNER_TEMP/trufflehog.tar.gz"
+                  curl -sSfL "https://github.com/trufflesecurity/trufflehog/releases/download/v${VERSION}/trufflehog_${VERSION}_linux_amd64.tar.gz" -o "$archive"
+                  echo "$SHA256  $archive" | sha256sum -c -
+                  tar -xzf "$archive" -C "$RUNNER_TEMP" trufflehog
+
+            # No secret in this step's environment. stderr is discarded because its
+            # log lines are not promised to be free of scanned content. Verification
+            # stays off so the runner never presents a leaked credential to its vendor.
+            - name: Scan
+              run: |
+                  "$RUNNER_TEMP/trufflehog" git "file://$PWD" --config .trufflehog.yml --json \
+                      --no-update --no-verification --results=verified,unknown,unverified \
+                      > "$RUNNER_TEMP/findings.jsonl" 2> /dev/null
+
+            # Names only. Hash-locked, because a later step in this job holds the mail
+            # password. A failure here must not stop the TruffleHog findings being
+            # emailed, so the run is failed at the end instead.
+            - name: Scan for names
+              id: names
+              continue-on-error: true
+              run: |
+                  touch "$RUNNER_TEMP/names.jsonl"
+                  python3 -m venv "$RUNNER_TEMP/presidio"
+                  "$RUNNER_TEMP/presidio/bin/pip" install -q --require-hashes -r scripts/pii-scan-requirements.txt
+                  "$RUNNER_TEMP/presidio/bin/python" scripts/pii-scan-names.py "$RUNNER_TEMP/names.jsonl" 2> /dev/null
+
+            - name: Email findings
+              env:
+                  SMTP_USERNAME: ${{ secrets.IMAP_USERNAME }}
+                  SMTP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+                  PII_SCAN_EMAIL_TO: ${{ secrets.PII_SCAN_EMAIL_TO }}
+              run: python3 scripts/pii-scan-alert.py "$RUNNER_TEMP/findings.jsonl" "$RUNNER_TEMP/names.jsonl"
+
+            - name: Fail if the name scan failed
+              if: steps.names.outcome == 'failure'
+              run: exit 1
