@@ -11,6 +11,9 @@ test('loan_sync_147 failed reconciliation', async () => {
     writeFileSync(mapping, '```json\n' + JSON.stringify({
         version: 1,
         targets: [
+            { key: 'emergency_primary', budget: 'primary', metric: 'emergency_total', portfolio_account_id: 'portfolio-emergency' },
+            { key: 'emergency_secondary', budget: 'secondary', metric: 'emergency_total', portfolio_account_id: 'portfolio-secondary' },
+            { key: 'warchest_primary', budget: 'primary', metric: 'investment_total', portfolio_account_id: 'portfolio-warchest' },
             { key: 'loans_primary', budget: 'primary', metric: 'account_balances', portfolio_account_id: 'portfolio-loan', actual_account_ids: ['loan-a', 'loan-b', 'loan-c'] },
         ],
     }) + '\n```\n');
@@ -19,7 +22,12 @@ test('loan_sync_147 failed reconciliation', async () => {
     const bridge = {
         pull: async () => ({ status: 'ok' }),
         push: async () => ({ status: 'ok' }),
-        getAccounts: async () => [{ id: 'portfolio-loan', currency: 'SGD' }],
+        getAccounts: async () => [
+            { id: 'portfolio-emergency', currency: 'SGD' },
+            { id: 'portfolio-secondary', currency: 'MYR' },
+            { id: 'portfolio-warchest', currency: 'SGD' },
+            { id: 'portfolio-loan', currency: 'SGD' },
+        ],
         updateBalance: async () => ({ status: 'updated', delta: -3.25 }),
         queryTaxonomies: async () => ({ taxonomies: [] }),
         getStatus: async () => ({ summary: { currencies: {}, equity_currencies: {} } }),
