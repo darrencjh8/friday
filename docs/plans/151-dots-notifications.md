@@ -16,7 +16,7 @@ Send `proactive-tick` cron messages and expense-tracker transaction webhook noti
 
 ## Validation
 
-- Add regression assertions for the webhook destination and both new-job and existing-job proactive-tick destinations.
+- Add `modules.tests.test_dots_notification_destinations.DotsNotificationDestinationsTest.test_proactive_tick_and_expense_webhook_deliver_to_dots`; it must fail at base and pass at HEAD, asserting the webhook route and both new-job and existing-job proactive-tick destinations.
 - Run the focused Dots wiring and proactive-tick tests, then the seeded-cron shell test.
 - Do not run production services, deploy, or change production data; CI/CD handles deployment after PR merge.
 
