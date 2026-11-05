@@ -301,6 +301,7 @@ services:
             - /home/runner/data/hermes/data:/opt/data
             - /home/runner/data/hermes/workspace:/workspace
             - /home/runner/data/hermes/friday_pat.secret:/run/secrets/friday_pat:ro
+            - /home/runner/data/hermes/dots_fcm_service_account.json:/run/secrets/dots_fcm_service_account.json:ro
             - /var/run/docker.sock:/var/run/docker.sock
             - /home/runner/data/expense-tracker/data:/opt/data/expense-tracker-data:ro
         environment:
@@ -384,6 +385,7 @@ services:
             - DOTS_BIND=0.0.0.0:8788
             - DOTS_ALLOWED_USERS=owner
             - DOTS_HOME_CHANNEL=owner
+            - DOTS_FCM_CREDENTIALS=/run/secrets/dots_fcm_service_account.json
             - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
             - EXPENSE_TRACKER_DATA=/opt/data/expense-tracker-data
             # Cap glibc malloc arenas. The WebUI runs ~37 threads; uncapped,
