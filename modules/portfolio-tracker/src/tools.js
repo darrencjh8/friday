@@ -839,6 +839,32 @@ export class ToolRegistry {
         const results = [];
         let pullResult = null;
         let pushResult = null;
+        const labels = {
+            emergency_primary: "Emergency Funds - SGD",
+            emergency_secondary: "Emergency Funds - MYR",
+            warchest_primary: "Warchest",
+            loans_primary: "Loan balance",
+        };
+        let specs;
+        try {
+            specs = loadSyncTargets(this._config);
+        } catch (e) {
+            return {
+                error: e.message,
+                sync_targets: Object.values(labels).map((name) => ({
+                    name,
+                    status: "error",
+                    delta: 0,
+                    error: "Sync target mapping unavailable; target not updated",
+                })),
+                pull: null,
+                flex_pull: null,
+                flex_import: null,
+                deposit_matches: [],
+                push: null,
+                taxonomy_export: null,
+            };
+        }
 
         // Step 1: Pull latest PP file from OneDrive
         if (this._ppBridge) {
@@ -949,21 +975,6 @@ export class ToolRegistry {
         try {
             const today = new Date().toISOString().slice(0, 10);
 
-            // The mapping, including every source-account identifier, is read
-            // from the private wiki page at runtime instead of this repository.
-            let specs;
-            try {
-                specs = loadSyncTargets(this._config);
-            } catch (e) {
-                results.push({
-                    name: "Sync target mapping",
-                    status: "error",
-                    delta: 0,
-                    error: e.message,
-                });
-                specs = [];
-            }
-
             // Fetch each budget on its own so one outage cannot suppress the
             // targets that do not depend on it.
             const budgets = {};
@@ -978,12 +989,6 @@ export class ToolRegistry {
                 if (budget === "primary") await sleep(1000);
             }
 
-            const labels = {
-                emergency_primary: "Emergency Funds - SGD",
-                emergency_secondary: "Emergency Funds - MYR",
-                warchest_primary: "Warchest",
-                loans_primary: "Loan balance",
-            };
             const targets = [];
             const privateTargets = new Set();
 
@@ -994,6 +999,20 @@ export class ToolRegistry {
                 };
 
                 if (spec.metric === "account_balances") {
+                    const conflict = specs.some(
+                        (other) =>
+                            other.key !== spec.key &&
+                            other.portfolio_account_id === spec.portfolio_account_id,
+                    );
+                    if (conflict) {
+                        results.push({
+                            ...target,
+                            status: "error",
+                            delta: 0,
+                            error: "Loan destination conflicts with another sync target",
+                        });
+                        continue;
+                    }
                     // The signed sum of configured off-budget SGD accounts.
                     // Identifiers never appear in the result or in errors.
                     try {
@@ -1056,7 +1075,11 @@ export class ToolRegistry {
                             }
                             cents += balance.balance;
                         }
-                        target.amount = cents / 100;
+                        const amount = cents / 100;
+                        if (Math.round(amount * 100) !== cents) {
+                            throw new Error("Loan balance is invalid");
+                        }
+                        target.amount = amount;
                         target.account_id = spec.portfolio_account_id;
                         privateTargets.add(target);
                         targets.push(target);
@@ -1082,7 +1105,7 @@ export class ToolRegistry {
                 }
 
                 const data = budgets[spec.budget];
-                if (data.error) {
+                if (!data || data.error) {
                     results.push({
                         ...target,
                         status: "error",

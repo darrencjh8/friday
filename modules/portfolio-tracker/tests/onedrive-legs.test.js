@@ -432,7 +432,7 @@ describe("M2 — the real _computeSyncAll early return carries the legs", () => 
                         { key: "emergency_primary", budget: "primary", metric: "emergency_total", portfolio_account_id: "pp-emergency" },
                         { key: "emergency_secondary", budget: "secondary", metric: "emergency_total", portfolio_account_id: "pp-secondary" },
                         { key: "warchest_primary", budget: "primary", metric: "investment_total", portfolio_account_id: "pp-warchest" },
-                        { key: "loans_primary", budget: "primary", metric: "account_balances", portfolio_account_id: "pp-loan", actual_account_ids: ["loan-a"] },
+                        { key: "loans_primary", budget: "primary", metric: "account_balances", portfolio_account_id: "pp-loan", actual_account_ids: ["loan-a", "loan-b", "loan-c"] },
                     ],
                 }) +
                 "\n```\n",
