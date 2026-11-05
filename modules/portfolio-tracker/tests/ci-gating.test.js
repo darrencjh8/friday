@@ -53,6 +53,7 @@ const RENDERER_TESTS = [
     "tests/java_bridge.test.js",
     "tests/leg-coverage.test.js",
     "tests/shell-leg-coverage.test.js",
+    "tests/loan-sync-147.test.js",
 ];
 
 /**

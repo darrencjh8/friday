@@ -158,24 +158,21 @@ describe("Config — taxonomy and mappings", () => {
     });
 });
 
-describe("Config — PP fields", () => {
-    it("loads PP account UUIDs", () => {
+describe("Config — sync target mapping", () => {
+    it("loads the private mapping location", () => {
         const cfg = new Config({
             ...REQUIRED_ENV,
-            PP_EMERGENCY_PRIMARY_ACCOUNT: "uuid-sgd",
-            PP_EMERGENCY_SECONDARY_ACCOUNT: "uuid-myr",
-            PP_WARCHEST_PRIMARY_ACCOUNT: "uuid-warchest",
+            PORTFOLIO_SYNC_TARGETS_FILE: "/wiki/sync-targets.md",
+            WIKI_DIR: "/wiki/accounts",
         });
-        expect(cfg.ppEmergencyPrimaryAccount).toBe("uuid-sgd");
-        expect(cfg.ppEmergencySecondaryAccount).toBe("uuid-myr");
-        expect(cfg.ppWarchestPrimaryAccount).toBe("uuid-warchest");
+        expect(cfg.syncTargetsFile).toBe("/wiki/sync-targets.md");
+        expect(cfg.wikiDir).toBe("/wiki/accounts");
     });
 
-    it("defaults PP account UUIDs to empty string", () => {
+    it("defaults the mapping location to empty", () => {
         const cfg = new Config(REQUIRED_ENV);
-        expect(cfg.ppEmergencyPrimaryAccount).toBe("");
-        expect(cfg.ppEmergencySecondaryAccount).toBe("");
-        expect(cfg.ppWarchestPrimaryAccount).toBe("");
+        expect(cfg.syncTargetsFile).toBe("");
+        expect(cfg.wikiDir).toBe("");
     });
 });
 
