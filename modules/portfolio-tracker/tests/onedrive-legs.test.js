@@ -21,6 +21,9 @@
  * ignore the very signal M1 exists to make visible.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { formatSyncResult } from "../src/mcp-server.js";
 import { ToolRegistry } from "../src/tools.js";
 
@@ -390,12 +393,13 @@ describe("M2 — the real _computeSyncAll early return carries the legs", () => 
     // tools.js went back to returning { error, sync_targets }. This drives the real
     // method so the early return itself is covered.
 
-    function makeRegistry(bridge) {
+    function makeRegistry(bridge, syncTargetsFile) {
         const cfg = {
             ppXmlPath: "/tmp/does-not-exist.xml",
             ppJarPath: "/tmp/pp-cli.jar",
             ppPassword: "",
             taxonomyNames: ["Regions (Liquid)"],
+            ...(syncTargetsFile ? { syncTargetsFile } : {}),
         };
         const memory = {
             load: () => ({}),
@@ -406,7 +410,7 @@ describe("M2 — the real _computeSyncAll early return carries the legs", () => 
         return new ToolRegistry(cfg, dedup, memory, bridge);
     }
 
-    it("returns the leg results alongside the abort reason", async () => {
+    it("reports every target and the leg results when the budget fetch fails", async () => {
         const bridge = {
             pull: vi.fn().mockResolvedValue({
                 status: "error",
@@ -417,26 +421,46 @@ describe("M2 — the real _computeSyncAll early return carries the legs", () => 
             getStatus: vi.fn().mockResolvedValue({ summary: {} }),
             queryTaxonomies: vi.fn().mockResolvedValue({ taxonomies: [] }),
         };
-        const registry = makeRegistry(bridge);
-        // Make the Actual Budget budget fetch throw, which is the aborting path.
+        const dir = mkdtempSync(join(tmpdir(), "sync-targets-"));
+        const file = join(dir, "portfolio-sync-targets.md");
+        writeFileSync(
+            file,
+            "```json\n" +
+                JSON.stringify({
+                    version: 1,
+                    targets: [
+                        { key: "emergency_primary", budget: "primary", metric: "emergency_total", portfolio_account_id: "pp-emergency" },
+                        { key: "emergency_secondary", budget: "secondary", metric: "emergency_total", portfolio_account_id: "pp-secondary" },
+                        { key: "warchest_primary", budget: "primary", metric: "investment_total", portfolio_account_id: "pp-warchest" },
+                        { key: "loans_primary", budget: "primary", metric: "account_balances", portfolio_account_id: "pp-loan", actual_account_ids: ["loan-a"] },
+                    ],
+                }) +
+                "\n```\n",
+        );
+        const registry = makeRegistry(bridge, file);
+        // A budget outage is per-target now, so it is reported on the targets
+        // that needed it instead of aborting the whole payload.
         const originalFetch = globalThis.fetch;
         globalThis.fetch = vi.fn().mockRejectedValue(new Error("HTTP 500: boom"));
         try {
             const result = await registry._computeSyncAll();
-            expect(result.error).toContain("boom");
-            // The leg that already ran must survive the abort.
+            expect(result.error).toBeUndefined();
+            expect(
+                result.sync_targets.filter((t) => t.error === "Budget data unavailable"),
+            ).toHaveLength(3);
+            // The leg that already ran must survive.
             expect(result.pull).toEqual({
                 status: "error",
                 detail: "Token HTTP 400",
             });
             expect(result).toHaveProperty("flex_pull");
             expect(result).toHaveProperty("flex_import");
-            // And the renderer must now say so.
+            // And the renderer must say so, for the leg and for each target.
             const out = formatSyncResult(result);
             expect(out).toContain("OneDrive pull: Token HTTP 400");
-            expect(out).toContain("boom");
+            expect(out).toContain("Budget data unavailable");
         } finally {
             globalThis.fetch = originalFetch;
         }
-    });
+    }, 20000);
 });
