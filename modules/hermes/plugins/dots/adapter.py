@@ -45,6 +45,7 @@ from gateway.platforms.base import BasePlatformAdapter, SendResult
 from gateway.platforms.event import MessageEvent, MessageType
 from gateway.platforms.helpers import MessageDeduplicator
 from hermes_constants import get_hermes_home
+from .release_proxy import ReleaseProxy, ReleaseProxyError
 
 logger = logging.getLogger(__name__)
 
@@ -616,6 +617,7 @@ class DotsAdapter(BasePlatformAdapter):
         super().__init__(config=config, platform=Platform("dots"))
         extra = config.extra or {}
         self._token = _token(extra)
+        self._update_repo = (_extra_or_secret(extra, "update_repo", "DOTS_UPDATE_REPO", "") or "").strip()
         self._web_origins = _web_origins(extra)
         self._agent_id, self._agent_name = _agent_identity(extra)
         self._host, self._port = _parse_bind(_extra_or_secret(extra, "bind", "DOTS_BIND", DEFAULT_BIND))
@@ -677,6 +679,8 @@ class DotsAdapter(BasePlatformAdapter):
         app = web.Application()
         app.router.add_get(WS_PATH, self._handle_ws)
         app.router.add_post(SEND_PATH, self._handle_local_send)
+        app.router.add_get("/dots/releases/latest", self._handle_release_latest)
+        app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)
         app.router.add_get("/dots/health", lambda _req: web.json_response({"ok": True, "agent_id": self._agent_id}))
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
@@ -771,6 +775,33 @@ class DotsAdapter(BasePlatformAdapter):
         body = await request.json()
         result = await self.send(OWNER, str(body.get("text", "")))
         return web.json_response({"ok": result.success, "message_id": result.message_id})
+
+    def _release_request_allowed(self, request: "web.Request") -> bool:
+        return (
+            bool(self._update_repo)
+            and self._authorized(request)
+            and hmac.compare_digest(request.query.get("repo", ""), self._update_repo)
+        )
+
+    async def _handle_release_latest(self, request: "web.Request") -> "web.Response":
+        if not self._release_request_allowed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            release = await asyncio.to_thread(ReleaseProxy(self._update_repo).latest)
+        except ReleaseProxyError:
+            return web.json_response({"error": "release_unavailable"}, status=502)
+        if release is None:
+            return web.json_response({"error": "release_not_found"}, status=404)
+        return web.json_response(release, headers={"Cache-Control": "no-store"})
+
+    async def _handle_release_asset(self, request: "web.Request") -> "web.Response":
+        if not self._release_request_allowed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            payload = await asyncio.to_thread(ReleaseProxy(self._update_repo).asset, request.match_info["asset_id"])
+        except ReleaseProxyError:
+            return web.json_response({"error": "release_asset_unavailable"}, status=404)
+        return web.Response(body=payload, content_type="application/octet-stream", headers={"Cache-Control": "no-store"})
 
     @property
     def _foreground(self) -> bool:
