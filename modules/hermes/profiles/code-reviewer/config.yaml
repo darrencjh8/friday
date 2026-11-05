@@ -56,6 +56,8 @@ timezone: Asia/Kuala_Lumpur
 platforms:
     email_intake:
         enabled: false
+    dots:
+        enabled: false
 
 mcp_servers:
     expense-tracker:

@@ -74,6 +74,8 @@ COPY plugins/learning-commands/ /opt/hermes/plugins/learning-commands/
 COPY plugins/intake-commands/ /opt/hermes/plugins/intake-commands/
 # Read-only financial email intake, shadow mode (#783).
 COPY plugins/email-intake/ /opt/hermes/plugins/platforms/email_intake/
+# Dots phone app gateway, dormant until DOTS_TOKEN is set.
+COPY plugins/dots/ /opt/hermes/plugins/platforms/dots/
 # Precompile the source tree's bytecode at build time (upstream #136618): the
 # image sets PYTHONDONTWRITEBYTECODE=1 and the tree is read-only at runtime, so
 # every fresh agent process otherwise recompiles every import (~13s measured).

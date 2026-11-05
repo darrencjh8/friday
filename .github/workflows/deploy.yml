@@ -172,6 +172,7 @@ jobs:
                   LLM_FINAL_FALLBACK_PROVIDER: ${{ vars.LLM_FINAL_FALLBACK_PROVIDER || 'deepseek' }}
                   LLM_FINAL_FALLBACK_MODEL: ${{ vars.LLM_FINAL_FALLBACK_MODEL || 'deepseek-flash' }}
                   FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+                  DOTS_TOKEN: ${{ secrets.DOTS_TOKEN }}
                   NOTION_API_KEY: ${{ secrets.NOTION_API_TOKEN }}
                   OPENCODE_SERVER_PASSWORD: ${{ secrets.OPENCODE_SERVER_PASSWORD }}
                   BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}

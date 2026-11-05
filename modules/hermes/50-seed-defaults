@@ -291,20 +291,21 @@ for name in managed_routing_profiles:
             target["memory"] = memory
         memory["memory_enabled"] = False
         memory["user_profile_enabled"] = False
-    # Email intake (#783) is env-enabled in every profile scope under the
-    # multiplexer, so an existing live profile would keep building a second
-    # adapter that loses the owner lock and reports down. Pin it off while
+    # Email intake (#783) and Dots are env-enabled in every profile scope under
+    # the multiplexer, so an existing live profile would keep building a second
+    # adapter that loses the owner lock and reports down. Pin them off while
     # preserving any sibling platform entries the operator owns.
     if name == "code-reviewer":
         platforms = target.get("platforms")
         if not isinstance(platforms, dict):
             platforms = {}
             target["platforms"] = platforms
-        intake = platforms.get("email_intake")
-        if not isinstance(intake, dict):
-            intake = {}
-            platforms["email_intake"] = intake
-        intake["enabled"] = False
+        for platform in ("email_intake", "dots"):
+            entry = platforms.get(platform)
+            if not isinstance(entry, dict):
+                entry = {}
+                platforms[platform] = entry
+            entry["enabled"] = False
     # Retired MCP servers: the seed loop above only writes a profile config that is
     # absent, so a server the baked profile dropped stayed in the live file and
     # failed its connection on every boot (ktmb-booking's container is retired).
@@ -633,6 +634,10 @@ mirrored_exact = (
     "IMAP_PASSWORD",
     "JEV_API_KEY",
     "EMAIL_INTAKE_MODE",
+    # The Dots platform reads its token and bind address through the profile scope.
+    "DOTS_TOKEN",
+    "DOTS_BIND",
+    "DOTS_HOME_CHANNEL",
     # terminal.env_passthrough takes these values from the profile scope, so the
     # gtasks CLI a cron job spawns sees them unset unless they are here (#75).
     "GTASKS_CLIENT_ID",

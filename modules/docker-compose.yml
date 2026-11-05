@@ -294,6 +294,9 @@ services:
             # browser device reaches it via `ssh -L 9090:localhost:8299`,
             # or the code is pasted back with `google login --manual`.
             - "127.0.0.1:8299:8299"
+            # Dots phone app gateway. Host loopback only: Tailscale serve terminates
+            # TLS on the tailnet and proxies to 127.0.0.1:8788. 8787 is the WebUI.
+            - "127.0.0.1:8788:8788"
         volumes:
             - /home/runner/data/hermes/data:/opt/data
             - /home/runner/data/hermes/workspace:/workspace
@@ -377,6 +380,10 @@ services:
             - IMAP_USERNAME=${IMAP_USERNAME}
             - IMAP_PASSWORD=${IMAP_PASSWORD}
             - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
+            - DOTS_TOKEN=${DOTS_TOKEN:-}
+            - DOTS_BIND=0.0.0.0:8788
+            - DOTS_ALLOWED_USERS=owner
+            - DOTS_HOME_CHANNEL=owner
             - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
             - EXPENSE_TRACKER_DATA=/opt/data/expense-tracker-data
             # Cap glibc malloc arenas. The WebUI runs ~37 threads; uncapped,

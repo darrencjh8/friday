@@ -32,6 +32,10 @@ agent:
 
 display:
     show_reasoning: false
+    platforms:
+        dots:
+            # The app shows tools in its own overlay, not as chat bubbles.
+            tool_progress: "off"
 
 plugins:
     enabled:
