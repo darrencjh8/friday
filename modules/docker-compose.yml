@@ -187,7 +187,7 @@ services:
             - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
             - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE}
             - WIKI_DIR=/wiki/accounts
-            - PORTFOLIO_SYNC_TARGETS_FILE=${PORTFOLIO_SYNC_TARGETS_FILE:-}
+            - PORTFOLIO_SYNC_TARGETS_FILE=/wiki/accounts/portfolio-sync-targets.md
             - ONEDRIVE_CLIENT_ID=${ONEDRIVE_CLIENT_ID}
             - IBKR_FLEX_TOKEN=${IBKR_FLEX_TOKEN}
             - IBKR_FLEX_QUERY_ID=${IBKR_FLEX_QUERY_ID}
@@ -210,7 +210,7 @@ services:
             test:
                 [
                     "CMD-SHELL",
-                    'node -e ''require("http").get("http://localhost:8081/health",function(r){process.exit(r.statusCode===200?0:1)})''',
+                    "node --input-type=module -e \"import('./src/sync-targets.js').then(({loadSyncTargets})=>loadSyncTargets({wikiDir:process.env.WIKI_DIR})).then(()=>fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1))).catch(()=>process.exit(1))\"",
                 ]
             interval: 10s
             timeout: 5s
