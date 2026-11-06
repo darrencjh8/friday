@@ -909,7 +909,7 @@ except json.JSONDecodeError as error:
     # Never treat an unreadable file as empty: rewriting it wipes every cron job.
     raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
 
-MANAGED = {"script": "gtasks-clear-completed.py", "no_agent": True}
+MANAGED = {"script": "gtasks-clear-completed.py", "no_agent": True, "attach_to_session": True}
 existing = next((j for j in jobs if isinstance(j, dict) and j.get("name") == "gtasks-clear-completed"), None)
 if existing is None:
     jobs.append({
@@ -958,7 +958,7 @@ SEEDS = {
     "actual-backup": ("actual-backup.sh", "0 0 1 * *", "1st of the month 12am"),
 }
 for name, (script, expr, display) in SEEDS.items():
-    managed = {"script": script, "no_agent": True}
+    managed = {"script": script, "no_agent": True, "attach_to_session": True}
     existing = next((j for j in jobs if isinstance(j, dict) and j.get("name") == name), None)
     if existing is None:
         jobs.append({
@@ -1174,6 +1174,7 @@ MANAGED = {
     "script": "memory-compact-gate.py",
     "skills": [],
     "skill": None,
+    "attach_to_session": True,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "30 7 * * *", "display": "30 7 * * *"},
@@ -1424,6 +1425,7 @@ MANAGED = {
     "script": "wiki-source-snapshot.py",
     "skills": ["llm-wiki", "hermes-operations"],
     "skill": "llm-wiki",
+    "attach_to_session": True,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "0 4 * * 1", "display": "every monday 4am"},
@@ -1510,6 +1512,7 @@ MANAGED = {
     "prompt": PROMPT,
     "skills": ["llm-wiki", "github-issues", "knowledge-base-maintenance"],
     "skill": "llm-wiki",
+    "attach_to_session": True,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "30 3 * * 1", "display": "every monday 3:30am"},
@@ -1586,6 +1589,7 @@ MANAGED = {
     "script": "notion-accounts-snapshot.py",
     "skills": ["llm-wiki", "expense-tracker", "hermes-operations", "gtasks-cli"],
     "skill": "llm-wiki",
+    "attach_to_session": True,
 }
 DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "15 8 * * *", "display": "every day 8:15am"},

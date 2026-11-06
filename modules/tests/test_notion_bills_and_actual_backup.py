@@ -120,14 +120,17 @@ class SeedTest(unittest.TestCase):
                 "notion-monthly-bills-reset": ("notion-monthly-bills-reset.py", True, "0 0 1 * *", "dots"),
                 "actual-backup": ("actual-backup.sh", True, "0 0 1 * *", "dots"),
             })
+            self.assertTrue(all(j["attach_to_session"] is True for j in seeded.values()))
             data = json.loads(jobs.read_text())
             for j in data["jobs"]:
                 j["enabled"] = False
+                j["attach_to_session"] = False
             jobs.write_text(json.dumps(data))
             subprocess.run([sys.executable, "-c", block], check=True, capture_output=True)
             after = json.loads(jobs.read_text())["jobs"]
             self.assertEqual(len(after), 2)
             self.assertTrue(all(j["enabled"] is False for j in after))
+            self.assertTrue(all(j["attach_to_session"] is True for j in after))
 
 
 if __name__ == "__main__":
