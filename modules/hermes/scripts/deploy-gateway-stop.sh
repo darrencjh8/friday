@@ -7,7 +7,7 @@ stop_hermes_gateways() {
   # In parallel, so the deploy waits 45 s at most. A gateway still busy after that
   # is left to the container stop, which is what happened before this existed.
   docker exec hermes sh -c '
-    for s in /run/service/gateway-*; do
+    for s in /run/hermes-service/gateway-*; do
       (
         if /package/admin/s6/command/s6-svc -wD -T 45000 -d "$s"; then
           echo "  $s stopped"
@@ -24,7 +24,7 @@ stop_hermes_gateways() {
 # else would restart its gateways. On a new container this changes nothing.
 start_hermes_gateways() {
   docker exec hermes sh -c '
-    for s in /run/service/gateway-*; do
+    for s in /run/hermes-service/gateway-*; do
       /package/admin/s6/command/s6-svc -u "$s"
     done
   ' 2>/dev/null || true
