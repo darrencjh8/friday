@@ -16,7 +16,7 @@ deploying on non-push events. Keep this page in step with that file.
 | `pp-cli` | `modules/portfolio-tracker/pp-cli` | `mvn test` | installs the Portfolio Performance model JAR first |
 | `compose-config` | repo root | `docker compose config -q` on every tracked `docker-compose.yml`, then `python -m unittest discover -s modules/tests` | |
 | `hermes-scripts` | repo root | `shellcheck`, the `modules/hermes/tests/*.sh` suites, and the Python `unittest` modules listed in the job | |
-| `hermes-webui-image` | repo root | builds the WebUI image when `modules/hermes/`, the compose file or `test.yml` changed | |
+| `hermes-image` | repo root | builds and boots the Hermes image when `modules/hermes/`, the compose file or `test.yml` changed | |
 | `image-gen` | `modules/image-gen` | `node --test __tests__/server.test.js` | there is no `npm test` script |
 
 `secrets-scan.yml` (gitleaks, PII literals, author email) and

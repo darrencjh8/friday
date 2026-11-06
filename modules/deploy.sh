@@ -593,11 +593,6 @@ if $GITHUB_MODE || check_file "$HERMES_ENV"; then
   check_var "SOUL_VOICE_RULES" "$HERMES_ENV"
   check_var "SOUL_DELEGATION" "$HERMES_ENV"
 
-  # Dashboard (basic auth, LAN-only; gate fails closed without a provider)
-  echo "  [Dashboard]"
-  check_var "HERMES_DASHBOARD_BASIC_AUTH_USERNAME" "$HERMES_ENV"
-  check_var "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD" "$HERMES_ENV"
-
   # Optional
   echo "  [Optional]"
   check_var_optional "FRIDAY_PAT" "$HERMES_ENV"
@@ -1184,7 +1179,7 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
   fi
 fi
 
-# Hermes gateway (the dashboard needs basic auth, so the gate stays on the supervised service, never a port probe)
+# Hermes gateway (gated on the supervised service, never a port probe)
 # Needs extra wait: config migration + profile seeding registers the supervised
 # gateway service after container start, so poll it with the same bounded budget
 # the HTTP health checks use instead of checking once. Measured 2026-10-09: the
@@ -1206,24 +1201,6 @@ if should_deploy "hermes" || should_deploy "all"; then
     echo -e "  ${GREEN}✓ hermes gateway${NC}"
   else
     echo -e "  ${RED}✗ hermes gateway (s6 service not up)${NC}"
-    failed=$((failed + 1))
-  fi
-
-  # Hermes WebUI: the s6 service starts with the container and listens inside it,
-  # so poll its health endpoint with the same bounded budget the gateway check
-  # uses. A WebUI that never answers must fail the deploy, not hang the runner.
-  webui_up=false
-  for _ in $(seq 1 10); do
-    if docker exec hermes curl -fsS --max-time 10 http://127.0.0.1:8787/health >/dev/null 2>&1; then
-      webui_up=true
-      break
-    fi
-    sleep 6
-  done
-  if $webui_up; then
-    echo -e "  ${GREEN}✓ hermes webui${NC}"
-  else
-    echo -e "  ${RED}✗ hermes webui (health endpoint not answering)${NC}"
     failed=$((failed + 1))
   fi
 fi

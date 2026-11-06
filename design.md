@@ -205,7 +205,7 @@ Containers talk to each other by Compose service name (`expense-tracker`, `portf
 ```mermaid
 graph TB
     subgraph Docker["Production server — Docker Compose"]
-        H["hermes<br/>:8642 / :8644 / :9119"]
+        H["hermes<br/>:8642 / :8644 / :8788"]
         ET["expense-tracker<br/>:8080"]
         PT["portfolio-tracker<br/>:8081"]
         API["actual-api<br/>:3000"]

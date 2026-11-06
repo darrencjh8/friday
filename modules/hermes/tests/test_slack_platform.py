@@ -167,29 +167,19 @@ class HermesSlackComposeTests(unittest.TestCase):
     def test_hermes_publishes_only_its_gateway_ports(self) -> None:
         """Socket Mode is outbound-only, so no additional inbound port may appear.
 
-        The Hermes WebUI on 8787 was the first addition, the Google Tasks
-        OAuth callback on 8299 the second, the reminders dashboard on 8300
-        the third, and the Dots phone app gateway on 8788 the fourth. All four
-        are published on host loopback only, so none adds a LAN-reachable port: Tailscale serve terminates tailnet
-        TLS and proxies to 127.0.0.1.
+        The Google Tasks OAuth callback on 8299, the reminders dashboard on
+        8300 and the Dots phone app gateway on 8788 are the additions. All
+        three are published on host loopback only, so none adds a LAN-reachable
+        port: Tailscale serve terminates tailnet TLS and proxies to 127.0.0.1.
+        The WebUI (8787) and the dashboard (9119) were removed in #157.
         """
         compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
         ports = compose["services"]["hermes"].get("ports") or []
 
         self.assertEqual(
-            {"8642", "9119", "8644", "8787", "8299", "8300", "8788"},
+            {"8642", "8644", "8299", "8300", "8788"},
             {str(p).rsplit(":", 1)[-1] for p in ports},
-            "hermes must publish exactly its gateway/dashboard/webhook ports, the WebUI, the Tasks callback, reminders, and Dots",
-        )
-        self.assertIn(
-            "127.0.0.1:9119:9119",
-            [str(p) for p in ports],
-            "the dashboard must stay on host loopback; Tailscale serves it",
-        )
-        self.assertIn(
-            "127.0.0.1:8787:8787",
-            [str(p) for p in ports],
-            "the WebUI must stay on host loopback; Tailscale serves it",
+            "hermes must publish exactly its gateway/webhook ports, the Tasks callback, reminders, and Dots",
         )
         self.assertIn(
             "127.0.0.1:8299:8299",
