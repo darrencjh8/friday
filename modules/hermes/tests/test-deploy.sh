@@ -556,6 +556,18 @@ else
 fi
 
 echo ""
+echo "=== deploy.sh: Dots FCM secret is readable by the gateway user ==="
+# The secret is written by a throwaway root container. The gateway runs as uid
+# 10000 (`hermes`), so a root-owned 0400 file makes push fail with EACCES.
+fcm_block=$(sed -n "/^DOTS_FCM_SECRET_FILE=/,/^  '\$/p" "$DEPLOY_SCRIPT")
+grep -q 'chown 10000:10000' <<<"$fcm_block" \
+    && ok "Dots FCM secret is chowned to the gateway uid" \
+    || nope "Dots FCM secret owner" "deploy.sh does not chown the file to 10000"
+grep -q 'chmod 0400' <<<"$fcm_block" \
+    && ok "Dots FCM secret stays 0400" \
+    || nope "Dots FCM secret mode" "0400 missing"
+
+echo ""
 echo "========================================="
 echo -e " Results: ${GREEN}$pass passed${NC}, ${RED}$fail failed${NC}"
 echo "========================================="
