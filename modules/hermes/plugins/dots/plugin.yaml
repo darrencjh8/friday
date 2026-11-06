@@ -1,7 +1,7 @@
 name: dots-platform
 label: Dots
 kind: platform
-version: 1.3.0
+version: 1.4.0
 description: >
   Adaptateur pour l'app Android « Hermes » (style Dots) : la conversation avec
   l'agent de ce profil Hermes via un WebSocket authentifié par jeton, exposé derrière
@@ -33,4 +33,8 @@ optional_env:
   - name: DOTS_HOME_CHANNEL
     description: "Cible des messages proactifs et cron (owner)"
     prompt: "Canal par défaut"
+    password: false
+  - name: DOTS_UPDATE_REPO
+    description: "Dépôt GitHub autorisé pour le relais des mises à jour de l'app"
+    prompt: "Dépôt des releases (owner/repo)"
     password: false

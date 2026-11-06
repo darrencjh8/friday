@@ -215,6 +215,8 @@ jobs:
               run: bash modules/hermes/tests/test-portfolio-sync-output.sh
             - name: Test Hermes Slack platform wiring
               run: python -m unittest modules.hermes.tests.test_slack_platform -v
+            - name: Test Dots release proxy
+              run: python -m unittest modules.hermes.tests.test_dots_release_proxy -v
             - name: Test Hermes log-issue triage
               run: python -m unittest discover -s modules/hermes/tests -p 'test_log_issue_triage_*.py' -v
             - name: Test Hermes learning commands plugin
