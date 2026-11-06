@@ -1744,7 +1744,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "15 4 * * 0", "display": "every sunday 4:15am"},
     "schedule_display": "every sunday 4:15am",
     "enabled": True,
-    "deliver": "dots",
+    "deliver": "telegram",  # approvals reply to this message; Dots keeps no reply context
     "next_run_at": None,
 }
 
@@ -1806,8 +1806,10 @@ done
 # Initialize kanban board (idempotent — no-op if already exists)
 su -s /bin/sh hermes -c "hermes kanban init 2>/dev/null" || true
 
-# Move every cron job that delivers to Telegram over to Dots, once. The marker
-# keeps it one-time, so a job pointed back at Telegram later stays there. The
+# Move every information-only cron job that delivers to Telegram over to Dots,
+# once. skills-merge-proposals stays: its approval is a reply to the Telegram
+# message, and Dots keeps no reply context. The marker keeps the move one-time,
+# so a job pointed back at Telegram later stays there. The
 # old Telegram startup ping is gone: Dots sends through the live gateway, which
 # is not up yet while this script runs.
 dots_marker=/opt/data/cron/.telegram-to-dots-migrated
@@ -1823,7 +1825,7 @@ except FileNotFoundError:
 jobs = data.get("jobs", []) if isinstance(data, dict) else data
 moved = []
 for job in jobs:
-    if isinstance(job, dict) and job.get("deliver") == "telegram":
+    if isinstance(job, dict) and job.get("deliver") == "telegram" and job.get("name") != "skills-merge-proposals":
         job["deliver"] = "dots"
         job.pop("deliver_extra", None)
         moved.append(job.get("name"))

@@ -4,7 +4,7 @@
 Runs `hermes curator run --dry-run --consolidate --sync`, which asks the
 curator's LLM pass for merge and prune proposals without changing any skill,
 then reads the structured block from the run.json it writes. stdout is the
-Dots message of the no_agent cron job: `{"wakeAgent": false}` (silent)
+Telegram message of the no_agent cron job: `{"wakeAgent": false}` (silent)
 when there is nothing to propose, a table when there is, and one bold line
 when the run or its report failed.
 """

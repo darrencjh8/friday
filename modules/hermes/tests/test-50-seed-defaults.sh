@@ -1988,7 +1988,7 @@ checks = {
     "compact_quiet_when_not_needed": "change nothing and reply exactly [SILENT]" in compact and "saying no compaction needed" not in compact,
     "wiki_weekly_quiet_when_nothing": "change table would have no rows" in wiki and "nothing is due" in wiki,
     "repos_table": "| Repo | Issue | Link |" in repos and "Repo docs" in repos,
-    "proposals_job": '"script": "curator-proposals.py"' in proposals and '"no_agent": True' in proposals and '"deliver": "dots"' in proposals,
+    "proposals_job": '"script": "curator-proposals.py"' in proposals and '"no_agent": True' in proposals and '"deliver": "telegram"' in proposals,
     "mnemosyne_ignores_alerts": "System push alert" in cfg and "Replying to: \"Cronjob" in cfg,
     "wiki_runs_lint": "scripts/lint.py" in wiki,
     "wiki_lint_fallback": "full read" in wiki and "missing" in wiki,

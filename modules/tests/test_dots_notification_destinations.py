@@ -63,10 +63,11 @@ class DotsNotificationDestinationsTest(unittest.TestCase):
                 {"name": "a", "deliver": "telegram", "deliver_extra": {"chat_id": "1"}},
                 {"name": "b", "deliver": "slack"},
                 {"name": "c", "deliver": "local"},
+                {"name": "skills-merge-proposals", "deliver": "telegram"},
             ]}), encoding="utf-8")
             subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
             jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
-            self.assertEqual([j["deliver"] for j in jobs], ["dots", "slack", "local"])
+            self.assertEqual([j["deliver"] for j in jobs], ["dots", "slack", "local", "telegram"])
             self.assertNotIn("deliver_extra", jobs[0])
             self.assertTrue(marker.exists())
 
@@ -76,8 +77,10 @@ class DotsNotificationDestinationsTest(unittest.TestCase):
             subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
             self.assertEqual(json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"][0]["deliver"], "telegram")
 
-    def test_no_seeded_job_defaults_to_telegram(self):
-        self.assertNotIn('"deliver": "telegram"', SEED.read_text(encoding="utf-8"))
+    def test_only_reply_approved_job_defaults_to_telegram(self):
+        seeds = re.findall(r'"deliver": "telegram".*', SEED.read_text(encoding="utf-8"))
+        self.assertEqual(len(seeds), 1)
+        self.assertIn("approvals reply", seeds[0])
 
 
 if __name__ == "__main__":
