@@ -11,8 +11,12 @@ permissions:
 jobs:
   update-digest:
     runs-on: ubuntu-latest
+    # GH_APP_ID and GH_APP_PRIVATE_KEY are scoped to this environment, not the
+    # repository, so without it the App token step fails with "appId option is
+    # required" and the digest PR is never opened.
+    environment: darren-prod
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Pin current stable manifest digest
         id: digest
@@ -31,7 +35,7 @@ jobs:
           sed -i -E "s|^(FROM nousresearch/hermes-agent:stable@)sha256:[a-f0-9]{64}$|\\1${digest}|" "$dockerfile"
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/create-github-app-token@v2
+      - uses: actions/create-github-app-token@v3
         id: app-token
         with:
           app-id: ${{ vars.GH_APP_ID }}
@@ -40,7 +44,7 @@ jobs:
           permission-pull-requests: write
 
       - name: Open or update digest PR
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ steps.app-token.outputs.token }}
           branch: automation/hermes-stable-digest
