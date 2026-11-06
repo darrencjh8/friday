@@ -46,6 +46,26 @@ class DotsPlatformWiringTest(unittest.TestCase):
         for key in ("DOTS_TOKEN", "DOTS_BIND", "DOTS_HOME_CHANNEL"):
             self.assertIn(f'"{key}"', block)
 
+    def test_fcm_credentials_are_written_as_an_optional_read_only_file(self):
+        deploy = (ROOT / "modules/deploy.sh").read_text(encoding="utf-8")
+        workflow = WORKFLOW.read_text(encoding="utf-8")
+        service = hermes_service()
+        seed = SEED.read_text(encoding="utf-8")
+
+        self.assertIn("DOTS_FCM_SERVICE_ACCOUNT: ${{ secrets.DOTS_FCM_SERVICE_ACCOUNT }}", workflow)
+        self.assertIn("base64 -d", deploy)
+        self.assertIn("dots_fcm_service_account", deploy)
+        self.assertIn('if [ -d /secrets/dots_fcm_service_account.json ]; then', deploy)
+        self.assertIn('rmdir /secrets/dots_fcm_service_account.json', deploy)
+        self.assertIn('chmod 0400 "$tmp"', deploy)
+        self.assertIn('DOTS_FCM_SERVICE_ACCOUNT:-', deploy)
+        self.assertIn("DOTS_FCM_CREDENTIALS=/run/secrets/dots_fcm_service_account.json", service["environment"])
+        self.assertIn(
+            "/home/runner/data/hermes/dots_fcm_service_account.json:/run/secrets/dots_fcm_service_account.json:ro",
+            service["volumes"],
+        )
+        self.assertIn('"DOTS_FCM_CREDENTIALS"', seed.split("mirrored_exact = (", 1)[1].split("\n)", 1)[0])
+
     def test_reviewer_profile_does_not_build_a_second_adapter(self):
         config = yaml.safe_load(REVIEWER_CONFIG.read_text(encoding="utf-8"))
         self.assertIs(False, config["platforms"]["dots"]["enabled"])
