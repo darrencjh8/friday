@@ -938,6 +938,26 @@ printf '%s' "${FRIDAY_PAT:-}" | docker run --rm -i --network none \
     mv -f "$tmp" /secrets/friday_pat.secret
   '
 
+# Keep the optional Firebase credential a regular file even when the Actions
+# secret is absent; a missing bind source makes Docker create a directory.
+DOTS_FCM_SECRET_FILE="/home/runner/data/hermes/dots_fcm_service_account.json"
+DOTS_FCM_SECRET_DIR="$(dirname "$DOTS_FCM_SECRET_FILE")"
+printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none \
+  -v "$DOTS_FCM_SECRET_DIR:/secrets" \
+  alpine:3 sh -c '
+    umask 077
+    if [ -d /secrets/dots_fcm_service_account.json ]; then
+      rmdir /secrets/dots_fcm_service_account.json
+    fi
+    tmp="$(mktemp /secrets/.dots_fcm_service_account.XXXXXX)"
+    if ! base64 -d > "$tmp"; then
+      rm -f "$tmp"
+      exit 1
+    fi
+    chmod 0400 "$tmp"
+    mv -f "$tmp" /secrets/dots_fcm_service_account.json
+  '
+
 COMPOSE="docker-compose --project-name modules"
 
 if [[ " ${COMPONENTS[*]} " =~ " all " ]] || [[ ${#COMPONENTS[@]} -eq 1 && "${COMPONENTS[0]}" == "all" ]]; then
