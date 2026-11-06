@@ -18,7 +18,7 @@ graph TB
     USER["Telegram / Slack user"]
 
     subgraph Docker["Docker Compose (modules/docker-compose.yml)"]
-        HERMES["hermes<br/>Hermes Agent — gateway run<br/>:8642 :9119 :8644<br/>WebUI 127.0.0.1:8787"]
+        HERMES["hermes<br/>Hermes Agent — gateway run<br/>:8642 :8644 :8788"]
 
         ET["expense-tracker<br/>Node.js — :8080<br/>REST /tools/* + MCP /mcp"]
         PT["portfolio-tracker<br/>Node.js — :8081<br/>REST /tools/* + MCP /mcp"]

@@ -43,7 +43,7 @@ look for:
   `:4100` and is retried against a readiness budget. A deploy rolls the
   `codex-router-a` / `codex-router-b` colours one at a time, so `:4100` stays
   up; a single early failure is expected, exhausting the budget is not.
-- **hermes** has no HTTP health port (`HERMES_DASHBOARD=0`), so the check is
+- **hermes** has no HTTP health port, so the check is
   `s6-svstat` on the `gateway-default` service. A failure here is a gateway
   process problem, not an HTTP one.
 - **Only the components just deployed are health-checked.** A retired module

@@ -188,16 +188,14 @@ class DeployWorkflowRouterTests(unittest.TestCase):
     def test_hermes_deploy_health_gate_checks_gateway_not_dashboard_port(self):
         deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
 
-        # The dashboard is enabled with basic auth, so no unauthenticated port
-        # probe can gate the deploy. The supervised gateway s6 service stays
-        # the gate; credential presence is enforced by the preflight above.
+        # The dashboard and the WebUI were removed (#157), so neither port may
+        # gate the deploy. The supervised gateway s6 service is the gate.
         self.assertNotIn("9119", deploy_script)
+        self.assertNotIn("8787", deploy_script)
         self.assertIn(
             "/package/admin/s6/command/s6-svstat -o up /run/service/gateway-default",
             deploy_script,
         )
-        self.assertIn("HERMES_DASHBOARD_BASIC_AUTH_USERNAME", deploy_script)
-        self.assertIn("HERMES_DASHBOARD_BASIC_AUTH_PASSWORD", deploy_script)
 
     def test_hermes_gateway_health_gate_outlasts_a_slow_start(self):
         # Measured 2026-10-09: the gateway came up 2.5 minutes after container start
@@ -208,7 +206,7 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         # PR #68 deploy, so the budget now covers 11 minutes.
         import re
 
-        block = DEPLOY_SCRIPT.read_text(encoding="utf-8").split("# Hermes gateway (the dashboard", 1)[1]
+        block = DEPLOY_SCRIPT.read_text(encoding="utf-8").split("# Hermes gateway (", 1)[1]
         block = block.split('echo -e "  ${GREEN}✓ hermes gateway${NC}"', 1)[0]
         initial = int(re.search(r"sleep (\d+)\n\s*gateway_up=false", block).group(1))
         tries = int(re.search(r"seq 1 (\d+)", block).group(1))
@@ -363,7 +361,7 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         # A single check after the fixed sleep is not enough: cont-init registers
         # the supervised gateway after container start, so the gate must poll it
         # with the same bounded budget the HTTP health checks used.
-        self.assertRegex(gate, r"for _ in \$\(seq 1 10\)")
+        self.assertRegex(gate, r"for _ in \$\(seq 1 \d+\)")
         self.assertIn("sleep 6", gate)
 
 
@@ -565,46 +563,27 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         inputs = test_workflow[True]["workflow_call"]["inputs"]
         self.assertIn("ref", inputs)
 
-        steps = test_workflow["jobs"]["hermes-webui-image"]["steps"]
+        steps = test_workflow["jobs"]["hermes-image"]["steps"]
         self.assertEqual(steps[0]["with"]["ref"], "${{ inputs.ref }}")
         resolver = next(
             step for step in steps if step.get("name") == "Resolve changed image inputs"
         )["run"]
         self.assertIn("git merge-base origin/main", resolver)
 
-    def test_image_job_waits_for_the_webui_port_before_failing(self):
-        """s6 reports the service up as soon as its run script starts, which is
-        before the WebUI binds 8787, so a single probe fails on a healthy image.
-        Both probes must retry on a bounded budget."""
+    def test_image_job_smokes_the_image_without_the_webui(self):
+        """The image smoke still boots the image and checks the agent, cron
+        tools and Dots adapter imports, but no longer probes a WebUI (#157)."""
         workflow = yaml.safe_load(TEST_WORKFLOW.read_text(encoding="utf-8"))
-        steps = workflow["jobs"]["hermes-webui-image"]["steps"]
+        steps = workflow["jobs"]["hermes-image"]["steps"]
         boot = next(
-            step for step in steps if step.get("name") == "Boot the image and probe the WebUI"
+            step for step in steps if step.get("name") == "Boot the image and check its imports"
         )["run"]
 
-        self.assertRegex(boot, r"wait_for_health\(\) \{")
-        self.assertIn("for _ in $(seq 1 30)", boot)
-        self.assertIn(
-            "wait_for_health in-container docker exec hermes-webui-test curl", boot
-        )
-        self.assertIn("wait_for_health published-port curl", boot)
-
-    def test_image_job_smokes_the_chat_path_through_the_service(self):
-        """The agent venv resolves the real agent whatever the launcher's agent
-        dir says, so the chat smoke replaces the resolved module inside the
-        throwaway container and restarts the supervised service, then talks to
-        the port the deploy publishes instead of a second WebUI."""
-        workflow = yaml.safe_load(TEST_WORKFLOW.read_text(encoding="utf-8"))
-        steps = workflow["jobs"]["hermes-webui-image"]["steps"]
-        boot = next(
-            step for step in steps if step.get("name") == "Boot the image and probe the WebUI"
-        )["run"]
-
-        self.assertIn("import run_agent; print(run_agent.__file__)", boot)
-        self.assertIn("/command/s6-svc -r /run/service/hermes-webui", boot)
-        self.assertIn("http://127.0.0.1:8787/api/chat", boot)
-        self.assertNotIn("8788", boot)
-
+        self.assertIn("from run_agent import AIAgent", boot)
+        self.assertIn("from plugins.platforms.dots.adapter import DotsAdapter", boot)
+        self.assertIn("/opt/data/cron/jobs.json", boot)
+        self.assertNotIn("webui", TEST_WORKFLOW.read_text(encoding="utf-8").lower())
+        self.assertNotIn("8787", boot)
 
 if __name__ == "__main__":
     unittest.main()

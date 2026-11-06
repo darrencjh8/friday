@@ -24,8 +24,8 @@ RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
 # `codex-router-python scripts/run_tests.py`; it is a wrapper, not a symlink,
 # because a symlinked venv interpreter does not find the venv's packages.
 COPY requirements-codex-router.txt /tmp/requirements-codex-router.txt
-# v0.23.0 still omits PyYAML from the sealed agent venv; WebUI bootstrap imports yaml.
-# Keep its one required dependency isolated and expose it only to the WebUI service.
+# v0.23.0 still omits PyYAML from the sealed agent venv; the config merge in
+# 50-seed-defaults imports yaml. Keep it isolated and expose it only there.
 RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')" \
     && "$uv_bin" venv /opt/codex-router-venv --python /usr/bin/python3 \
     && "$uv_bin" pip install --no-cache --python /opt/codex-router-venv/bin/python \
@@ -77,24 +77,6 @@ RUN /opt/hermes/.venv/bin/python -m compileall -q -j 0 -x '/uv-cache/' /opt/herm
 RUN chmod +x /opt/hermes-defaults/scripts/*.sh
 COPY 50-seed-defaults /etc/cont-init.d/50-seed-defaults
 RUN chmod +x /etc/cont-init.d/50-seed-defaults
-# Hermes WebUI (github.com/nesquena/hermes-webui) as a supervised service in
-# this container, so it shares /opt/hermes, the agent venv, and HERMES_HOME with
-# the gateway instead of holding a second copy of the agent source.
-#
-# Pinned to the commit behind tag exp-v0.52.646, the first WebUI cut after
-# Hermes v0.23.0 (upstream asks to upgrade both together). The fetch names the commit rather
-# than the tag, so re-pointing the tag upstream cannot change what a rebuild
-# produces, and a commit that no longer exists fails the build instead of
-# silently building a different revision.
-ARG HERMES_WEBUI_REF=52e95f229405185288cedd7ef1b1ceb5fb1f3442
-RUN git init /opt/hermes-webui \
-    && cd /opt/hermes-webui \
-    && git remote add origin https://github.com/nesquena/hermes-webui.git \
-    && git fetch --depth 1 origin "$HERMES_WEBUI_REF" \
-    && git checkout --detach FETCH_HEAD
-COPY webui/s6-rc.d/hermes-webui /etc/s6-overlay/s6-rc.d/hermes-webui
-RUN chmod +x /etc/s6-overlay/s6-rc.d/hermes-webui/run \
-    && touch /etc/s6-overlay/s6-rc.d/user/contents.d/hermes-webui
 # Reminders dashboard (read-only stdlib page over the reminder snapshot).
 COPY webui/s6-rc.d/reminders /etc/s6-overlay/s6-rc.d/reminders
 RUN chmod +x /etc/s6-overlay/s6-rc.d/reminders/run \

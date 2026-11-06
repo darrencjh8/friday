@@ -282,14 +282,7 @@ services:
             # Hermes API server (Conduit). Host loopback only: Tailscale serve
             # terminates TLS on the tailnet and proxies to 127.0.0.1:8642.
             - "127.0.0.1:8642:8642"
-            # Hermes dashboard. Host loopback only: Tailscale serve terminates TLS
-            # on the tailnet and proxies to 127.0.0.1:9119. An all-interfaces
-            # publish also claims the tailnet address, which that serve holds.
-            - "127.0.0.1:9119:9119"
             - "8644:8644"
-            # Hermes WebUI. Host loopback only: Tailscale serve terminates TLS on
-            # the tailnet and proxies to 127.0.0.1:8787, so nothing binds the LAN.
-            - "127.0.0.1:8787:8787"
             # Reminders dashboard. Host loopback only: Tailscale serve maps
             # /reminders to 127.0.0.1:8300, so nothing binds the LAN.
             - "127.0.0.1:8300:8300"
@@ -300,7 +293,7 @@ services:
             # or the code is pasted back with `google login --manual`.
             - "127.0.0.1:8299:8299"
             # Dots phone app gateway. Host loopback only: Tailscale serve terminates
-            # TLS on the tailnet and proxies to 127.0.0.1:8788. 8787 is the WebUI.
+            # TLS on the tailnet and proxies to 127.0.0.1:8788.
             - "127.0.0.1:8788:8788"
         volumes:
             - /home/runner/data/hermes/data:/opt/data
@@ -363,13 +356,6 @@ services:
             - SOUL_VOICE_STYLE=${SOUL_VOICE_STYLE}
             - SOUL_VOICE_RULES=${SOUL_VOICE_RULES}
             - SOUL_DELEGATION=${SOUL_DELEGATION}
-            - HERMES_DASHBOARD=1
-            # Dashboard on 9119, tailnet only (Tailscale serve); basic auth required.
-            - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
-            - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
-            # WebUI CSP frame-ancestors allowlist for Tailscale-serve framing.
-            # Empty default preserves upstream locked-down behaviour locally.
-            - HERMES_WEBUI_CSP_FRAME_EXTRA=${HERMES_WEBUI_CSP_FRAME_EXTRA:-}
             - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY}
             - NOTION_API_KEY=${NOTION_API_KEY}
             # Basic-auth password for the host's `opencode serve`, reachable from
@@ -394,7 +380,7 @@ services:
             - DOTS_FCM_CREDENTIALS=/run/secrets/dots_fcm_service_account.json
             - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
             - EXPENSE_TRACKER_DATA=/opt/data/expense-tracker-data
-            # Cap glibc malloc arenas. The WebUI runs ~37 threads; uncapped,
+            # Cap glibc malloc arenas. The gateways run many threads; uncapped,
             # glibc keeps up to 8 arenas per core and memory freed in one is
             # not reused by another, so RSS climbs and stays high. 2 is enough
             # under the GIL.

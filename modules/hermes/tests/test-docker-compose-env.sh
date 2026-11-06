@@ -171,7 +171,7 @@ test_gtasks_cli_wiring() {
     fi
 }
 
-# Test: glibc malloc arenas are capped for hermes. The WebUI runs ~37 threads;
+# Test: glibc malloc arenas are capped for hermes. The gateways run many threads;
 # uncapped, glibc keeps up to 8 arenas per core and freed memory is not reused
 # across them, so RSS climbs and stays high (1.4 GB observed 2026-10-10).
 test_hermes_malloc_arena_cap() {
