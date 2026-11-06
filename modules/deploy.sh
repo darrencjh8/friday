@@ -934,6 +934,9 @@ printf '%s' "${FRIDAY_PAT:-}" | docker run --rm -i --network none \
 
 # Keep the optional Firebase credential a regular file even when the Actions
 # secret is absent; a missing bind source makes Docker create a directory.
+# The file is written by a throwaway root container, so give it to the gateway's
+# uid (10000, `hermes`): the Dots adapter runs as that user and cannot read a
+# root-owned 0400 file.
 DOTS_FCM_SECRET_FILE="/home/runner/data/hermes/dots_fcm_service_account.json"
 DOTS_FCM_SECRET_DIR="$(dirname "$DOTS_FCM_SECRET_FILE")"
 printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none \
@@ -948,6 +951,7 @@ printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none 
       rm -f "$tmp"
       exit 1
     fi
+    chown 10000:10000 "$tmp"
     chmod 0400 "$tmp"
     mv -f "$tmp" /secrets/dots_fcm_service_account.json
   '
