@@ -99,6 +99,7 @@ describe("hermes webhook config", () => {
         expect(routes.notify.deliver_only).toBeUndefined();
         expect(routes.notify.deliver).toBe("dots");
         expect(routes.notify.deliver_extra.chat_id).toBe("${DOTS_HOME_CHANNEL}");
+        expect(routes.notify.mirror_to_session).toBe("true");
     });
 
     test("notify webhook prompt prevents table wrapping for single-item notifications", () => {

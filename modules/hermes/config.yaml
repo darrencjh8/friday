@@ -286,6 +286,9 @@ platforms:
                         do NOT wrap in a table. Only use tables when relaying multi-item data.
                         Message: {message}
                     deliver: dots
+                    # Keep the delivered push in a replyable session so a
+                    # question about it continues the same conversation.
+                    mirror_to_session: true
                     deliver_extra:
                         chat_id: "${DOTS_HOME_CHANNEL}"
 
