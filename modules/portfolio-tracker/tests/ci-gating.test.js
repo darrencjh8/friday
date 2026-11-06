@@ -165,7 +165,7 @@ describe("CI enforces the #627 renderer contract", () => {
         expect(deploy).toMatch(/needs\.test\.result\s*!=\s*'failure'/);
     });
 
-    it("requires the private sync mapping before deploying the tracker", () => {
+    it("checks the private sync mapping as root before deploying the tracker", () => {
         const deployScript = readFileSync(
             resolve(here, "../../../modules/deploy.sh"),
             "utf8",
@@ -173,7 +173,7 @@ describe("CI enforces the #627 renderer contract", () => {
         expect(deployScript).toContain(
             "/home/runner/data/hermes/data/home/wiki/entities/accounts/portfolio-sync-targets.md",
         );
-        expect(deployScript).toMatch(/check_file.*portfolio-sync-targets\.md/);
+        expect(deployScript).toMatch(/check_file.*portfolio-sync-targets\.md.*--sudo/);
     });
 
     it("pins the tracker mapping to the same wiki path the deploy gate checks", () => {
