@@ -66,7 +66,7 @@ cp .env.example .env
 
 Other variables from `.env.example`:
 
-- Balance-sync account UUIDs: `PP_EMERGENCY_PRIMARY_ACCOUNT`, `PP_EMERGENCY_SECONDARY_ACCOUNT`, `PP_WARCHEST_PRIMARY_ACCOUNT`
+- Balance-sync mapping: `PORTFOLIO_SYNC_TARGETS_FILE` points at the private wiki page listing every target, and `WIKI_DIR` is the read-only wiki mount the daily cron reads. The page holds the account identifiers, so none live in this repository. A missing, unreadable, or invalid mapping is reported as a sync error instead of being skipped.
 - `PP_XML_PATH` — default `/data/portfolio.xml`; compose sets `/data/onedrive/Portfolio/Portfolio.portfolio`
 - `IMAP_HOST`, `IMAP_USERNAME`, `IMAP_PASSWORD` — PDF trade confirmations (leave empty to disable)
 - `TAXONOMY_NAMES`, `TAXONOMY_SHEET_MAPPING`

@@ -75,11 +75,9 @@ export class Config {
         this.ppJarPath = env.PP_JAR_PATH || "/app/pp-cli.jar";
         this.ppPassword = env.PP_PASSWORD || "";
 
-        // PP account UUIDs for balance sync
-        this.ppEmergencyPrimaryAccount = env.PP_EMERGENCY_PRIMARY_ACCOUNT || "";
-        this.ppEmergencySecondaryAccount =
-            env.PP_EMERGENCY_SECONDARY_ACCOUNT || "";
-        this.ppWarchestPrimaryAccount = env.PP_WARCHEST_PRIMARY_ACCOUNT || "";
+        // Balance-sync mapping: private wiki page, read at runtime.
+        this.syncTargetsFile = env.PORTFOLIO_SYNC_TARGETS_FILE || "";
+        this.wikiDir = env.WIKI_DIR || "";
 
         // Data paths
         this.dedupDbPath = env.DEDUP_DB_PATH || "data/dedup.db";
