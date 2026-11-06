@@ -982,8 +982,9 @@ live_kept = "expense-tracker" in servers
 platforms = config.get("platforms") or {}
 intake = platforms.get("email_intake") or {}
 intake_off = intake.get("enabled") is False
+dots_off = (platforms.get("dots") or {}).get("enabled") is False
 sibling_kept = (platforms.get("telegram") or {}).get("enabled") is True
-print("pass" if isolated and preserved and routed and escalating and effort and agent_preserved and retired_dropped and live_kept and intake_off and sibling_kept else "fail")
+print("pass" if isolated and preserved and routed and escalating and effort and agent_preserved and dots_off and retired_dropped and live_kept and intake_off and sibling_kept else "fail")
 PY
 )
 if [ "$migration_result" = "pass" ]; then

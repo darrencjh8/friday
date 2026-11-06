@@ -1,4 +1,4 @@
-FROM nousresearch/hermes-agent:stable@sha256:36099926da316742423544e055d4734777105ffe6341873af5459b957d0c2919
+FROM nousresearch/hermes-agent:stable@sha256:adb7890916de63245523492be8f68f9d2095fecbec4e2a6dab7960381f0fc002
 # gh and ntn live in the persisted /opt/data volume, installed by the
 # "Ensure Hermes container tooling" step in .github/workflows/deploy.yml, so
 # rebuilding this image does not reinstall them.
@@ -24,7 +24,7 @@ RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
 # `codex-router-python scripts/run_tests.py`; it is a wrapper, not a symlink,
 # because a symlinked venv interpreter does not find the venv's packages.
 COPY requirements-codex-router.txt /tmp/requirements-codex-router.txt
-# v0.22.2 omits PyYAML from the sealed agent venv; WebUI bootstrap imports yaml.
+# v0.23.0 still omits PyYAML from the sealed agent venv; WebUI bootstrap imports yaml.
 # Keep its one required dependency isolated and expose it only to the WebUI service.
 RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')" \
     && "$uv_bin" venv /opt/codex-router-venv --python /usr/bin/python3 \
@@ -34,13 +34,6 @@ RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')
     && rm /tmp/requirements-codex-router.txt \
     && printf '#!/bin/sh\nexec /opt/codex-router-venv/bin/python "$@"\n' > /usr/local/bin/codex-router-python \
     && chmod 755 /usr/local/bin/codex-router-python
-# Issue #650: upstream runs a state.db quick_check on the event loop after an
-# unclean exit (an hour+ on a multi-GB store). Move it to a background thread.
-# The patch fails the build if the upstream text changes, so an image bump
-# cannot silently drop it.
-COPY patches/patch-lifecycle-ledger.py /tmp/patch-lifecycle-ledger.py
-RUN python3 /tmp/patch-lifecycle-ledger.py /opt/hermes/gateway/lifecycle_ledger.py \
-    && rm /tmp/patch-lifecycle-ledger.py
 # Webhook sessions are one-shot, but a restart mid-run (and builds before upstream
 # added the close hook) leaves them open, and prune only deletes ended rows. Add
 # webhook to the automatic stale-open sweep. Fails the build on upstream drift.
@@ -74,6 +67,8 @@ COPY plugins/learning-commands/ /opt/hermes/plugins/learning-commands/
 COPY plugins/intake-commands/ /opt/hermes/plugins/intake-commands/
 # Read-only financial email intake, shadow mode (#783).
 COPY plugins/email-intake/ /opt/hermes/plugins/platforms/email_intake/
+# Dots phone app gateway, dormant until DOTS_TOKEN is set.
+COPY plugins/dots/ /opt/hermes/plugins/platforms/dots/
 # Precompile the source tree's bytecode at build time (upstream #136618): the
 # image sets PYTHONDONTWRITEBYTECODE=1 and the tree is read-only at runtime, so
 # every fresh agent process otherwise recompiles every import (~13s measured).
@@ -86,19 +81,17 @@ RUN chmod +x /etc/cont-init.d/50-seed-defaults
 # this container, so it shares /opt/hermes, the agent venv, and HERMES_HOME with
 # the gateway instead of holding a second copy of the agent source.
 #
-# Pinned to the commit behind tag v0.52.113. The fetch names the commit rather
+# Pinned to the commit behind tag exp-v0.52.646, the first WebUI cut after
+# Hermes v0.23.0 (upstream asks to upgrade both together). The fetch names the commit rather
 # than the tag, so re-pointing the tag upstream cannot change what a rebuild
 # produces, and a commit that no longer exists fails the build instead of
 # silently building a different revision.
-ARG HERMES_WEBUI_REF=c67fd2dd270a1128c2754200406bca58e9d9a25a
+ARG HERMES_WEBUI_REF=52e95f229405185288cedd7ef1b1ceb5fb1f3442
 RUN git init /opt/hermes-webui \
     && cd /opt/hermes-webui \
     && git remote add origin https://github.com/nesquena/hermes-webui.git \
     && git fetch --depth 1 origin "$HERMES_WEBUI_REF" \
     && git checkout --detach FETCH_HEAD
-COPY patches/patch-webui-api-mode.py /tmp/patch-webui-api-mode.py
-RUN python3 /tmp/patch-webui-api-mode.py /opt/hermes-webui/api/streaming.py \
-    && rm /tmp/patch-webui-api-mode.py
 COPY webui/s6-rc.d/hermes-webui /etc/s6-overlay/s6-rc.d/hermes-webui
 RUN chmod +x /etc/s6-overlay/s6-rc.d/hermes-webui/run \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/hermes-webui

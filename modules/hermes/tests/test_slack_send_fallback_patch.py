@@ -1,6 +1,6 @@
 """Slack chat.postMessage fallbacks: msg_blocks_too_long and cannot_reply_to_message.
 
-Applies patches/patch-slack-send-fallback.py to a verbatim copy of upstream v0.22.2
+Applies patches/patch-slack-send-fallback.py to a verbatim copy of upstream v0.23.0
 plugins/platforms/slack/adapter.py and drives the patched send helper with a fake client.
 """
 
@@ -14,7 +14,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PATCH_PATH = HERE.parent / "patches" / "patch-slack-send-fallback.py"
-FIXTURE = HERE / "fixtures" / "upstream_slack_adapter_v0.22.2.py"
+FIXTURE = HERE / "fixtures" / "upstream_slack_adapter_v0.23.0.py"
 METHODS = ("_call_with_block_fallback", "_call_with_block_fallback_upstream",
            "_is_block_payload_rejection", "_slack_error_code")
 

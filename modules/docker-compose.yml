@@ -173,6 +173,9 @@ services:
             - onedrive_data:/data/onedrive:rw
             - /home/runner/data/portfolio-tracker/onedrive_token:/app/config/onedrive:rw
             - /home/runner/data/portfolio-tracker/google-service-account.json:/app/config/google-service-account.json:ro
+            # Private balance-sync mapping for every target: the same read-only
+            # wiki finance subtree Hermes owns.
+            - /home/runner/data/hermes/data/home/wiki/entities/accounts:/wiki/accounts:ro
         environment:
             - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
             - LLM_BASE_URL=${LLM_BASE_URL:-http://codex-router:4100/v1}
@@ -183,6 +186,8 @@ services:
             - ACTUAL_BUDGET_PASSWORD=${ACTUAL_BUDGET_PASSWORD}
             - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE}
             - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE}
+            - WIKI_DIR=/wiki/accounts
+            - PORTFOLIO_SYNC_TARGETS_FILE=/wiki/accounts/portfolio-sync-targets.md
             - ONEDRIVE_CLIENT_ID=${ONEDRIVE_CLIENT_ID}
             - IBKR_FLEX_TOKEN=${IBKR_FLEX_TOKEN}
             - IBKR_FLEX_QUERY_ID=${IBKR_FLEX_QUERY_ID}
@@ -205,7 +210,7 @@ services:
             test:
                 [
                     "CMD-SHELL",
-                    'node -e ''require("http").get("http://localhost:8081/health",function(r){process.exit(r.statusCode===200?0:1)})''',
+                    "node --input-type=module -e \"import('./src/sync-targets.js').then(({loadSyncTargets})=>loadSyncTargets({wikiDir:process.env.WIKI_DIR})).then(()=>fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1))).catch(()=>process.exit(1))\"",
                 ]
             interval: 10s
             timeout: 5s
@@ -294,10 +299,14 @@ services:
             # browser device reaches it via `ssh -L 9090:localhost:8299`,
             # or the code is pasted back with `google login --manual`.
             - "127.0.0.1:8299:8299"
+            # Dots phone app gateway. Host loopback only: Tailscale serve terminates
+            # TLS on the tailnet and proxies to 127.0.0.1:8788. 8787 is the WebUI.
+            - "127.0.0.1:8788:8788"
         volumes:
             - /home/runner/data/hermes/data:/opt/data
             - /home/runner/data/hermes/workspace:/workspace
             - /home/runner/data/hermes/friday_pat.secret:/run/secrets/friday_pat:ro
+            - /home/runner/data/hermes/dots_fcm_service_account.json:/run/secrets/dots_fcm_service_account.json:ro
             - /var/run/docker.sock:/var/run/docker.sock
             - /home/runner/data/expense-tracker/data:/opt/data/expense-tracker-data:ro
         environment:
@@ -377,6 +386,11 @@ services:
             - IMAP_USERNAME=${IMAP_USERNAME}
             - IMAP_PASSWORD=${IMAP_PASSWORD}
             - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
+            - DOTS_TOKEN=${DOTS_TOKEN:-}
+            - DOTS_BIND=0.0.0.0:8788
+            - DOTS_ALLOWED_USERS=owner
+            - DOTS_HOME_CHANNEL=owner
+            - DOTS_FCM_CREDENTIALS=/run/secrets/dots_fcm_service_account.json
             - POLLINATIONS_API_KEY=${POLLINATIONS_API_KEY}
             - EXPENSE_TRACKER_DATA=/opt/data/expense-tracker-data
             # Cap glibc malloc arenas. The WebUI runs ~37 threads; uncapped,

@@ -603,6 +603,7 @@ if $GITHUB_MODE || check_file "$HERMES_ENV"; then
   check_var_optional "FRIDAY_PAT" "$HERMES_ENV"
   check_var_optional "BRAVE_SEARCH_API_KEY" "$HERMES_ENV"
   check_var_optional "FIRECRAWL_API_KEY" "$HERMES_ENV"
+  check_var_optional "DOTS_TOKEN" "$HERMES_ENV"
   check_var_optional "NOTION_API_KEY" "$HERMES_ENV"
   check_var_optional "OPENCODE_SERVER_PASSWORD" "$HERMES_ENV"
   check_var_optional "BWS_ACCESS_TOKEN" "$HERMES_ENV"
@@ -617,6 +618,7 @@ if should_deploy "portfolio-tracker" || should_deploy "all"; then
 echo ""
 echo "--- Portfolio Tracker (.env) ---"
 PT_ENV="$PT_DIR/.env"
+check_file "/home/runner/data/hermes/data/home/wiki/entities/accounts/portfolio-sync-targets.md"
 if $GITHUB_MODE || check_file "$PT_ENV"; then
   for v in DEEPSEEK_API_KEY ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD \
            ACTUAL_PRIMARY_BUDGET_FILE ACTUAL_SECONDARY_BUDGET_FILE \
@@ -934,6 +936,26 @@ printf '%s' "${FRIDAY_PAT:-}" | docker run --rm -i --network none \
     cat > "$tmp"
     chmod 0400 "$tmp"
     mv -f "$tmp" /secrets/friday_pat.secret
+  '
+
+# Keep the optional Firebase credential a regular file even when the Actions
+# secret is absent; a missing bind source makes Docker create a directory.
+DOTS_FCM_SECRET_FILE="/home/runner/data/hermes/dots_fcm_service_account.json"
+DOTS_FCM_SECRET_DIR="$(dirname "$DOTS_FCM_SECRET_FILE")"
+printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none \
+  -v "$DOTS_FCM_SECRET_DIR:/secrets" \
+  alpine:3 sh -c '
+    umask 077
+    if [ -d /secrets/dots_fcm_service_account.json ]; then
+      rmdir /secrets/dots_fcm_service_account.json
+    fi
+    tmp="$(mktemp /secrets/.dots_fcm_service_account.XXXXXX)"
+    if ! base64 -d > "$tmp"; then
+      rm -f "$tmp"
+      exit 1
+    fi
+    chmod 0400 "$tmp"
+    mv -f "$tmp" /secrets/dots_fcm_service_account.json
   '
 
 COMPOSE="docker-compose --project-name modules"

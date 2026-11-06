@@ -14,6 +14,7 @@ import { pullFromOneDrive, pushToOneDrive } from "./onedrive.js";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "fs";
 import { dirname } from "path";
 import { PpJavaBridge } from "./java_bridge.js";
+import { loadSyncTargets } from "./sync-targets.js";
 
 /** Keys whose values must never be written to logs. */
 const SECRET_KEYS = new Set(["password", "passwd", "pwd"]);
@@ -838,6 +839,32 @@ export class ToolRegistry {
         const results = [];
         let pullResult = null;
         let pushResult = null;
+        const labels = {
+            emergency_primary: "Emergency Funds - SGD",
+            emergency_secondary: "Emergency Funds - MYR",
+            warchest_primary: "Warchest",
+            loans_primary: "Loan balance",
+        };
+        let specs;
+        try {
+            specs = loadSyncTargets(this._config);
+        } catch (e) {
+            return {
+                error: e.message,
+                sync_targets: Object.values(labels).map((name) => ({
+                    name,
+                    status: "error",
+                    delta: 0,
+                    error: "Sync target mapping unavailable; target not updated",
+                })),
+                pull: null,
+                flex_pull: null,
+                flex_import: null,
+                deposit_matches: [],
+                push: null,
+                taxonomy_export: null,
+            };
+        }
 
         // Step 1: Pull latest PP file from OneDrive
         if (this._ppBridge) {
@@ -907,9 +934,11 @@ export class ToolRegistry {
 
         // Step 2: Fetch AB budgets with retry
         const _sgdBudget =
-            process.env.ACTUAL_PRIMARY_BUDGET_FILE || "SGD Budget";
+            this._config.primaryBudgetFile || process.env.ACTUAL_PRIMARY_BUDGET_FILE || "SGD Budget";
         const _myrBudget =
-            process.env.ACTUAL_SECONDARY_BUDGET_FILE || "MYR Budget";
+            this._config.secondaryBudgetFile ||
+            process.env.ACTUAL_SECONDARY_BUDGET_FILE ||
+            "MYR Budget";
 
         const fetchBudget = async (budgetName, maxRetries = 3) => {
             const url = `http://actual-api:3000/budget-12m?budget_id=${encodeURIComponent(budgetName)}`;
@@ -944,38 +973,149 @@ export class ToolRegistry {
         };
 
         try {
-            const sgd = await fetchBudget(_sgdBudget);
-            await sleep(1000);
-            const myr = await fetchBudget(_myrBudget);
-
             const today = new Date().toISOString().slice(0, 10);
 
-            const targets = [
-                {
-                    account_id:
-                        this._config.ppEmergencyPrimaryAccount ||
-                        "444b04eb-8c55-4efc-9df3-c529612fd2f3",
-                    name: "Emergency Funds - SGD",
-                    amount: (sgd.emergency_total || 0) / 100,
-                    currency: "SGD",
-                },
-                {
-                    account_id:
-                        this._config.ppEmergencySecondaryAccount ||
-                        "a5f42a18-b882-4225-bea6-90c9eea720b5",
-                    name: "Emergency Funds - MYR",
-                    amount: (myr.emergency_total || 0) / 100,
-                    currency: "MYR",
-                },
-                {
-                    account_id:
-                        this._config.ppWarchestPrimaryAccount ||
-                        "68815371-05f3-43e9-9669-08b368fe1e9d",
-                    name: "Warchest",
-                    amount: (sgd.investment_total || 0) / 100,
-                    currency: "SGD",
-                },
-            ];
+            // Fetch each budget on its own so one outage cannot suppress the
+            // targets that do not depend on it.
+            const budgets = {};
+            for (const budget of ["primary", "secondary"]) {
+                try {
+                    budgets[budget] = await fetchBudget(
+                        budget === "primary" ? _sgdBudget : _myrBudget,
+                    );
+                } catch (e) {
+                    budgets[budget] = { error: e.message };
+                }
+                if (budget === "primary") await sleep(1000);
+            }
+
+            const targets = [];
+
+            for (const spec of specs) {
+                const target = {
+                    name: labels[spec.key] || spec.key,
+                    currency: spec.budget === "secondary" ? "MYR" : "SGD",
+                };
+
+                if (spec.metric === "account_balances") {
+                    const conflict = specs.some(
+                        (other) =>
+                            other.key !== spec.key &&
+                            other.portfolio_account_id === spec.portfolio_account_id,
+                    );
+                    if (conflict) {
+                        results.push({
+                            ...target,
+                            status: "error",
+                            delta: 0,
+                            error: "Loan destination conflicts with another sync target",
+                        });
+                        continue;
+                    }
+                    // The signed sum of configured off-budget SGD accounts.
+                    // Identifiers never appear in the result or in errors.
+                    try {
+                        if (!this._ppBridge) {
+                            throw new Error("Portfolio bridge unavailable");
+                        }
+                        const portfolioAccounts =
+                            await this._ppBridge.getAccounts();
+                        const account = (portfolioAccounts || []).find(
+                            (item) =>
+                                item.id === spec.portfolio_account_id &&
+                                item.type !== "PORTFOLIO",
+                        );
+                        if (!account || account.currency !== "SGD") {
+                            throw new Error(
+                                "Loan destination is missing or not SGD",
+                            );
+                        }
+                        const budget = encodeURIComponent(_sgdBudget);
+                        const getActual = async (path) => {
+                            const response = await fetch(
+                                `http://actual-api:3000${path}?budget_id=${budget}`,
+                                { signal: AbortSignal.timeout(60000) },
+                            );
+                            if (!response.ok) {
+                                throw new Error("Actual Budget loan read failed");
+                            }
+                            return response.json();
+                        };
+                        const accounts = await getActual("/accounts");
+                        if (!Array.isArray(accounts)) {
+                            throw new Error(
+                                "Actual Budget loan account list is invalid",
+                            );
+                        }
+                        let cents = 0;
+                        for (const id of spec.actual_account_ids) {
+                            const source = accounts.find(
+                                (item) => item.id === id,
+                            );
+                            if (
+                                !source ||
+                                source.offbudget !== true ||
+                                source.closed ||
+                                (source.currency != null &&
+                                    source.currency !== "SGD")
+                            ) {
+                                throw new Error(
+                                    "Required SGD off-budget loan account is invalid or missing",
+                                );
+                            }
+                            const balance = await getActual(
+                                `/accounts/balance/${encodeURIComponent(id)}`,
+                            );
+                            if (
+                                !Number.isSafeInteger(balance.balance) ||
+                                !Number.isSafeInteger(cents + balance.balance)
+                            ) {
+                                throw new Error("Loan balance is invalid");
+                            }
+                            cents += balance.balance;
+                        }
+                        const amount = cents / 100;
+                        if (Math.round(amount * 100) !== cents) {
+                            throw new Error("Loan balance is invalid");
+                        }
+                        target.amount = amount;
+                        target.account_id = spec.portfolio_account_id;
+                        targets.push(target);
+                    } catch (e) {
+                        const safeErrors = [
+                            "Portfolio bridge unavailable",
+                            "Loan destination is missing or not SGD",
+                            "Actual Budget loan read failed",
+                            "Actual Budget loan account list is invalid",
+                            "Required SGD off-budget loan account is invalid or missing",
+                            "Loan balance is invalid",
+                        ];
+                        results.push({
+                            ...target,
+                            status: "error",
+                            delta: 0,
+                            error: safeErrors.includes(e.message)
+                                ? e.message
+                                : "Loan source read failed",
+                        });
+                    }
+                    continue;
+                }
+
+                const data = budgets[spec.budget];
+                if (!data || data.error) {
+                    results.push({
+                        ...target,
+                        status: "error",
+                        delta: 0,
+                        error: "Budget data unavailable",
+                    });
+                    continue;
+                }
+                target.account_id = spec.portfolio_account_id;
+                target.amount = (data[spec.metric] || 0) / 100;
+                targets.push(target);
+            }
 
             for (const t of targets) {
                 try {
@@ -993,19 +1133,28 @@ export class ToolRegistry {
                                 notes: `Synced from AB ${t.name}`,
                             },
                         );
-                        t.result = updateResult;
+                        t.result = {
+                            status: updateResult.status,
+                            delta: updateResult.delta,
+                        };
                         t.delta = updateResult.delta ?? 0;
                         t.status = updateResult.status || "updated";
+                        if (t.status === "error") {
+                            t.error = "Balance update failed";
+                        }
                     }
                 } catch (e) {
-                    t.result = { error: e.message };
+                    t.result = { error: "Balance update failed" };
                     t.delta = 0;
                     t.status = "error";
+                    t.error = "Balance update failed";
                 }
+                delete t.account_id;
                 results.push(t);
                 await sleep(500);
             }
         } catch (e) {
+            results.push({ name: "Sync targets", status: "error", delta: 0, error: "Sync aborted before target reads" });
             // The legs already ran before this try, so they are returned here too.
             // Returning only { error, sync_targets } is what let a dead OneDrive
             // grant read as a clean run whenever an Actual Budget outage aborted
