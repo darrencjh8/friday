@@ -165,21 +165,21 @@ describe("CI enforces the #627 renderer contract", () => {
         expect(deploy).toMatch(/needs\.test\.result\s*!=\s*'failure'/);
     });
 
-    it("checks the private sync mapping as root before deploying the tracker", () => {
+    it("does not gate deployment on the private wiki file's host path", () => {
         const deployScript = readFileSync(
             resolve(here, "../../../modules/deploy.sh"),
             "utf8",
         );
-        expect(deployScript).toContain(
-            "/home/runner/data/hermes/data/home/wiki/entities/accounts/portfolio-sync-targets.md",
-        );
-        expect(deployScript).toMatch(/check_file.*portfolio-sync-targets\.md.*--sudo/);
+        expect(deployScript).not.toContain("portfolio-sync-targets.md");
     });
 
-    it("pins the tracker mapping to the same wiki path the deploy gate checks", () => {
+    it("keeps the private tracker mapping on its read-only wiki mount", () => {
         const compose = readFileSync(
             resolve(here, "../../docker-compose.yml"),
             "utf8",
+        );
+        expect(compose).toContain(
+            "/home/runner/data/hermes/data/home/wiki/entities/accounts:/wiki/accounts:ro",
         );
         expect(compose).toContain(
             "PORTFOLIO_SYNC_TARGETS_FILE=/wiki/accounts/portfolio-sync-targets.md",
