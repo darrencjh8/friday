@@ -197,12 +197,12 @@ confirm both tokens and that `SLACK_ALLOWED_USERS` contains a valid Member ID.
 
 ## Rerouting push notifications to Slack
 
-Webhook alerts currently deliver to Telegram:
+Expense-tracker webhook alerts currently deliver to Dots:
 
 ```yaml
-deliver: telegram
+deliver: dots
 deliver_extra:
-    chat_id: "${TELEGRAM_HOME_CHANNEL}"
+    chat_id: "${DOTS_HOME_CHANNEL}"
 ```
 
 To deliver them to Slack instead, change the route under
@@ -214,5 +214,5 @@ deliver_extra:
     chat_id: "${SLACK_HOME_CHANNEL}"
 ```
 
-This is optional and independent of the Slack platform itself. Keeping Telegram
-as the alert channel means a Slack outage cannot silence monitoring alerts.
+This is optional and independent of the Slack platform itself. Keeping Dots as
+the alert channel means a Slack outage cannot silence monitoring alerts.

@@ -668,6 +668,7 @@ describe("ToolRegistry — lazy bridge initialization", () => {
 describe("ToolRegistry — _computeSyncAll with flex pull", () => {
     let registry;
     let bridge;
+    let syncTargetsFile;
 
     beforeEach(() => {
         vi.clearAllMocks();
@@ -680,7 +681,30 @@ describe("ToolRegistry — _computeSyncAll with flex pull", () => {
 
         bridge = createMockBridge();
 
-        const cfg = new Config(REQUIRED_ENV);
+        // Every balance-sync target now comes from the private mapping file.
+        // Synthetic identifiers keep the test independent of real accounts.
+        syncTargetsFile = join(
+            tmpdir(),
+            `sync-targets-${crypto.randomBytes(4).toString("hex")}.md`,
+        );
+        writeFileSync(
+            syncTargetsFile,
+            "```json\n" +
+                JSON.stringify({
+                    version: 1,
+                    targets: [
+                        { key: "emergency_primary", budget: "primary", metric: "emergency_total", portfolio_account_id: "pp-emergency" },
+                        { key: "emergency_secondary", budget: "secondary", metric: "emergency_total", portfolio_account_id: "pp-secondary" },
+                        { key: "warchest_primary", budget: "primary", metric: "investment_total", portfolio_account_id: "pp-warchest" },
+                        { key: "loans_primary", budget: "primary", metric: "account_balances", portfolio_account_id: "pp-loan", actual_account_ids: ["loan-a", "loan-b", "loan-c"] },
+                    ],
+                }) +
+                "\n```\n",
+        );
+        const cfg = new Config({
+            ...REQUIRED_ENV,
+            PORTFOLIO_SYNC_TARGETS_FILE: syncTargetsFile,
+        });
         const dbPath = join(
             tmpdir(),
             `dedup-${crypto.randomBytes(4).toString("hex")}.db`,
@@ -788,7 +812,10 @@ describe("ToolRegistry — _computeSyncAll with flex pull", () => {
 
     it("skips balance sync with actionable message when bridge is null", async () => {
         // Create registry WITHOUT a bridge (null)
-        const cfgNoBridge = new Config(REQUIRED_ENV);
+        const cfgNoBridge = new Config({
+            ...REQUIRED_ENV,
+            PORTFOLIO_SYNC_TARGETS_FILE: syncTargetsFile,
+        });
         const dedup2 = new DedupJournal(
             join(tmpdir(), `dedup-${crypto.randomBytes(4).toString("hex")}.db`),
         );
@@ -812,9 +839,9 @@ describe("ToolRegistry — _computeSyncAll with flex pull", () => {
 
         const result = await registryNoBridge._computeSyncAll();
 
-        // All targets should be skipped with the right error
-        expect(result.sync_targets.length).toBe(3);
-        for (const t of result.sync_targets) {
+        expect(result.sync_targets.length).toBe(4);
+        expect(result.sync_targets.find((t) => t.name === "Loan balance").status).toBe("error");
+        for (const t of result.sync_targets.filter((t) => t.name !== "Loan balance")) {
             expect(t.status).toBe("skipped");
             expect(t.error).toContain("OneDrive not synced");
             expect(t.error).toContain("/onedrive setup");
@@ -830,7 +857,8 @@ describe("ToolRegistry — _computeSyncAll with flex pull", () => {
         const result = await registry._computeSyncAll();
 
         expect(result.sync_targets.length).toBeGreaterThan(0);
-        for (const t of result.sync_targets) {
+        expect(result.sync_targets.find((t) => t.name === "Loan balance").status).toBe("error");
+        for (const t of result.sync_targets.filter((t) => t.name !== "Loan balance")) {
             expect(t.status).toBe("updated");
         }
     });

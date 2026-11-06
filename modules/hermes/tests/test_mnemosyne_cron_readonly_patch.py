@@ -170,7 +170,7 @@ class ProactiveTickSeedTest(unittest.TestCase):
         self.assertIs(job["attach_to_session"], True)
         self.assertNotIn("skills", job)
         self.assertNotIn("context_from", job)
-        self.assertEqual(job["deliver"], "telegram")
+        self.assertEqual(job["deliver"], "dots")
         self.assertIn("[SILENT]", job["prompt"])
         self.assertIn("[CRON_FAILURE]", job["prompt"])
 
@@ -181,7 +181,7 @@ class ProactiveTickSeedTest(unittest.TestCase):
         self.assertEqual(job["id"], "abc")
         self.assertEqual(job["schedule"]["expr"], "0 12 * * *")
         self.assertIs(job["enabled"], False)
-        self.assertEqual(job["deliver"], "local")
+        self.assertEqual(job["deliver"], "dots")
         self.assertIs(job["attach_to_session"], True)
         self.assertEqual(job["script"], "proactive-tick.py")
         self.assertNotEqual(job["prompt"], "old")

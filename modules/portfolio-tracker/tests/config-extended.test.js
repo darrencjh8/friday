@@ -40,9 +40,7 @@ describe("Config — all 30+ fields", () => {
 
       // PP
       PP_PASSWORD: "pp-password-123",
-      PP_EMERGENCY_PRIMARY_ACCOUNT: "uuid-es",
-      PP_EMERGENCY_SECONDARY_ACCOUNT: "uuid-em",
-      PP_WARCHEST_PRIMARY_ACCOUNT: "uuid-wc",
+      PORTFOLIO_SYNC_TARGETS_FILE: "/wiki/sync-targets.md",
 
       // Data paths
       DEDUP_DB_PATH: "/data/custom/dedup.db",
@@ -96,9 +94,7 @@ describe("Config — all 30+ fields", () => {
 
     // PP
     expect(cfg.ppPassword).toBe("pp-password-123");
-    expect(cfg.ppEmergencyPrimaryAccount).toBe("uuid-es");
-    expect(cfg.ppEmergencySecondaryAccount).toBe("uuid-em");
-    expect(cfg.ppWarchestPrimaryAccount).toBe("uuid-wc");
+    expect(cfg.syncTargetsFile).toBe("/wiki/sync-targets.md");
 
     // Data paths
     expect(cfg.dedupDbPath).toBe("/data/custom/dedup.db");
