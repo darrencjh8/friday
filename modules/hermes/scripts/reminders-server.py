@@ -841,7 +841,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
 def main():
     server = http.server.HTTPServer(("0.0.0.0", PORT), Handler)
-    # 0.0.0.0 bind is deliberate (same reason as the WebUI): compose
+    # 0.0.0.0 bind is deliberate: compose
     # publishes 127.0.0.1:8300 on the host and Docker forwards to the
     # container interface, not its loopback. Tailnet-only via serve.
     sys.stderr.write("reminders listening on :%d\n" % PORT)

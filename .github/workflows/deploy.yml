@@ -150,8 +150,6 @@ jobs:
                   # GitHub secret MUSE_API_KEY maps to the runtime MODEL_API_KEY
                   # name the upstream meta-ai provider reads.
                   MODEL_API_KEY: ${{ secrets.MUSE_API_KEY }}
-                  HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_USERNAME }}
-                  HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD }}
                   OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
                   OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
                   OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
@@ -210,9 +208,6 @@ jobs:
                   TAXONOMY_SHEET_MAPPING: ${{ vars.TAXONOMY_SHEET_MAPPING }}
                   TAXONOMY_NAMES: ${{ vars.TAXONOMY_NAMES }}
                   PP_OFFSET_MAP: ${{ vars.PP_OFFSET_MAP }}
-                  # WebUI CSP frame-ancestors extra (Tailscale-serve URL). Repo
-                  # variable so framing can be allowed without a code change.
-                  HERMES_WEBUI_CSP_FRAME_EXTRA: ${{ vars.HERMES_WEBUI_CSP_FRAME_EXTRA }}
                   SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
                   FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
                   DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
