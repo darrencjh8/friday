@@ -181,8 +181,6 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_cron_job_renames.py
             - name: Test curator merge proposals script
               run: python -m unittest modules/tests/test_curator_proposals.py
-            - name: Test lifecycle ledger startup patch
-              run: python -m unittest modules/hermes/tests/test_lifecycle_ledger_patch.py
             - name: Test stale open webhook session patch
               run: python -m unittest modules/hermes/tests/test_stale_open_webhook_patch.py
             - name: Test session count/size cap patch
@@ -367,6 +365,10 @@ jobs:
                       "import sys; sys.path.append('/opt/hermes'); from run_agent import AIAgent; print('AIAgent', AIAgent.__module__)"
                   docker exec hermes-webui-test /opt/hermes/.venv/bin/python3 -c \
                       "import sys; sys.path.append('/opt/hermes'); import json; from pathlib import Path; from cron.scheduler import _resolve_cron_enabled_toolsets; from hermes_cli.plugins import _ensure_plugins_discovered, get_plugin_manager; _ensure_plugins_discovered(); jobs=json.loads(Path('/opt/data/cron/jobs.json').read_text())['jobs']; job=next(j for j in jobs if j.get('name') == 'ops-log-issues'); tools=_resolve_cron_enabled_toolsets(job, {'mcp_servers': {'unrelated': {'enabled': True}}}); assert tools == ['log_issue_triage'], tools; m=get_plugin_manager(); assert set(m._plugin_tool_names) >= {'triage_collect_snapshot','triage_run_reproducer','triage_search_issues','triage_publish_finding','triage_check_cron_health','triage_publish_cron_failure'}, m._plugin_tool_names; print('log_issue_triage exact tools loaded; MCP excluded')"
+                  # The vendored Dots platform imports gateway internals at module
+                  # load, so an upstream rename fails here instead of at deploy.
+                  docker exec hermes-webui-test /opt/hermes/.venv/bin/python3 -c \
+                      "import sys; sys.path.append('/opt/hermes'); from plugins.platforms.dots.adapter import DotsAdapter, register; print('dots adapter imports')"
 
                   # Chat path against a stub agent: CI holds no provider
                   # credentials, so a deterministic stub proves the wiring

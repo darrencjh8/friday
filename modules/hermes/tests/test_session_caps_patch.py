@@ -1,6 +1,6 @@
 """Auto-prune must also enforce a session-count cap and a state.db size cap (#650).
 
-Applies patches/patch-session-caps.py to a verbatim copy of upstream v0.22.2
+Applies patches/patch-session-caps.py to a verbatim copy of upstream v0.23.0
 hermes_state_maintenance.py, checks the source wiring, and runs the injected cap helpers
 against an in-memory stand-in for SessionDB.
 """
@@ -12,7 +12,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PATCH_PATH = HERE.parent / "patches" / "patch-session-caps.py"
-FIXTURE = HERE / "fixtures" / "upstream_hermes_state_maintenance_v0.22.2.py"
+FIXTURE = HERE / "fixtures" / "upstream_hermes_state_maintenance_v0.23.0.py"
 CONFIG = HERE.parent / "config.yaml"
 
 

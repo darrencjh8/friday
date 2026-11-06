@@ -1,6 +1,6 @@
 """Stale open webhook sessions must be reaped by upstream's automatic sweep.
 
-Applies patches/patch-stale-open-webhook.py to a verbatim copy of upstream v0.22.2
+Applies patches/patch-stale-open-webhook.py to a verbatim copy of upstream v0.23.0
 hermes_state.py and checks the resulting source-level allowlist.
 """
 
@@ -11,7 +11,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 PATCH_PATH = HERE.parent / "patches" / "patch-stale-open-webhook.py"
-FIXTURE = HERE / "fixtures" / "upstream_hermes_state_v0.22.2.py"
+FIXTURE = HERE / "fixtures" / "upstream_hermes_state_v0.23.0.py"
 
 LIVE_CONVERSATION_SOURCES = {"slack", "telegram", "discord", "whatsapp", "signal", "webui"}
 
