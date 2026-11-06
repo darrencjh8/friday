@@ -53,6 +53,35 @@ class DotsNotificationDestinationsTest(unittest.TestCase):
             self.assertEqual(job["schedule"]["expr"], "0 12 * * *")
             self.assertIs(job["enabled"], False)
 
+    def test_telegram_cron_jobs_move_to_dots_once(self):
+        block = re.search(r'dots_marker=.*?\nfi\n', SEED.read_text(encoding="utf-8"), re.DOTALL).group(0)
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_path, marker = Path(tmp) / "jobs.json", Path(tmp) / "marker"
+            script = block.replace("/opt/data/cron/jobs.json", str(jobs_path)).replace(
+                "/opt/data/cron/.telegram-to-dots-migrated", str(marker))
+            jobs_path.write_text(json.dumps({"jobs": [
+                {"name": "a", "deliver": "telegram", "deliver_extra": {"chat_id": "1"}},
+                {"name": "b", "deliver": "slack"},
+                {"name": "c", "deliver": "local"},
+                {"name": "skills-merge-proposals", "deliver": "telegram"},
+            ]}), encoding="utf-8")
+            subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
+            jobs = json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"]
+            self.assertEqual([j["deliver"] for j in jobs], ["dots", "slack", "local", "telegram"])
+            self.assertNotIn("deliver_extra", jobs[0])
+            self.assertTrue(marker.exists())
+
+            # Once the marker exists, a job moved back to Telegram stays there.
+            jobs[0]["deliver"] = "telegram"
+            jobs_path.write_text(json.dumps({"jobs": jobs}), encoding="utf-8")
+            subprocess.run(["sh", "-c", script], capture_output=True, text=True, check=True)
+            self.assertEqual(json.loads(jobs_path.read_text(encoding="utf-8"))["jobs"][0]["deliver"], "telegram")
+
+    def test_only_reply_approved_job_defaults_to_telegram(self):
+        seeds = re.findall(r'"deliver": "telegram".*', SEED.read_text(encoding="utf-8"))
+        self.assertEqual(len(seeds), 1)
+        self.assertIn("approvals reply", seeds[0])
+
 
 if __name__ == "__main__":
     unittest.main()

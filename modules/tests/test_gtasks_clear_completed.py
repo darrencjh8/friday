@@ -86,7 +86,7 @@ class SeedTest(unittest.TestCase):
             subprocess.run([sys.executable, "-c", block], check=True, capture_output=True)
             job = json.loads(jobs.read_text())["jobs"][0]
             self.assertEqual((job["name"], job["script"], job["no_agent"], job["schedule"]["expr"], job["deliver"]),
-                             ("gtasks-clear-completed", "gtasks-clear-completed.py", True, "0 7 1 * *", "telegram"))
+                             ("gtasks-clear-completed", "gtasks-clear-completed.py", True, "0 7 1 * *", "dots"))
             data = json.loads(jobs.read_text())
             data["jobs"][0]["enabled"] = False
             data["jobs"][0]["script"] = "old.py"
