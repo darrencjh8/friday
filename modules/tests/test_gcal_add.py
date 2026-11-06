@@ -163,6 +163,15 @@ class GcalAddTest(unittest.TestCase):
         self.assertEqual(body["reminders"], {"useDefault": False,
                                              "overrides": [{"method": "popup", "minutes": 1440}]})
 
+    def test_timed_event_defaults_to_a_one_day_reminder(self):
+        self.save(ALL)
+        code, out = self.add("--title", "Dental: Example Clinic", "--start", "2026-11-05T10:00",
+                             "--end", "2026-11-05T11:00", "--source", "gmail:m1")
+        self.assertEqual((code, out["status"]), (0, "created"))
+        body = json.loads(self.posts(FRI_EVENTS)[0].data)
+        self.assertEqual(body["reminders"], {"useDefault": False,
+                                             "overrides": [{"method": "popup", "minutes": 1440}]})
+
     def test_links_are_stripped_from_event_text(self):
         self.save(ALL)
         self.add("--title", "Verify at https://phish.example/x now", "--date", "2026-11-20",

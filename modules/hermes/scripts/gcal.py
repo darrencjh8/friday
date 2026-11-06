@@ -312,7 +312,8 @@ def main(argv=None):
     add.add_argument("--tz", default=DEFAULT_TZ, help="IANA time zone of --start/--end")
     add.add_argument("--location", default="")
     add.add_argument("--description", default="")
-    add.add_argument("--reminder-minutes", type=int, default=None)
+    # A 1-day popup on every event, so the calendar does the reminding.
+    add.add_argument("--reminder-minutes", type=int, default=1440)
     add.add_argument("--source", default="", help="the email it came from: gmail:<message id>")
     add.add_argument("--confirm-new", action="store_true",
                      help="add even though a similar event is on the calendar (only after checking)")

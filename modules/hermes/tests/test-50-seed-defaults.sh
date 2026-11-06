@@ -2018,7 +2018,7 @@ checks = {
     "no_edits": "never change, move or delete an existing event" in prompt,
     "exists_is_not_news": '"exists"' in prompt,
     "not_read_only_any_more": "Gmail and Calendar are read-only" not in prompt,
-    "added_events_reported": "events you added" in prompt,
+    "quiet_on_tracked": "Google Tasks and Calendar remind him" in prompt and "events you added (one line each" not in prompt,
     "possible_duplicate_asks": "possible_duplicate" in prompt and "--confirm-new" in prompt,
     "marketing_skipped": "Marketing and promotions" in prompt and "never a to-do" in prompt,
     "no_bare_relay": "never just relay an email" in prompt,
