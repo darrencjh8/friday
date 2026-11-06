@@ -38,6 +38,14 @@ class DotsPlatformWiringTest(unittest.TestCase):
             self.assertIn(line, env)
         self.assertFalse([line for line in env if line.startswith("DOTS_WEB_ORIGINS")])
 
+    def test_private_release_proxy_is_configured_and_token_authenticated(self):
+        env = hermes_service()["environment"]
+        self.assertIn("DOTS_UPDATE_REPO=${DOTS_UPDATE_REPO:-darrencjh8/hermes-dots}", env)
+        adapter = (PLUGIN / "adapter.py").read_text(encoding="utf-8")
+        self.assertIn('app.router.add_get("/dots/releases/latest", self._handle_release_latest)', adapter)
+        self.assertIn('app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)', adapter)
+        self.assertIn("and self._authorized(request)", adapter)
+
     def test_deploy_passes_the_token_secret(self):
         self.assertIn("DOTS_TOKEN: ${{ secrets.DOTS_TOKEN }}", WORKFLOW.read_text(encoding="utf-8"))
 

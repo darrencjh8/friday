@@ -387,6 +387,7 @@ services:
             - IMAP_PASSWORD=${IMAP_PASSWORD}
             - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
             - DOTS_TOKEN=${DOTS_TOKEN:-}
+            - DOTS_UPDATE_REPO=${DOTS_UPDATE_REPO:-darrencjh8/hermes-dots}
             - DOTS_BIND=0.0.0.0:8788
             - DOTS_ALLOWED_USERS=owner
             - DOTS_HOME_CHANNEL=owner
