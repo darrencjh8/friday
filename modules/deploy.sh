@@ -520,11 +520,7 @@ PY
 
 check_file() {
   local path="$1"
-  local test_file=(test -f)
-  if [ "${2:-}" = "--sudo" ]; then
-    test_file=(sudo test -f)
-  fi
-  if ! "${test_file[@]}" "$path"; then
+  if [ ! -f "$path" ]; then
     echo -e "  ${RED}✗ FILE NOT FOUND: $path${NC}"
     missing=$((missing + 1))
     return 1
@@ -617,7 +613,6 @@ if should_deploy "portfolio-tracker" || should_deploy "all"; then
 echo ""
 echo "--- Portfolio Tracker (.env) ---"
 PT_ENV="$PT_DIR/.env"
-check_file "/home/runner/data/hermes/data/home/wiki/entities/accounts/portfolio-sync-targets.md" --sudo
 if $GITHUB_MODE || check_file "$PT_ENV"; then
   for v in DEEPSEEK_API_KEY ACTUAL_BUDGET_URL ACTUAL_BUDGET_PASSWORD \
            ACTUAL_PRIMARY_BUDGET_FILE ACTUAL_SECONDARY_BUDGET_FILE \
