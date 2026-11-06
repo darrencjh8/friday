@@ -8,7 +8,7 @@
 | portfolio-tracker | `curl http://localhost:8081/health` |
 | actual-api | `curl http://localhost:3000/health` |
 | codex-router | `curl http://localhost:4100/health/liveliness` |
-| hermes | `docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/service/gateway-default` |
+| hermes | `docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/hermes-service/gateway-default` |
 
 `deploy.sh` performs these checks itself after `compose up` and exits non-zero if any fails. The Hermes dashboard and the Hermes WebUI are not run (removed in #157 to save memory). After a successful deploy the script also runs `hermes mcp test expense-tracker` and `hermes mcp test portfolio-tracker` to confirm the MCP connections.
 

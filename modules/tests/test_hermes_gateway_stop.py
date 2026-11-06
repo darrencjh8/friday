@@ -34,12 +34,12 @@ class GatewayStopHelperTests(unittest.TestCase):
     def test_stop_waits_for_every_gateway_to_finish(self):
         _, calls = run_helper("stop_hermes_gateways")
         self.assertIn("exec hermes", calls)
-        self.assertIn("/run/service/gateway-*", calls)
+        self.assertIn("/run/hermes-service/gateway-*", calls)
         self.assertIn("-wD -T 45000 -d", calls)
 
     def test_start_brings_every_gateway_back(self):
         _, calls = run_helper("start_hermes_gateways")
-        self.assertIn("/run/service/gateway-*", calls)
+        self.assertIn("/run/hermes-service/gateway-*", calls)
         self.assertIn("-u ", calls)
 
     def test_a_missing_container_does_not_abort_the_deploy(self):

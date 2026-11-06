@@ -1190,11 +1190,13 @@ fi
 # on 2026-10-27 a one-time Mnemosyne dependency sync at boot made it 7 minutes, so
 # the budget is 11 minutes. The loop exits as soon as the service is up, so only a
 # genuinely failed start waits the full budget.
+# Since Hermes v0.23.0 the per-profile gateway slots live in a nested,
+# hermes-owned scandir (/run/hermes-service), not /run/service.
 if should_deploy "hermes" || should_deploy "all"; then
   sleep 30
   gateway_up=false
   for _ in $(seq 1 105); do
-    if docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/service/gateway-default 2>/dev/null | grep -qx true; then
+    if docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/hermes-service/gateway-default 2>/dev/null | grep -qx true; then
       gateway_up=true
       break
     fi
