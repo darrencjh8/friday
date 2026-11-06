@@ -193,7 +193,7 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         self.assertNotIn("9119", deploy_script)
         self.assertNotIn("8787", deploy_script)
         self.assertIn(
-            "/package/admin/s6/command/s6-svstat -o up /run/service/gateway-default",
+            "/package/admin/s6/command/s6-svstat -o up /run/hermes-service/gateway-default",
             deploy_script,
         )
 

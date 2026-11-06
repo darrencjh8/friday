@@ -1796,7 +1796,7 @@ for name in sorted(n for n in names if re.fullmatch(r"[A-Za-z0-9._-]+", n)):
 PYEOF
 
 # Disable profile gateways (workers don't need their own gateways — they compete for Telegram token)
-for gw_dir in /run/service/gateway-*; do
+for gw_dir in /run/hermes-service/gateway-*; do
     [ -d "$gw_dir" ] || continue
     name=$(basename "$gw_dir")
     [ "$name" = "gateway-default" ] && continue
