@@ -918,7 +918,7 @@ if existing is None:
         "schedule": {"kind": "cron", "expr": "0 7 1 * *", "display": "1st of the month 7am"},
         "schedule_display": "1st of the month 7am",
         "enabled": True,
-        "deliver": "telegram",
+        "deliver": "dots",
         "next_run_at": None,
         "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         **MANAGED,
@@ -967,7 +967,7 @@ for name, (script, expr, display) in SEEDS.items():
             "schedule": {"kind": "cron", "expr": expr, "display": display},
             "schedule_display": display,
             "enabled": True,
-            "deliver": "telegram",
+            "deliver": "dots",
             "next_run_at": None,
             "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
             **managed,
@@ -1131,7 +1131,7 @@ STEPS
    Fix the plan if it is refused. If the write or validation fails, stop and report it.
 7. Apply: bash /opt/data/scripts/memory-triage.sh compact --plan /opt/data/tmp/compact-plan-<store>.json
    Read the report: ok, chars_before, chars_after, topic_lines_added, snapshot.
-8. Reply for Telegram as Markdown (Telegram renders tables). No code blocks, no raw JSON:
+8. Reply for Dots as Markdown (Dots renders tables). No code blocks, no raw JSON:
 
 🗜 *Memory compaction · <YYYY-MM-DD>*
 
@@ -1179,7 +1179,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "30 7 * * *", "display": "30 7 * * *"},
     "schedule_display": "30 7 * * *",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
@@ -1264,7 +1264,7 @@ STEPS
 6. Write the verdict plan to /opt/data/tmp/triage-plan.json as {"approve": ["<id>", ...], "discard": ["<id>", ...]} (empty arrays when everything is held). If the write fails, stop and report it; never apply a plan you did not just write.
 7. Apply it: bash /opt/data/scripts/memory-triage.sh apply --plan /opt/data/tmp/triage-plan.json
    This replays approved ops through apply_memory_pending (bypassing the gate), moves discards into /opt/data/pending/memory-archive/<date>/, and snapshots live memory first. Read the printed report: applied_n, discarded_n, failed, remaining_n, snapshot.
-8. Reply with a SHORT digest for Telegram, formatted as Markdown (Telegram renders tables). No code blocks, no raw JSON. Drop any section that would be empty:
+8. Reply with a SHORT digest for Dots, formatted as Markdown (Dots renders tables). No code blocks, no raw JSON. Drop any section that would be empty:
 
 🧠 *Memory triage · <YYYY-MM-DD>*
 
@@ -1332,7 +1332,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "0 8 * * *", "display": "0 8 * * *"},
     "schedule_display": "0 8 * * *",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
@@ -1382,7 +1382,7 @@ os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
 # Seed wiki-finance-refresh cron job (MANAGED prompt/skills;
-# delivery telegram for new installs; existing installs keep their dashboard
+# delivery dots for new installs; existing installs keep their dashboard
 # schedule/enabled/deliver and only receive prompt/skill updates).
 python3 <<'PYEOF' || true
 import os, json, uuid, datetime
@@ -1407,7 +1407,7 @@ Every Monday run a complete refresh, not a spot check. Repos and GitHub issues a
 3. Reconcile. Keep expected (contractual amount/currency/frequency) and observed (ledger amount/currency/posting date) values in separate fields and never collapse them. Invoice, due, posting, renewal, and reimbursement dates are distinct. Record planned versus completed payment-route changes. Leave ambiguous mappings unresolved and flagged with the check that would settle them.
 4. Update every affected knowledge page (not just the index): provenance, facts, balances, date windows, repo baselines, updated dates, source lists, backlinks, and index summary. Dates and balances are volatile: show capture date and refresh before presenting as current. Notion, Actual, the portfolio, and PP are read-only; do not edit them and never deploy anything. Every tool call re-sends the whole conversation, so batch edits: change one page in a single call (one execute_code that rewrites it, or one patch over the whole changed block), never one patch per field.
 5. Lint. Re-run scripts/lint.py after your edits and fix every defect it reports that is evidence-backed; if it is missing or fails, do the full read of step 0 and check the same rules by hand: required frontmatter, taxonomy tags, every declared source file exists, every raw hash verifies, every page is indexed exactly once, index page count is correct, all wikilinks resolve, every entity/concept has inbound links, and each content page has at least two outbound wikilinks. Also scan the pages you read for stale/conflicting claims, accidental secrets/whole card numbers, and outdated dates. Fix what is evidence-backed; preserve ambiguities with a named settling check.
-6. Report. Append a dated log entry for all changes and audit results. Write an audit artifact recording each source's status, capture time, and completeness, and each structural check's result. If any mandatory source is unavailable or truncated, the run is partial: make the first digest line "incomplete: <reason>" and never claim a failed or unverified check passed. Send the weekly digest to Telegram formatted as Markdown (Telegram renders tables), no code blocks and no raw JSON: a "📚 *Wiki weekly · <YYYY-MM-DD>*" heading, then a table of what moved:
+6. Report. Append a dated log entry for all changes and audit results. Write an audit artifact recording each source's status, capture time, and completeness, and each structural check's result. If any mandatory source is unavailable or truncated, the run is partial: make the first digest line "incomplete: <reason>" and never claim a failed or unverified check passed. Send the weekly digest to Dots formatted as Markdown (Dots renders tables), no code blocks and no raw JSON: a "📚 *Wiki weekly · <YYYY-MM-DD>*" heading, then a table of what moved:
 
 | Area | Change | Since |
 |---|---|---|
@@ -1429,7 +1429,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "0 4 * * 1", "display": "every monday 4am"},
     "schedule_display": "every monday 4am",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
@@ -1474,7 +1474,7 @@ os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
 # Seed wiki-repo-docs cron job (MANAGED prompt/skills; delivery
-# telegram for new installs; existing installs keep their dashboard
+# dots for new installs; existing installs keep their dashboard
 # schedule/enabled/deliver). Split out of the weekly maintenance run so each
 # session holds a smaller context; it finishes before the 04:00 run reads its
 # snapshot, and stays silent unless something needs attention.
@@ -1497,7 +1497,7 @@ PROMPT = """Refresh the repository side of the private wiki at ${WIKI_PATH:-/opt
 1. Repos. Fetch (do not checkout/modify) origin/main for /workspace/friday, /workspace/codex-router, and /workspace/friday-memory. Compare with the baselines recorded in the newest raw/articles/repo-freshness-* file. Snapshot each new revision and changed relevant docs AND implementation/config/seed source into a new dated raw file (raw/articles/repo-freshness-<YYYY-MM-DD>.md, frontmatter source_url, ingested, captured_at, and a verified SHA-256 over the body) BEFORE updating pages. Preserve old raw captures unchanged. Inspect diffs, not just commit subjects. A merged commit is not evidence that production runs it.
 2. Update the repo entity pages' baselines, facts, and sources, then append a dated log entry. Run scripts/lint.py from the wiki root and fix what it reports for the pages you touched.
 3. If a public repo document materially conflicts with current implementation or verified live behavior, search GitHub for an existing issue first. File a concise non-sensitive issue only for a clear actionable mismatch, with source paths and evidence; never disclose Darren's account data or secrets. Do not file duplicates.
-4. If you filed an issue or a repo fetch failed, send a Telegram note formatted as Markdown (Telegram renders tables), no code blocks and no raw JSON: a "🔎 *Repo docs · <YYYY-MM-DD>*" heading, then one row per issue filed or fetch failed:
+4. If you filed an issue or a repo fetch failed, send a Dots note formatted as Markdown (Dots renders tables), no code blocks and no raw JSON: a "🔎 *Repo docs · <YYYY-MM-DD>*" heading, then one row per issue filed or fetch failed:
 
 | Repo | Issue | Link |
 |---|---|---|
@@ -1515,7 +1515,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "30 3 * * 1", "display": "every monday 3:30am"},
     "schedule_display": "every monday 3:30am",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
@@ -1548,7 +1548,7 @@ os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
 # Seed wiki-due-reminders cron job (MANAGED prompt/skills; delivery
-# telegram for new installs; existing installs keep their dashboard
+# dots for new installs; existing installs keep their dashboard
 # schedule/enabled/deliver and only receive prompt/skill updates). A weekly
 # cadence cannot honour lead-time reminders (e.g. claim miles ~2 months before
 # renewal), so this runs daily.
@@ -1566,7 +1566,7 @@ except json.JSONDecodeError as error:
     # Never treat an unreadable file as empty: rewriting it wipes every cron job.
     raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
 
-PROMPT = """Check the private wiki for payment, action, and habit dates that need attention today. Create Google Tasks silently; send Telegram ONLY on problems.
+PROMPT = """Check the private wiki for payment, action, and habit dates that need attention today. Create Google Tasks silently; send a Dots message ONLY on problems.
 
 0. Notion Accounts snapshot: the data block above (from the pre-run script notion-accounts-snapshot.py, read-only) names today's snapshot of the Notion Accounts data source, written as a wiki raw file whether changed or unchanged. Read that file. Each account row's action date or to-do date fields are candidates too, with the row's title and its date field name as context. When a Notion date differs from the wiki pages, the Notion date (newer) wins for the reminder; list the difference as a problem so the weekly wiki refresh can correct the page. If the snapshot line says error, carry on with the wiki pages and report the error as a problem.
 1. Read ${WIKI_PATH:-/opt/data/home/wiki}/entities/accounts/important-dates.md, entities/accounts/recurring-payments.md, and entities/accounts/daily-habits.md. These are the single source of truth for confirmed payment dates, renewals, action items, and recurring habits. If daily-habits.md is absent, treat habits as empty for this run — never a problem, never Telegram noise; note the absence once in the run output.
@@ -1575,7 +1575,7 @@ PROMPT = """Check the private wiki for payment, action, and habit dates that nee
 4. Refresh only the dates needed for an imminent action (for example read Actual Budget for the recent posting of a bill that is due) so the reminder is not stale. Do not run a full weekly audit here. Do not resend already-notified items whose date and amount are unchanged; report an item again only when its state changes (date, amount, or a new due window).
 5. Dedup of Google Tasks is by the wiki-reminder-marker: note line, reading the Planned list with --include-completed; never update, delete, or move tasks yourself — the helper's own close sweep is the single sanctioned mutation: it auto-closes stale open daily-habit tasks dated before today (marks them completed, never deletes). Missed daily habit days are skipped silently, never backfilled, never reported. After downtime, report overdue non-habit items once with an "overdue" marker rather than silently skipping them. Missed 0-day non-habit task windows are never backfilled; report them for manual creation.
 6. Create Google Tasks for due candidates with `python3 /opt/data/scripts/wiki-reminder-tasks.py --snapshot-out /opt/data/reminders/reminders.json` (candidate JSON on stdin: key, type, title, action_date, optional note; types: claim_collect, cancel_replan, annual_oneoff, monthly, waiver_check, daily, weekly). The helper targets the Planned list and writes a structured snapshot (items with key/type/title/action_date/days_left/lead_days/status/note, plus problems and summary) that the reminders dashboard renders and the next run reads; it also closes stale open daily-habit tasks from earlier days, and close failures arrive in its problems list. Report its problems (conflicts, failures, unclassified items) — they are the only Telegram content.
-7. reply exactly [SILENT] when all due tasks were created and there are no conflicts, failures, unclassified items, or overdue non-habit items. Otherwise send a short Telegram message listing ONLY the problems (conflicts, failures, unclassified, overdue non-habit). Never send the routine digest or any success summary.
+7. reply exactly [SILENT] when all due tasks were created and there are no conflicts, failures, unclassified items, or overdue non-habit items. Otherwise send a short Dots message listing ONLY the problems (conflicts, failures, unclassified, overdue non-habit). Never send the routine digest or any success summary.
 
 FAILURE: when a required step failed (a tool or script error, a failed, partial or blocked stage, a listed skill not found, missing credentials), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for, such as an "incomplete: <reason>" line, comes after it. Never reply [SILENT] after a failed step.
 """
@@ -1591,7 +1591,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "15 8 * * *", "display": "every day 8:15am"},
     "schedule_display": "every day 8:15am",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
 }
 
 existing = next(
@@ -1744,7 +1744,7 @@ DEFAULTS = {
     "schedule": {"kind": "cron", "expr": "15 4 * * 0", "display": "every sunday 4:15am"},
     "schedule_display": "every sunday 4:15am",
     "enabled": True,
-    "deliver": "telegram",
+    "deliver": "dots",
     "next_run_at": None,
 }
 
@@ -1806,14 +1806,35 @@ done
 # Initialize kanban board (idempotent — no-op if already exists)
 su -s /bin/sh hermes -c "hermes kanban init 2>/dev/null" || true
 
+# Move every cron job that delivers to Telegram over to Dots, once. The marker
+# keeps it one-time, so a job pointed back at Telegram later stays there. The
+# old Telegram startup ping is gone: Dots sends through the live gateway, which
+# is not up yet while this script runs.
+dots_marker=/opt/data/cron/.telegram-to-dots-migrated
+if [ ! -e "$dots_marker" ]; then
+python3 - "$dots_marker" <<'PYEOF' || echo "WARNING: could not move Telegram cron deliveries to Dots" >&2
+import json, os, sys
+jobs_path = "/opt/data/cron/jobs.json"
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+except FileNotFoundError:
+    data = {"jobs": []}
+jobs = data.get("jobs", []) if isinstance(data, dict) else data
+moved = []
+for job in jobs:
+    if isinstance(job, dict) and job.get("deliver") == "telegram":
+        job["deliver"] = "dots"
+        job.pop("deliver_extra", None)
+        moved.append(job.get("name"))
+if moved:
+    with open(jobs_path + ".tmp", "w") as f:
+        json.dump(data, f, indent=2)
+    os.replace(jobs_path + ".tmp", jobs_path)
+open(sys.argv[1], "w").close()
+print("cron: moved to dots: " + (", ".join(moved) if moved else "none"))
+PYEOF
+fi
+
 # Ensure all seeded files are owned by hermes (container runs as hermes)
 chown -R hermes:hermes /opt/data 2>/dev/null || true
-
-# Send startup notification to Telegram
-if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_HOME_CHANNEL:-}" ]; then
-    curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-        -d chat_id="${TELEGRAM_HOME_CHANNEL}" \
-        -d text="🟢 Friday is online and ready." \
-        -d disable_notification=true \
-        >/dev/null 2>&1 || true
-fi

@@ -601,7 +601,7 @@ PY
 
 echo "=== wiki-finance-refresh cron seeding ==="
 
-# The wiki job must be seeded with MANAGED prompt/skills and telegram delivery
+# The wiki job must be seeded with MANAGED prompt/skills and dots delivery
 # for new installs; existing installs receive prompt/skill migration only.
 wiki_block=$(python3 - "$SEED_SCRIPT" <<'PY'
 import sys
@@ -642,13 +642,13 @@ checks = {
     "expr": sched.get("expr") == "0 4 * * 1",
     "display": j.get("schedule_display") == "every monday 4am",
     "enabled": j.get("enabled") is True,
-    "deliver": j.get("deliver") == "telegram",
+    "deliver": j.get("deliver") == "dots",
     "skills": j.get("skills") == ["llm-wiki", "hermes-operations"],
     "skill": j.get("skill") == "llm-wiki",
     "prompt_len": len(prompt) > 500,
     "raw_snapshot": "dated raw file" in prompt,
     "sha": "SHA-256" in prompt,
-    "telegram_report": "Telegram" in prompt,
+    "dots_report": "Dots" in prompt,
     "wiki_path_env": "WIKI_PATH" in prompt,
     "notion_accounts": "a21b499b-79ae-497b-9221-0ad59a75e812" in prompt,
     "notion_plans": "fb21acfd-b555-4a99-8b54-54ed43d4b020" in prompt,
@@ -676,7 +676,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$wiki_fields" in
-    pass) ok "job: cron 0 4 * * 1 monday · telegram · llm-wiki skill set · full refresh prompt" ;;
+    pass) ok "job: cron 0 4 * * 1 monday · dots · llm-wiki skill set · full refresh prompt" ;;
     *) nope "wiki fields" "$wiki_fields" ;;
 esac
 
@@ -764,7 +764,7 @@ checks = {
     "name": j.get("name") == "wiki-repo-docs",
     # Must finish before the 04:00 maintenance run reads its snapshot.
     "expr": j.get("schedule", {}).get("expr") == "30 3 * * 1",
-    "deliver": j.get("deliver") == "telegram",
+    "deliver": j.get("deliver") == "dots",
     "skills": j.get("skills") == ["llm-wiki", "github-issues", "knowledge-base-maintenance"],
     "repos": all(r in prompt for r in ("friday", "codex-router", "friday-memory")),
     "issue_dedupe": "Do not file duplicates" in prompt,
@@ -775,7 +775,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$repos_fields" in
-    pass) ok "repos job: monday 03:30 · telegram · silent unless an issue was filed or a fetch failed" ;;
+    pass) ok "repos job: monday 03:30 · dots · silent unless an issue was filed or a fetch failed" ;;
     *) nope "repos fields" "$repos_fields" ;;
 esac
 
@@ -820,7 +820,7 @@ checks = {
     "kind": sched.get("kind") == "cron",
     "expr": sched.get("expr") == "15 8 * * *",
     "enabled": j.get("enabled") is True,
-    "deliver": j.get("deliver") == "telegram",
+    "deliver": j.get("deliver") == "dots",
     "prompt_len": len(prompt) > 300,
     "lead_time": "lead_days" in prompt,
     "dedupe": "already-notified" in prompt,
@@ -841,7 +841,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$daily_fields" in
-    pass) ok "job: cron 15 8 * * * daily · telegram · lead-time reminders" ;;
+    pass) ok "job: cron 15 8 * * * daily · dots · lead-time reminders" ;;
     *) nope "daily fields" "$daily_fields" ;;
 esac
 
@@ -1430,7 +1430,7 @@ checks = {
     "expr": sched.get("expr") == "0 8 * * *",
     "display": j.get("schedule_display") == "0 8 * * *",
     "enabled": j.get("enabled") is True,
-    "deliver": j.get("deliver") == "telegram",
+    "deliver": j.get("deliver") == "dots",
     "skills": j.get("skills") == [] and j.get("skill") is None,
     "gate": j.get("script") == "memory-queue-gate.py",
     "prompt_len": len(prompt) > 500,
@@ -1451,7 +1451,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$mt_fields" in
-    pass) ok "job: cron 0 8 * * * · telegram · gated, no skill · safe prompt (snapshot/cap/audit)" ;;
+    pass) ok "job: cron 0 8 * * * · dots · gated, no skill · safe prompt (snapshot/cap/audit)" ;;
     *) nope "memory-approve-queue fields" "$mt_fields" ;;
 esac
 
@@ -1562,7 +1562,7 @@ checks = {
     "daily": j.get("schedule", {}).get("expr") == "30 7 * * *",
     "display": j.get("schedule_display") == "30 7 * * *",
     "enabled": j.get("enabled") is True,
-    "deliver": j.get("deliver") == "telegram",
+    "deliver": j.get("deliver") == "dots",
     "skills": j.get("skills") == [] and j.get("skill") is None,
     "gate": j.get("script") == "memory-compact-gate.py",
     "uses_compact_cmd": "memory-triage.sh compact --plan" in prompt,
@@ -1579,7 +1579,7 @@ print("pass" if not bad else "fail " + repr(bad))
 PY
 )
 case "$mc_fields" in
-    pass) ok "memory-compact: daily 07:30 · telegram · compact cmd, dry-run, rollback; idempotent" ;;
+    pass) ok "memory-compact: daily 07:30 · dots · compact cmd, dry-run, rollback; idempotent" ;;
     *) nope "memory-compact fields" "$mc_fields" ;;
 esac
 
@@ -1988,7 +1988,7 @@ checks = {
     "compact_quiet_when_not_needed": "change nothing and reply exactly [SILENT]" in compact and "saying no compaction needed" not in compact,
     "wiki_weekly_quiet_when_nothing": "change table would have no rows" in wiki and "nothing is due" in wiki,
     "repos_table": "| Repo | Issue | Link |" in repos and "Repo docs" in repos,
-    "proposals_job": '"script": "curator-proposals.py"' in proposals and '"no_agent": True' in proposals and '"deliver": "telegram"' in proposals,
+    "proposals_job": '"script": "curator-proposals.py"' in proposals and '"no_agent": True' in proposals and '"deliver": "dots"' in proposals,
     "mnemosyne_ignores_alerts": "System push alert" in cfg and "Replying to: \"Cronjob" in cfg,
     "wiki_runs_lint": "scripts/lint.py" in wiki,
     "wiki_lint_fallback": "full read" in wiki and "missing" in wiki,

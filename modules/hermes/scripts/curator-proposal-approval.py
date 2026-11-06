@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a Telegram approval against the exact saved curator proposal."""
+"""Validate a chat approval against the exact saved curator proposal."""
 
 import hashlib
 import json
