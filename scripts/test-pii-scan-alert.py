@@ -185,6 +185,12 @@ def test_history_parser_reports_added_lines_and_messages():
     assert not any("Claude" in entry[3] for entry in parsed)
 
 
+def test_history_parser_skips_github_trailers_in_any_case():
+    log = ["\0ccc333", "Subject line", "", "Co-authored-by: Some Person <a@example.com>",
+           "co-authored-by: Other Person <b@example.com>", "Signed-off-by: Third Person <c@example.com>"]
+    assert [t for *_, t in names.added_lines(log)] == ["Subject line"]
+
+
 def test_name_shape_accepts_names_and_rejects_code():
     for good in ("Wei Ling Tan", "TAN WEI LING", "Mary O'Neil"):
         assert names.NAME.fullmatch(good), good
