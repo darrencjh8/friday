@@ -89,7 +89,7 @@ look for:
   `private-key-header`, `openai-api-key`, `slack-webhook`, and
   `generic-api-key-assignment` — and their exceptions are **per rule, not
   global**. `email-address` allowlists the `@example.com` and `@test.com` regexes
-  and the `tests/` and `__tests__/` paths, so a fixture there will not trip it — a
+  the `tests/` and `__tests__/` paths, and `scripts/pii-scan-allowlist.json`, so a fixture there will not trip it — a
   real address anywhere else will. `private-key-header` allowlists only `tests/`,
   so a `__tests__/` fixture with a private-key header does trip it.
   `generic-api-key-assignment` is scoped by *path* to `.env.example`,
