@@ -3,7 +3,7 @@
 
 Gathers what changed since the last run from each source and prints it; the
 cron injects stdout into the job prompt, and the agent decides what is worth
-telling Darren. Empty stdout skips the agent run entirely, so a tick with
+telling the user. Empty stdout skips the agent run entirely, so a tick with
 nothing new costs no tokens. The script never decides relevance: it only
 collects and de-duplicates, so new kinds of signal need a source here, not
 rules.
@@ -27,7 +27,7 @@ Sources:
   once a day the agenda for the next 24 hours, read through gcal.py.
 - tasks: open items on Friday's own Google Tasks list that are due today or
   earlier, at most once a day each.
-When any source has something, the open Friday tasks and Darren's notify
+When any source has something, the open Friday tasks and the user's notify
 preferences are added as context so the agent can match mail to what it
 already tracks, along with the next 24 hours of calendar.
 

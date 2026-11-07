@@ -207,7 +207,7 @@ export async function pushToOneDrive(localPath) {
 }
 
 /**
- * Upload one backup file into the folder Darren shares with this account
+ * Upload one backup file into the folder the user shares with this account
  * (ONEDRIVE_BACKUP_FOLDER, default "Flyio"), replacing a file of the same
  * name. A shared folder lives on his drive, not this account's, so it is found
  * by search (sharedWithMe does not list every share) and written by drive id.

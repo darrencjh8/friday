@@ -128,6 +128,24 @@ class WikiSourceSnapshotTest(unittest.TestCase):
         self.assertIn('"source": "notion-accounts"', out)
         self.assertNotIn("actual-sgd", out)
 
+    def test_budget_names_come_from_the_actual_budget_env(self) -> None:
+        # The names are the same ACTUAL_*_BUDGET_FILE values the expense tracker uses.
+        from unittest import mock
+        seen = []
+        self.mod.actual = lambda budget: (seen.append(budget) or ({}, {"source_url": "test"}))
+        env = {"ACTUAL_PRIMARY_BUDGET_FILE": "Test SGD", "ACTUAL_SECONDARY_BUDGET_FILE": "Test MYR"}
+        with mock.patch.dict(os.environ, env), mock.patch("builtins.print"):
+            self.assertEqual(self.mod.main(["--only", "actual-sgd", "--only", "actual-myr"]), 0)
+        self.assertEqual(seen, ["Test SGD", "Test MYR"])
+
+    def test_source_with_an_unset_budget_env_is_reported_not_guessed(self) -> None:
+        from unittest import mock
+        self.mod.actual = lambda budget: self.fail("must not query a guessed budget")
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch("builtins.print") as printed:
+            self.mod.main(["--only", "actual-sgd"])
+        out = "\n".join(str(c.args[0]) for c in printed.call_args_list)
+        self.assertIn("ACTUAL_PRIMARY_BUDGET_FILE", out)
+
     def test_only_rejects_an_unknown_source(self) -> None:
         with self.assertRaises(SystemExit):
             self.mod.main(["--only", "nope"])
@@ -143,7 +161,7 @@ class WikiSourceSnapshotTest(unittest.TestCase):
         self.mod.mcp_call = lambda *a, **k: {"accounts": [], "payees": []}
         self.mod.http_json = lambda *a, **k: ([], {})
 
-        _, meta = self.mod.actual("Darren SGD")
+        _, meta = self.mod.actual("Test SGD")
 
         self.assertIs(meta["has_more"], False)
         self.assertIn("complete", meta["completeness"])

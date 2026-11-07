@@ -3,7 +3,7 @@
  * ACTUAL_PRIMARY_BUDGET_FILE / ACTUAL_SECONDARY_BUDGET_FILE is exported by
  * actual-api (Actual's own export zip) and uploaded to OneDrive
  * <shared backup folder>/<YYYY-MM>/<YYYY-MM-DD>-<budget>.zip (the layout of
- * the backups Darren made by hand), the file "Import Actual" restores.
+ * the backups the user made by hand), the file "Import Actual" restores.
  */
 import { uploadBackup } from "./onedrive.js";
 

@@ -311,6 +311,9 @@ services:
             # s6-overlay's /init SIGKILLs everything 3 s after its own SIGTERM by
             # default; give the gateway 45 s, inside stop_grace_period (#80).
             - S6_KILL_GRACETIME=45000
+            # Budget names for wiki-source-snapshot.py; the same values the expense tracker uses.
+            - ACTUAL_PRIMARY_BUDGET_FILE=${ACTUAL_PRIMARY_BUDGET_FILE:-}
+            - ACTUAL_SECONDARY_BUDGET_FILE=${ACTUAL_SECONDARY_BUDGET_FILE:-}
             - GTASKS_CLIENT_ID=${GTASKS_CLIENT_ID:-}
             - REMINDERS_EDIT_TOKEN=${REMINDERS_EDIT_TOKEN:-}
             - GTASKS_CLIENT_SECRET=${GTASKS_CLIENT_SECRET:-}

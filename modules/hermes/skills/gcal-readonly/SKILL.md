@@ -1,6 +1,6 @@
 ---
 name: gcal-readonly
-description: Read Darren's Google Calendar, add events to the separate "Friday" calendar, and delete events Friday added, through the gcal CLI. Use when he asks about his schedule, when mail gives a dated appointment, booking, flight or due date to put in his calendar, or when he asks to remove an event Friday added. It cannot edit, move, accept, or invite to events, or delete his own events.
+description: Read the user's Google Calendar, add events to the separate "Friday" calendar, and delete events Friday added, through the gcal CLI. Use when he asks about his schedule, when mail gives a dated appointment, booking, flight or due date to put in his calendar, or when he asks to remove an event Friday added. It cannot edit, move, accept, or invite to events, or delete his own events.
 ---
 
 # Google Calendar (read; add to and delete from the Friday calendar)
@@ -16,9 +16,9 @@ description: Read Darren's Google Calendar, add events to the separate "Friday" 
   - Otherwise it prints `{"status": "created", "id", "htmlLink", "calendar": "Friday"}`. If he deleted the Friday calendar, the CLI makes a new one.
   - It never adds attendees, sends no invites or updates, removes links from the title, place and description, and starts the description with "Added by Friday from email".
 
-- Delete an event Friday added: `gcal delete --id <event id from gcal add>`. It works only for events on the Friday calendar that Friday added (they carry a source mark) and notifies nobody. Use it when Darren asks to remove one, or to undo your own mistake.
+- Delete an event Friday added: `gcal delete --id <event id from gcal add>`. It works only for events on the Friday calendar that Friday added (they carry a source mark) and notifies nobody. Use it when the user asks to remove one, or to undo your own mistake.
 
-There is no update, move, accept, or RSVP command, and no way to delete his own events. To change or remove one of those, say what to change, with its link, and let Darren do it.
+There is no update, move, accept, or RSVP command, and no way to delete his own events. To change or remove one of those, say what to change, with its link, and let the user do it.
 
 The skill keeps its old name (`gcal-readonly`) because cron jobs and pins refer to it.
 
