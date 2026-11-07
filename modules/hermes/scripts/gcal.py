@@ -294,7 +294,7 @@ def delete_event(event_id):
     except NotFound:
         raise ValueError("no such event on the Friday calendar; Friday can only delete events she added")
     if not ((event.get("extendedProperties") or {}).get("private") or {}).get(SOURCE_KEY):
-        raise ValueError("that event was not added by Friday; ask Darren to remove it himself")
+        raise ValueError("that event was not added by Friday; ask the user to remove it himself")
     _request("DELETE", url, {"sendUpdates": "none"})
     return {"status": "deleted", "id": event_id, "summary": event.get("summary", ""), "start": _start(event)}
 

@@ -113,7 +113,7 @@ explicit yes, `learn_fact` with the canonical forms:
 
 Use the descriptor as the bank prints it (`CARDUP-INLAND REVENUE`), not the
 whole alert line. The wiki is the authority, so `learn_fact` queues a proposal
-(`proposal_queued`) for Darren to approve in the wiki digest rather than taking
+(`proposal_queued`) for the user to approve in the wiki digest rather than taking
 effect at once; say so. No yes → change nothing beyond the transaction.
 
 ### Must not

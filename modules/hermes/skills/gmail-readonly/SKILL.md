@@ -1,6 +1,6 @@
 ---
 name: gmail-readonly
-description: Read Darren's Gmail through the read-only gmail CLI (search, read). Use when he asks about his email. It cannot send, delete, archive, label, or mark mail.
+description: Read the user's Gmail through the read-only gmail CLI (search, read). Use when he asks about his email. It cannot send, delete, archive, label, or mark mail.
 ---
 
 # Gmail (read-only)
@@ -11,6 +11,6 @@ description: Read Darren's Gmail through the read-only gmail CLI (search, read).
 - One message: `gmail read <id>` (plain text, first 4000 characters; pass `--max-chars` for more).
 - `google status` says which access the login holds. It never shows the token.
 
-There is no send, reply, archive, label, or delete command. To answer someone, draft the reply as text for Darren to send himself.
+There is no send, reply, archive, label, or delete command. To answer someone, draft the reply as text for the user to send himself.
 
 If a command says the login is missing, expired, or lacks Gmail, set it up with `google login` as the `gtasks-cli` skill describes (tunnel route first, `--manual` as fallback). Never print, copy, or inspect token or config files.
