@@ -576,6 +576,13 @@ if $GITHUB_MODE || check_file "$HERMES_ENV"; then
   echo "  [Webhook]"
   check_var "HERMES_WEBHOOK_SECRET" "$HERMES_ENV"
 
+  # Browser Webapp (v0.23): a non-loopback host refuses to serve without a
+  # sign-in provider, so the shared basic-auth pair is required.
+  echo "  [Webapp]"
+  check_var "HERMES_DASHBOARD_BASIC_AUTH_USERNAME" "$HERMES_ENV"
+  check_var "HERMES_DASHBOARD_BASIC_AUTH_PASSWORD" "$HERMES_ENV"
+  check_var_optional "WEBAPP_PUBLIC_URL" "$HERMES_ENV"
+
   # GitHub App
   echo "  [GitHub App]"
   check_var "MEMORY_REPO_URL" "$HERMES_ENV"

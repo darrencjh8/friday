@@ -10,7 +10,7 @@
 | codex-router | `curl http://localhost:4100/health/liveliness` |
 | hermes | `docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/hermes-service/gateway-default` |
 
-`deploy.sh` performs these checks itself after `compose up` and exits non-zero if any fails. The Hermes dashboard and the Hermes WebUI are not run (removed in #157 to save memory). After a successful deploy the script also runs `hermes mcp test expense-tracker` and `hermes mcp test portfolio-tracker` to confirm the MCP connections.
+`deploy.sh` performs these checks itself after `compose up` and exits non-zero if any fails. The Hermes dashboard and the Hermes WebUI are not run (removed in #157 to save memory). The v0.23 browser Webapp (full Desktop workspace served by the gateway, port 9120) is run instead. After a successful deploy the script also runs `hermes mcp test expense-tracker` and `hermes mcp test portfolio-tracker` to confirm the MCP connections.
 
 ## Deploys happen through CI, not by hand
 
@@ -41,9 +41,9 @@ Other workflows:
 | portfolio-tracker | `127.0.0.1:8081` | 8081 | REST `/tools/*` (plus `GET /tools`), MCP `/mcp`, `/health` |
 | actual-api | `127.0.0.1:3000` | 3000 | Actual Budget proxy, `/health` |
 | codex-router | `0.0.0.0:4100` | 4100 | caddy front for the two router colours: OpenAI-compatible `/v1`, `/health/liveliness` |
-| hermes | `127.0.0.1:8642`, `127.0.0.1:8788`, `0.0.0.0:8644` | same | Hermes gateway ports; 8788 is the Dots phone app gateway; 8642 is the API server (Conduit), bound to `0.0.0.0` inside the container by `API_SERVER_HOST` and published on loopback only; the webhook platform listens on 8644 (`NOTIFY_URL` target) |
+| hermes | `127.0.0.1:8642`, `127.0.0.1:8788`, `127.0.0.1:9120`, `0.0.0.0:8644` | same | Hermes gateway ports; 8788 is the Dots phone app gateway; 8642 is the API server (Conduit), bound to `0.0.0.0` inside the container by `API_SERVER_HOST` and published on loopback only; 9120 is the v0.23 browser Webapp (Desktop workspace), bound to `0.0.0.0` inside the container by `webapp.host` and published on loopback only; the webhook platform listens on 8644 (`NOTIFY_URL` target) |
 
-`expense-tracker`, `portfolio-tracker`, `actual-api`, and hermes `8642` publish to `127.0.0.1` only. `codex-router` binds `0.0.0.0:4100` so the `hermes_shared` network and external clients can reach it, and hermes publishes only `8644` on all interfaces (no host IP in `docker-compose.yml`). The front sits in front of two interchangeable router colours (`codex-router-a`, `codex-router-b`), which publish no ports of their own; a deploy rolls one colour at a time, so `4100` never goes dark.
+`expense-tracker`, `portfolio-tracker`, `actual-api`, and hermes `8642` publish to `127.0.0.1` only. `codex-router` binds `0.0.0.0:4100` so the `hermes_shared` network and external clients can reach it, and hermes publishes only `8644` on all interfaces (no host IP in `docker-compose.yml`). The front sits in front of two interchangeable router colours (`codex-router-a`, `codex-router-b`), which publish no ports of their own; a deploy rolls one colour at a time, so `4100` never goes dark. The Webapp publishes to `127.0.0.1` only for the same reason; Tailscale serve terminates TLS on the tailnet.
 
 ## Tailnet exposure (Tailscale serve)
 
@@ -52,6 +52,9 @@ The tailnet host is `your-host.your-tailnet.ts.net`:
 
 - `https://your-host.your-tailnet.ts.net:8642` — Hermes API server (`127.0.0.1:8642`), the endpoint
   mobile clients such as Conduit use; requests need `Authorization: Bearer <API_SERVER_KEY>`
+- `https://your-host.your-tailnet.ts.net:9120` — Hermes browser Webapp
+  (`127.0.0.1:9120`), the full Desktop workspace in a browser tab; sign-in is
+  the dashboard basic-auth pair (trusted tailnet only)
 - `https://your-host.your-tailnet.ts.net/router/v1` — codex-router OpenAI-compatible API
   (`127.0.0.1:4100`); `--set-path /router` strips the prefix, so the router still sees
   `/v1/...`
@@ -75,6 +78,7 @@ entries; remove them with `tailscale serve --https=8443 off` and `tailscale serv
 tailscale serve --bg --https=443 --set-path /router http://127.0.0.1:4100
 tailscale serve --bg --https=8642 http://127.0.0.1:8642
 tailscale serve --bg --https=8788 http://127.0.0.1:8788
+tailscale serve --bg --https=9120 http://127.0.0.1:9120
 tailscale serve --bg --https=443 --set-path /reminders http://127.0.0.1:8300
 ```
 

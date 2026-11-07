@@ -295,6 +295,10 @@ services:
             # Dots phone app gateway. Host loopback only: Tailscale serve terminates
             # TLS on the tailnet and proxies to 127.0.0.1:8788.
             - "127.0.0.1:8788:8788"
+            # Browser Webapp (v0.23 Desktop workspace). Host loopback only:
+            # Tailscale serve terminates TLS on the tailnet and proxies to
+            # 127.0.0.1:9120, so nothing binds the LAN.
+            - "127.0.0.1:9120:9120"
         volumes:
             - /home/runner/data/hermes/data:/opt/data
             - /home/runner/data/hermes/workspace:/workspace
@@ -340,6 +344,15 @@ services:
             - SLACK_HOME_CHANNEL=${SLACK_HOME_CHANNEL}
             - SLACK_HOME_CHANNEL_NAME=${SLACK_HOME_CHANNEL_NAME}
             - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET}
+            # Browser Webapp (v0.23) shares the dashboard's sign-in providers;
+            # basic auth covers the trusted tailnet. Values stay in darren-prod
+            # secrets. HERMES_DASHBOARD itself stays unset: the retired s6
+            # dashboard slot stays down (#157).
+            - HERMES_DASHBOARD_BASIC_AUTH_USERNAME=${HERMES_DASHBOARD_BASIC_AUTH_USERNAME}
+            - HERMES_DASHBOARD_BASIC_AUTH_PASSWORD=${HERMES_DASHBOARD_BASIC_AUTH_PASSWORD}
+            # Real tailnet URL for webapp.public_url (resolved at boot); the
+            # value lives in the darren-prod WEBAPP_PUBLIC_URL variable.
+            - WEBAPP_PUBLIC_URL=${WEBAPP_PUBLIC_URL:-}
             - MEMORY_REPO_URL=${MEMORY_REPO_URL}
             - GH_APP_ID=${GH_APP_ID}
             - GH_APP_INSTALLATION_ID=${GH_APP_INSTALLATION_ID}
