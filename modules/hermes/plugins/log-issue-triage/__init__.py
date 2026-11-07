@@ -214,7 +214,8 @@ def _cron_health(args):
         next_run = _parse_time(job.get("next_run_at"))
         if next_run and next_run < now - dt.timedelta(seconds=_CRON_STALE_TICKER_SECONDS):
             findings.append(_cron_finding(job_id, job_name, "invocation_overdue", "next scheduled invocation is overdue", now, schedule=job.get("schedule")))
-        if job.get("last_status") not in (None, *_CRON_SUCCESS_STATUSES) and not error:
+        # An active execution's last_status belongs to the previous run.
+        if job.get("last_status") not in (None, *_CRON_SUCCESS_STATUSES) and not error and status not in ("claimed", "running"):
             findings.append(_cron_finding(job_id, job_name, "metadata_failed", f"job metadata reports status {job['last_status']}", now, schedule=job.get("schedule")))
         if scheduled_at and claimed and claimed - scheduled_at > dt.timedelta(seconds=_CRON_STALE_TICKER_SECONDS):
             findings.append(_cron_finding(job_id, job_name, "invocation_late", "execution started more than five minutes after its scheduled instant", now, schedule=job.get("schedule"), execution_status=status))
