@@ -149,6 +149,30 @@ class LogIssueTriagePluginTest(unittest.TestCase):
         self.assertEqual(result["status"], "healthy")
         self.assertEqual(result["finding_count"], 0)
 
+    def test_cron_health_ignores_previous_status_of_active_execution(self):
+        # The triage job checks health while it runs, so its own last_status is
+        # the previous run's. Reporting that made one failure repeat every day.
+        now = dt.datetime(2026, 10, 9, 2, 0, tzinfo=dt.timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "jobs.json").write_text(json.dumps({"jobs": [{
+                "id": "job-running", "name": "running-job", "enabled": True,
+                "schedule": {"kind": "cron", "expr": "0 * * * *"},
+                "last_status": "error",
+            }]}), encoding="utf-8")
+            (root / "ticker_heartbeat").write_text(str(now.timestamp()), encoding="utf-8")
+            db = sqlite3.connect(root / "executions.db")
+            db.execute("CREATE TABLE executions (job_id TEXT, status TEXT, claimed_at TEXT, finished_at TEXT, error TEXT, delivery_outcome TEXT, scheduled_instant TEXT)")
+            db.execute("INSERT INTO executions VALUES (?, ?, ?, ?, ?, ?, ?)", (
+                "job-running", "running", "2026-10-09T01:59:00+00:00", None, None, None, "2026-10-09T02:00:00+00:00",
+            ))
+            db.commit()
+            db.close()
+            with patch.object(triage, "_CRON_ROOT", root), patch.object(triage, "_now", return_value=now):
+                result = triage._cron_health({})
+        self.assertEqual(result["status"], "healthy")
+        self.assertEqual(result["finding_count"], 0)
+
     def test_cron_health_rejects_nonfinite_heartbeat(self):
         now = dt.datetime(2026, 10, 9, 2, 0, tzinfo=dt.timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
