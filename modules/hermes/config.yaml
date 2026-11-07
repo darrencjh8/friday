@@ -358,3 +358,16 @@ stt:
     openai:
         base_url: http://127.0.0.1:8000/v1
         model: turbo
+
+# Browser Webapp (v0.23): the full Desktop workspace served by the gateway on
+# its own listener — not the retired dashboard/WebUI (#157). host must be
+# 0.0.0.0 inside the container (container loopback is unreachable from a
+# published port). public_url resolves at boot from the container env (see
+# 50-seed-defaults ${VAR} pass); the real tailnet URL lives in the darren-prod
+# WEBAPP_PUBLIC_URL variable, never in this public repo. A non-loopback host
+# needs a sign-in provider: the dashboard basic-auth pair below.
+webapp:
+    enabled: true
+    host: 0.0.0.0
+    port: 9120
+    public_url: "${WEBAPP_PUBLIC_URL}"

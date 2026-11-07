@@ -135,6 +135,13 @@ jobs:
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
                   SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
                   HERMES_WEBHOOK_SECRET: ${{ secrets.HERMES_WEBHOOK_SECRET }}
+                  # Browser Webapp (v0.23) sign-in: shares the dashboard's
+                  # basic-auth provider (trusted tailnet). HERMES_DASHBOARD
+                  # itself stays unset so the retired s6 slot stays down.
+                  HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_USERNAME }}
+                  HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD }}
+                  # Real tailnet URL baked into webapp.public_url at boot.
+                  WEBAPP_PUBLIC_URL: ${{ vars.WEBAPP_PUBLIC_URL }}
                   GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
                   ACTUAL_BUDGET_PASSWORD: ${{ secrets.ACTUAL_BUDGET_PASSWORD }}
                   IMAP_USERNAME: ${{ secrets.IMAP_USERNAME }}
