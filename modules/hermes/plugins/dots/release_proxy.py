@@ -1,12 +1,18 @@
 """Read the configured GitHub release using the host's existing gh auth."""
 
 import json
+import logging
+import os
 import re
 import subprocess
+
+logger = logging.getLogger(__name__)
 
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ASSET_ID = re.compile(r"^[1-9][0-9]*$")
 _MAX_ASSET_BYTES = 128 * 1024 * 1024
+# Where github-auth.sh logs gh in as the GitHub App (it pins HOME=/opt/data/home).
+_GH_CONFIG_DIR = "/opt/data/home/.config/gh"
 
 
 class ReleaseProxyError(Exception):
@@ -67,9 +73,19 @@ class ReleaseProxy:
         if accept:
             command.extend(["-H", f"Accept: {accept}"])
         try:
-            result = subprocess.run(command, check=False, capture_output=True, timeout=60)
+            result = subprocess.run(command, check=False, capture_output=True, timeout=60, env=_gh_env())
         except (OSError, subprocess.TimeoutExpired):
             raise ReleaseProxyError("GitHub CLI unavailable") from None
         if result.returncode:
+            reason = result.stderr.decode(errors="replace").strip().splitlines()[:1]
+            logger.warning("[dots] gh api %s failed (%d): %s", endpoint, result.returncode, reason[0] if reason else "")
             raise ReleaseProxyError("GitHub API request failed")
         return result.stdout
+
+
+def _gh_env():
+    """The gateway process environment can drift from the container's (Hermes adjusts it at runtime):
+    always read the App login that github-auth.sh keeps fresh, never an ambient token."""
+    env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
+    env["GH_CONFIG_DIR"] = _GH_CONFIG_DIR
+    return env
