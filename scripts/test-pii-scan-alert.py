@@ -191,6 +191,28 @@ def test_history_parser_skips_github_trailers_in_any_case():
     assert [t for *_, t in names.added_lines(log)] == ["Subject line"]
 
 
+def test_scans_leave_out_the_allowlist_file_itself():
+    # The allowlist lists the values it excuses, so scanning it would report each one again.
+    seen = []
+
+    def fake_run(command, **kwargs):
+        seen.append(command)
+        return type("Done", (), {"stdout": b""})()
+
+    real = names.subprocess.run
+    names.subprocess.run = fake_run
+    try:
+        names.git_log(True)
+    finally:
+        names.subprocess.run = real
+    assert ":!scripts/pii-scan-allowlist.json" in seen[0]
+    workflow = open(os.path.join(HERE, "..", ".github", "workflows", "pii-scan.yml"), encoding="utf-8").read()
+    patterns = open(os.path.join(HERE, "pii-scan-exclude-paths.txt"), encoding="utf-8").read()
+    assert "--exclude-paths scripts/pii-scan-exclude-paths.txt" in workflow
+    assert r"^scripts/pii-scan-allowlist\.json$" in patterns.split()
+    assert r"^scripts/pii-synthetic-numbers\.txt$" in patterns.split()  # lists the numbers it excuses
+
+
 def test_name_shape_accepts_names_and_rejects_code():
     for good in ("Wei Ling Tan", "TAN WEI LING", "Mary O'Neil"):
         assert names.NAME.fullmatch(good), good

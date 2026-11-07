@@ -1,0 +1,3 @@
+# TruffleHog --exclude-paths: one regex per line. See scripts/pii-scan-names.py for why.
+^scripts/pii-scan-allowlist\.json$
+^scripts/pii-synthetic-numbers\.txt$
