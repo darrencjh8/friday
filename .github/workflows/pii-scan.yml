@@ -55,7 +55,7 @@ jobs:
             # stays off so the runner never presents a leaked credential to its vendor.
             - name: Scan
               run: |
-                  "$RUNNER_TEMP/trufflehog" git "file://$PWD" --config .trufflehog.yml --json \
+                  "$RUNNER_TEMP/trufflehog" git "file://$PWD" --config .trufflehog.yml --exclude-paths scripts/pii-scan-exclude-paths.txt --json \
                       --no-update --no-verification --results=verified,unknown,unverified \
                       > "$RUNNER_TEMP/findings.jsonl" 2> /dev/null
 

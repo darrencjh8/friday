@@ -56,7 +56,8 @@ def git_log(full: bool) -> list[str]:
     command = ["git", "-c", "core.quotepath=off", "log", "--all", "-p", "--unified=0", "--format=%x00%H%n%B"]
     if not full:
         command.append("--since=2.days")
-    command += ["--", ".", ":!*package-lock.json"]
+    # The allowlist names the values it excuses, so scanning it would report each one again.
+    command += ["--", ".", ":!*package-lock.json", ":!scripts/pii-scan-allowlist.json"]
     log = subprocess.run(command, capture_output=True, check=True)
     return log.stdout.decode("utf-8", "replace").split("\n")
 
