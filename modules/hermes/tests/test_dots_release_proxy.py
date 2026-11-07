@@ -54,6 +54,28 @@ class ReleaseProxyTest(unittest.TestCase):
 
         run.assert_not_called()
 
+    def test_gh_reads_the_app_login_not_an_ambient_token(self):
+        release = {"tag_name": "v1.0", "html_url": "", "assets": []}
+        ambient = {"GH_TOKEN": "stale", "GITHUB_TOKEN": "stale", "GH_CONFIG_DIR": "/elsewhere", "PATH": "/usr/bin"}
+        with patch.dict("release_proxy.os.environ", ambient, clear=True), \
+                patch("release_proxy.subprocess.run", return_value=subprocess.CompletedProcess([], 0, json.dumps(release).encode(), b"")) as run:
+            ReleaseProxy("owner/repo").latest()
+
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["GH_CONFIG_DIR"], "/opt/data/home/.config/gh")
+        self.assertNotIn("GH_TOKEN", env)
+        self.assertNotIn("GITHUB_TOKEN", env)
+        self.assertEqual(env["PATH"], "/usr/bin")
+
+    def test_gh_failure_is_logged_with_its_reason(self):
+        failed = subprocess.CompletedProcess([], 1, b"", b"gh: Not Found (HTTP 404)\nmore")
+        with patch("release_proxy.subprocess.run", return_value=failed), self.assertLogs("release_proxy", "WARNING") as logs:
+            with self.assertRaises(ReleaseProxyError):
+                ReleaseProxy("owner/repo").latest()
+
+        self.assertIn("gh: Not Found (HTTP 404)", logs.output[0])
+        self.assertNotIn("more", logs.output[0])
+
 
 if __name__ == "__main__":
     unittest.main()
