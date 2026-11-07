@@ -29,6 +29,8 @@ title = "gitleaks config"
         paths = [
             '''tests/''',
             '''__tests__/''',
+            # Lists the fixture emails the PII scan excuses.
+            '''scripts/pii-scan-allowlist\.json''',
         ]
 
 [[rules]]
