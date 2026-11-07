@@ -202,8 +202,10 @@ def main(argv=None):
     os.makedirs(RAW, exist_ok=True)
     now = datetime.datetime.now(SGT)
     sources = {
-        "actual-sgd": lambda: actual("Darren SGD"),
-        "actual-myr": lambda: actual("Darren MYR"),
+        # The budget names are the expense tracker's own ACTUAL_*_BUDGET_FILE values.
+        # A missing one is reported as that source's error, never guessed.
+        "actual-sgd": lambda: actual(os.environ["ACTUAL_PRIMARY_BUDGET_FILE"]),
+        "actual-myr": lambda: actual(os.environ["ACTUAL_SECONDARY_BUDGET_FILE"]),
         **{name: (lambda ds=ds: notion(ds)) for name, ds in NOTION_SOURCES.items()},
         "portfolio-tracker": portfolio,
         "codex-router-status": codex_router,

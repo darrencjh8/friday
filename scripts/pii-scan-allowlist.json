@@ -147,6 +147,15 @@
     {"detector": "Presidio", "name": "PII name", "value": "Yuu Card", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/transfer-hold-families.test.js"},
     {"detector": "URI", "name": null, "value": "https://x-access-token:ghs_abc123token@example.com", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/tests/test-memory-backup.sh"},
     {"detector": "URI", "name": null, "value": "https://x-access-token:ghs_abc@example.com", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/tests/test-memory-backup.sh"},
-    {"detector": "URI", "name": null, "value": "https://x-access-token:ghs_token_with_ghs_inside@example.com", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/tests/test-memory-backup.sh"}
+    {"detector": "URI", "name": null, "value": "https://x-access-token:ghs_token_with_ghs_inside@example.com", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/tests/test-memory-backup.sh"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "1f49900fedb4062813a91e08fef75fe560dc701e", "file": "modules/hermes/50-seed-defaults"},
+    {"detector": "Presidio", "name": "PII name", "value": "Track Darren's", "commit": "9b290cbaeebd333ac2df874d29ca59846dad7ab3", "file": "modules/hermes/skills/goals/SKILL.md"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "ea8966c2f45b244bd2d8c2aeeaa4f5998b97437e", "file": "modules/hermes/50-seed-defaults"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/repro-680.mjs"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren DBS Payee", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/bank-movement.test.js"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/incoming-credit-booking-680.test.js"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/transfer-hold-families.test.js"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/transfer-shape-resilience.test.js"},
+    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/50-seed-defaults"}
   ]
 }

@@ -1,11 +1,11 @@
 ---
 name: goals
-description: Track Darren's standing goals in Mnemosyne and follow up on them. Use when he sets, updates, pauses, finishes or drops a goal, asks what his goals are, or replies to a goal check-in.
+description: Track the user's standing goals in Mnemosyne and follow up on them. Use when he sets, updates, pauses, finishes or drops a goal, asks what his goals are, or replies to a goal check-in.
 ---
 
 # Goals
 
-A goal is something Darren wants to reach over days or weeks ("build a 20k car fund by June 2027"), not a one-off task or reminder. Goals live only in Mnemosyne canonical slots: category `goal`, one slot per goal, named by a short kebab-case slug. There is no goals file. The hourly `proactive-tick` cron job reads these slots and raises a due goal at most once a day.
+A goal is something the user wants to reach over days or weeks ("build a 20k car fund by June 2027"), not a one-off task or reminder. Goals live only in Mnemosyne canonical slots: category `goal`, one slot per goal, named by a short kebab-case slug. There is no goals file. The hourly `proactive-tick` cron job reads these slots and raises a due goal at most once a day.
 
 ## Slot body
 
@@ -33,12 +33,12 @@ log: dated one-line notes of decisions and progress, newest first, at most 5
 
 ## Notify preferences
 
-What Darren wants to hear about lives in one slot: category `notify`, name `preferences`, as short plain lines ("no dividend pings", "flag any trade over 5k", "quiet before 9am"). `proactive-tick` passes it to every run and follows it. When he says what he does or does not want to be told, read the slot, change only that line, show him the result, and write it back with `mnemosyne_remember_canonical(category="notify", name="preferences", body=...)` after he confirms.
+What the user wants to hear about lives in one slot: category `notify`, name `preferences`, as short plain lines ("no dividend pings", "flag any trade over 5k", "quiet before 9am"). `proactive-tick` passes it to every run and follows it. When he says what he does or does not want to be told, read the slot, change only that line, show him the result, and write it back with `mnemosyne_remember_canonical(category="notify", name="preferences", body=...)` after he confirms.
 
 ## Approval
 
-Friday may remind and ask on her own. Anything that acts for Darren (sending a message to someone else, paying, booking, buying, changing an account) needs his explicit yes in the chat for that specific action, even when it serves an active goal. A goal is never standing approval.
+Friday may remind and ask on her own. Anything that acts for the user (sending a message to someone else, paying, booking, buying, changing an account) needs his explicit yes in the chat for that specific action, even when it serves an active goal. A goal is never standing approval.
 
 ## In a cron session
 
-Cron sessions can read Mnemosyne but cannot write it. Do not try to update a goal from cron. Put what changed in the check-in message; the slot is updated from chat when Darren replies.
+Cron sessions can read Mnemosyne but cannot write it. Do not try to update a goal from cron. Put what changed in the check-in message; the slot is updated from chat when the user replies.
