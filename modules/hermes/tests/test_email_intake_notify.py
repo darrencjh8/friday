@@ -76,7 +76,8 @@ class LiveMessagesTest(unittest.TestCase):
         self.addCleanup(h.journal.close)
         h.journal.checkpoint("INBOX", 1, 0, account="acct")
         self.telegram = FakeTelegram()
-        h.outbox = notify.Outbox(h.journal, self.telegram)
+        self.dots = FakeTelegram()
+        h.outbox = notify.Outbox(h.journal, self.telegram, dots=self.dots)
         return h
 
     def run_all(self, h):
@@ -90,9 +91,11 @@ class LiveMessagesTest(unittest.TestCase):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
         self.run_all(h)
         self.run_all(h)
+        # The booking goes to Dots; the offer stays on Telegram, the only place /remember_ is handled.
+        self.assertEqual(self.dots.sent, ["S$5.00 at Alpha Cafe, logged"])
         self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn("S$5.00 at Alpha Cafe, logged", self.telegram.sent[0])
         self.assertIn("/remember_abcd1234", self.telegram.sent[0])
+        self.assertNotIn("Alpha Cafe, logged", self.telegram.sent[0])
 
     def test_a_silent_duplicate_sends_nothing(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {"status": "duplicate", "messages": []}})
@@ -105,11 +108,12 @@ class LiveMessagesTest(unittest.TestCase):
             "status": "failed", "reason": "error", "messages": ["LLM unavailable; it will be retried."]}})
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
         self.run_all(h)
-        self.assertEqual(self.telegram.sent, [])  # first attempt failed: retried, not reported
+        self.assertEqual(self.dots.sent, [])  # first attempt failed: retried, not reported
         self.run_all(h)
         self.run_all(h)
-        self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn("unread", self.telegram.sent[0])
+        self.assertEqual(len(self.dots.sent), 1)
+        self.assertIn("unread", self.dots.sent[0])
+        self.assertEqual(self.telegram.sent, [])
 
     def test_uncertain_mail_asks_for_review_with_replay_commands(self):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("uncertain"))
@@ -122,8 +126,8 @@ class LiveMessagesTest(unittest.TestCase):
         from test_email_intake import ENCRYPTED_PDF
         h = self.harness(StoringImap({"INBOX": [(5, make_mail(pdf=ENCRYPTED_PDF))]}), good_answer())
         self.run_all(h)
-        self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn("password-protected", self.telegram.sent[0])
+        self.assertEqual(len(self.dots.sent), 1)
+        self.assertIn("password-protected", self.dots.sent[0])
 
     def test_a_telegram_failure_is_retried_until_delivered_once(self):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("uncertain"))
@@ -151,7 +155,7 @@ class LiveMessagesTest(unittest.TestCase):
         self.assertEqual(imap.seen, [("INBOX", 5)])
         self.run_all(h)
         self.assertEqual(len(h.tracker.calls), 1)
-        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(len(self.dots.sent), 1)
 
     def test_a_silent_result_is_not_looked_up_again(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {"status": "duplicate", "messages": []}})
@@ -186,6 +190,18 @@ class OutboxWiringTest(unittest.TestCase):
             runner = service.build_runner(service.load_settings(lambda k, default="": env.get(k, default)))
             self.assertIsNone(runner._outbox)
 
+    def test_live_sends_command_free_messages_to_the_notify_webhook(self):
+        from intake import service
+        env = {"EMAIL_INTAKE_MODE": "live", "IMAP_HOST": "h", "IMAP_USERNAME": "u", "IMAP_PASSWORD": "p",
+               "JEV_API_KEY": "k", "HERMES_WEBHOOK_SECRET": "s", "TELEGRAM_BOT_TOKEN": "t",
+               "TELEGRAM_HOME_CHANNEL": CHAT}
+        with tempfile.TemporaryDirectory() as d:
+            env["EMAIL_INTAKE_DATA_DIR"] = d
+            runner = service.build_runner(service.load_settings(lambda k, default="": env.get(k, default)))
+            self.addCleanup(runner._dispatcher._journal.close)
+            self.assertIsInstance(runner._outbox._dots, notify.WebhookSender)
+            self.assertEqual(runner._outbox._dots._url, "http://127.0.0.1:8644/webhooks/notify")
+
 
 class OutboxTest(unittest.TestCase):
     def setUp(self):
@@ -213,6 +229,24 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(telegram.sent, [])
         outbox.flush()
         self.assertEqual(telegram.sent, ["first", "second"])
+
+
+    def test_command_messages_go_to_telegram_and_the_rest_to_dots(self):
+        telegram, dots = FakeTelegram(), FakeTelegram()
+        outbox = notify.Outbox(self.journal, telegram, dots=dots)
+        self.journal.queue_notification("a", "S$5.00 at Alpha Cafe, logged")
+        self.journal.queue_notification("b", "Tap /remember_abcd1234 or /forget_abcd1234.")
+        self.journal.queue_notification("c", "Book it with /replay_0123456789_tx")
+        outbox.flush()
+        self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
+        self.assertEqual(len(telegram.sent), 2)
+
+    def test_without_dots_everything_stays_on_telegram(self):
+        telegram = FakeTelegram()
+        outbox = notify.Outbox(self.journal, telegram)
+        self.journal.queue_notification("a", "S$5.00 at Alpha Cafe, logged")
+        outbox.flush()
+        self.assertEqual(telegram.sent, ["S$5.00 at Alpha Cafe, logged"])
 
 
 class OutboxFailureTest(OutboxTest):
@@ -259,6 +293,41 @@ class TelegramSenderTest(unittest.TestCase):
             raise urllib.error.HTTPError(url, 400, "Bad Request", {}, None)
 
         self.assertEqual(notify.TelegramSender("t", CHAT, post=post)("x"), notify.REJECTED)
+
+
+class WebhookSenderTest(unittest.TestCase):
+    def test_posts_the_message_signed_like_notify_user(self):
+        import hashlib
+        import hmac
+        import json
+        calls = []
+
+        def post(url, data, headers):
+            calls.append((url, data, headers))
+
+        sender = notify.WebhookSender("http://hermes.test/webhooks/notify", "sekret", post=post)
+        self.assertEqual(sender("hello"), notify.SENT)
+        url, data, headers = calls[0]
+        self.assertEqual(url, "http://hermes.test/webhooks/notify")
+        self.assertEqual(json.loads(data), {"message": "hello"})
+        self.assertEqual(headers["X-Webhook-Signature"],
+                         hmac.new(b"sekret", data, hashlib.sha256).hexdigest())
+
+    def test_an_outage_or_auth_error_is_retried_and_a_bad_request_dropped(self):
+        import urllib.error
+
+        def failing(code):
+            def post(url, data, headers):
+                raise urllib.error.HTTPError(url, code, "x", {}, None)
+            return post
+
+        self.assertEqual(notify.WebhookSender("u", "s", post=failing(401))("x"), notify.RETRY)
+        self.assertEqual(notify.WebhookSender("u", "s", post=failing(400))("x"), notify.REJECTED)
+
+        def down(url, data, headers):
+            raise OSError("down")
+
+        self.assertEqual(notify.WebhookSender("u", "s", post=down)("x"), notify.RETRY)
 
 
 def make_event(text, chat_id=CHAT, user_id="4242", platform="telegram"):

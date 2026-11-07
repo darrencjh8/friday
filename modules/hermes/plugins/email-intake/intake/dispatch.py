@@ -376,7 +376,11 @@ class Dispatcher:
                 records.append({**(row["result"] or {}), "_status": row["status"]})
         parsed = mail.parse(raw)
         text = notify.result_text(records, parsed.sender_domain, parsed.subject)
-        # A silent outcome is recorded too, so it is never looked up again.
+        offers = notify.offers_text(records)
+        if offers:
+            self._journal.queue_notification(f"{evidence_hash}:offer", offers)
+        # A silent outcome is recorded too, so it is never looked up again. Queued last:
+        # this key marks the email done, so a crash before it requeues the offer (same key, ignored).
         self._journal.queue_notification(key, text or "")
 
     def _one(self, evidence_hash, decision, locations, since, handoff, summary, owner_choice=False):
