@@ -25,6 +25,8 @@ NAME = re.compile(rf"{_WORD}(?: {_WORD})+")
 # about 97 minutes to under 4 and removed most false hits. It misses a lone
 # "Wei"; drop this filter if single names matter.
 CANDIDATE = re.compile(r"\b(?:[A-Z][a-z]+ [A-Z][a-z]+|[A-Z]{2,} [A-Z]{2,})\b")
+# GitHub squash merges write "Co-authored-by:" (lower-case a, b); both forms carry git identities.
+TRAILER = re.compile(r"(?i)(?:co-authored-by|signed-off-by): ")
 MAX_LINE = 2000  # ponytail: a longer line is minified or data, and is skipped.
 
 
@@ -39,7 +41,7 @@ def added_lines(log):
         elif text.startswith("diff --git "):
             path, in_diff = None, True
         elif not in_diff:
-            if text.strip() and not text.startswith("Co-Authored-By: "):
+            if text.strip() and not TRAILER.match(text):
                 yield commit, None, 0, text
         elif text.startswith("+++ "):
             path = text[6:] if text.startswith("+++ b/") else None
