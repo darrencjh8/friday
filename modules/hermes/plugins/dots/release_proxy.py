@@ -13,6 +13,8 @@ _ASSET_ID = re.compile(r"^[1-9][0-9]*$")
 _MAX_ASSET_BYTES = 128 * 1024 * 1024
 # Where github-auth.sh logs gh in as the GitHub App (it pins HOME=/opt/data/home).
 _GH_CONFIG_DIR = "/opt/data/home/.config/gh"
+# Where the image installs gh; the gateway's runtime PATH does not always include it.
+_GH_BIN_DIR = "/opt/data/.local/bin"
 
 
 class ReleaseProxyError(Exception):
@@ -29,7 +31,10 @@ class ReleaseProxy:
         try:
             raw = self._api(f"repos/{self.repo}/releases/latest")
             release = json.loads(raw)
-        except (ReleaseProxyError, json.JSONDecodeError):
+        except json.JSONDecodeError:
+            logger.warning("[dots] latest release of %s is not JSON", self.repo)
+            raise ReleaseProxyError("latest release unavailable") from None
+        except ReleaseProxyError:
             raise ReleaseProxyError("latest release unavailable") from None
         if not isinstance(release, dict):
             raise ReleaseProxyError("invalid release response")
@@ -74,7 +79,8 @@ class ReleaseProxy:
             command.extend(["-H", f"Accept: {accept}"])
         try:
             result = subprocess.run(command, check=False, capture_output=True, timeout=60, env=_gh_env())
-        except (OSError, subprocess.TimeoutExpired):
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            logger.warning("[dots] gh api %s could not run: %s", endpoint, exc)
             raise ReleaseProxyError("GitHub CLI unavailable") from None
         if result.returncode:
             reason = result.stderr.decode(errors="replace").strip().splitlines()[:1]
@@ -88,4 +94,7 @@ def _gh_env():
     always read the App login that github-auth.sh keeps fresh, never an ambient token."""
     env = {k: v for k, v in os.environ.items() if k not in ("GH_TOKEN", "GITHUB_TOKEN")}
     env["GH_CONFIG_DIR"] = _GH_CONFIG_DIR
+    path = env.get("PATH", "")
+    if _GH_BIN_DIR not in path.split(os.pathsep):
+        env["PATH"] = os.pathsep.join(p for p in (path, _GH_BIN_DIR) if p)
     return env

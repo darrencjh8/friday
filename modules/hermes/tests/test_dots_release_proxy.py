@@ -65,7 +65,15 @@ class ReleaseProxyTest(unittest.TestCase):
         self.assertEqual(env["GH_CONFIG_DIR"], "/opt/data/home/.config/gh")
         self.assertNotIn("GH_TOKEN", env)
         self.assertNotIn("GITHUB_TOKEN", env)
-        self.assertEqual(env["PATH"], "/usr/bin")
+        self.assertEqual(env["PATH"].split(":"), ["/usr/bin", "/opt/data/.local/bin"])
+
+    def test_gh_that_cannot_start_is_logged(self):
+        with patch("release_proxy.subprocess.run", side_effect=FileNotFoundError(2, "No such file", "gh")), \
+                self.assertLogs("release_proxy", "WARNING") as logs:
+            with self.assertRaises(ReleaseProxyError):
+                ReleaseProxy("owner/repo").latest()
+
+        self.assertIn("could not run", logs.output[0])
 
     def test_gh_failure_is_logged_with_its_reason(self):
         failed = subprocess.CompletedProcess([], 1, b"", b"gh: Not Found (HTTP 404)\nmore")
