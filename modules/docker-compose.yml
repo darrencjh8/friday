@@ -220,6 +220,26 @@ services:
             start_period: 30s
         logging: *default-logging
 
+    # Dots web app and its pairing relay. Tailscale Serve exposes it on the tailnet;
+    # the Hermes gateway only accepts it once its origin is in DOTS_WEB_ORIGINS.
+    dots-web:
+        build:
+            context: ../modules/dots-web
+        ports:
+            - "127.0.0.1:8789:8789"
+        environment:
+            # No IPv6 route in the container; see issue #553.
+            - NODE_OPTIONS=--no-network-family-autoselection
+        mem_limit: 128m
+        restart: unless-stopped
+        init: true
+        healthcheck:
+            test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8789/"]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+        logging: *default-logging
+
     # The caddy front. It is the only thing that publishes 4100 and the only
     # service callers address; the colours behind it are an implementation
     # detail of the roll. `lb_policy first` plus the fixed upstream order below
@@ -391,6 +411,7 @@ services:
             - IMAP_PASSWORD=${IMAP_PASSWORD}
             - EMAIL_INTAKE_MODE=${EMAIL_INTAKE_MODE:-shadow}
             - DOTS_TOKEN=${DOTS_TOKEN:-}
+            - DOTS_WEB_ORIGINS=${DOTS_WEB_ORIGINS:-}
             - DOTS_UPDATE_REPO=${DOTS_UPDATE_REPO:-darrencjh8/hermes-dots}
             - DOTS_BIND=0.0.0.0:8788
             - DOTS_ALLOWED_USERS=owner

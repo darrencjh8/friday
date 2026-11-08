@@ -40,6 +40,7 @@ Other workflows:
 | expense-tracker | `127.0.0.1:8080` | 8080 | REST `/tools/*`, MCP `/mcp`, `/health` |
 | portfolio-tracker | `127.0.0.1:8081` | 8081 | REST `/tools/*` (plus `GET /tools`), MCP `/mcp`, `/health` |
 | actual-api | `127.0.0.1:3000` | 3000 | Actual Budget proxy, `/health` |
+| dots-web | `127.0.0.1:8789` | 8789 | Dots web app and its pairing relay |
 | codex-router | `0.0.0.0:4100` | 4100 | caddy front for the two router colours: OpenAI-compatible `/v1`, `/health/liveliness` |
 | hermes | `127.0.0.1:8642`, `127.0.0.1:8788`, `127.0.0.1:9120`, `0.0.0.0:8644` | same | Hermes gateway ports; 8788 is the Dots phone app gateway; 8642 is the API server (Conduit), bound to `0.0.0.0` inside the container by `API_SERVER_HOST` and published on loopback only; 9120 is the v0.23 browser Webapp (Desktop workspace), bound to `0.0.0.0` inside the container by `webapp.host` and published on loopback only; the webhook platform listens on 8644 (`NOTIFY_URL` target) |
 
@@ -78,9 +79,14 @@ entries; remove them with `tailscale serve --https=8443 off` and `tailscale serv
 tailscale serve --bg --https=443 --set-path /router http://127.0.0.1:4100
 tailscale serve --bg --https=8642 http://127.0.0.1:8642
 tailscale serve --bg --https=8788 http://127.0.0.1:8788
+tailscale serve --bg --https=8789 http://127.0.0.1:8789
 tailscale serve --bg --https=9120 http://127.0.0.1:9120
 tailscale serve --bg --https=443 --set-path /reminders http://127.0.0.1:8300
 ```
+
+Dots web app: the deploy secret `DOTS_WEB_ORIGINS` must be exactly
+`https://your-host.your-tailnet.ts.net:8789`, or the gateway refuses it. Pair from the phone app
+with *Connect a browser*. Both devices need to be on the tailnet.
 
 Reminders dashboard: stdlib page over the structured snapshot
 (`wiki-reminder-tasks.py --snapshot-out /opt/data/reminders/reminders.json`,

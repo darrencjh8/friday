@@ -637,6 +637,7 @@ mirrored_exact = (
     # The Dots platform reads its token and bind address through the profile scope.
     "DOTS_TOKEN",
     "DOTS_BIND",
+    "DOTS_WEB_ORIGINS",
     "DOTS_HOME_CHANNEL",
     "DOTS_FCM_CREDENTIALS",
     # terminal.env_passthrough takes these values from the profile scope, so the

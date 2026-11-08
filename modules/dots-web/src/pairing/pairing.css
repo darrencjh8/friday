@@ -1,0 +1,232 @@
+/* Écran d'appairage : même identité que l'app (blanc, pastels, typographie iOS de theme.css), fond en
+   dégradé pastel comme le visuel du README. Une colonne au téléphone, deux sur grand écran. */
+.pair {
+  --pair-bg: linear-gradient(165deg, #e4eeff 0%, #edf0fb 45%, #f5effd 100%);
+  --pair-card-shadow: 0 1px 2px rgba(17, 17, 20, 0.04), 0 18px 48px -12px rgba(47, 80, 160, 0.18);
+  --pair-qr-ink: #111114;
+  position: relative;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  padding-top: max(16px, env(safe-area-inset-top));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+  background: var(--pair-bg);
+  overflow-x: hidden;
+}
+
+
+.pair-close {
+  position: absolute;
+  top: max(16px, env(safe-area-inset-top));
+  right: 16px;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-raised) 80%, transparent);
+  color: var(--ink-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: transform 0.15s var(--ease);
+}
+.pair-close:active { transform: scale(0.94); }
+
+.pair-main {
+  flex: 1;
+  width: 100%;
+  max-width: 1040px;
+  margin: 0 auto;
+  display: grid;
+  gap: 28px;
+  align-content: center;
+  padding: 24px 0;
+}
+
+/* ---- Colonne de gauche : mascottes, titre, étapes ---- */
+
+.pair-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.pair-hero {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+/* Le trio se chevauche, comme le visuel du README : Nuage devant, Galet et Pavé en retrait. */
+.pair-hero-center { position: relative; z-index: 1; margin: 0 -30px; }
+.pair-hero-side { margin-bottom: 6px; }
+
+.pair-title {
+  margin: 0;
+  font-size: 34px;
+  line-height: 40px;
+  font-weight: 700;
+  letter-spacing: -0.8px;
+  text-wrap: balance;
+}
+
+.pair-subtitle {
+  margin: 10px 0 0;
+  max-width: 30em;
+  text-wrap: pretty;
+}
+
+.pair-steps {
+  list-style: none;
+  margin: 24px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 12px;
+  text-align: left;
+}
+.pair-steps li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 16px;
+  line-height: 22px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+}
+.pair-step-n {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--dot-light);
+  color: var(--dot-deep);
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.pair-note {
+  margin: 20px 0 0;
+  padding: 10px 14px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--ink-raised) 70%, transparent);
+  max-width: 30em;
+}
+
+/* ---- Carte du QR code ---- */
+
+.pair-card {
+  justify-self: center;
+  width: 100%;
+  max-width: 380px;
+  padding: 20px;
+  border-radius: 28px;
+  background: var(--ink-raised);
+  box-shadow: var(--pair-card-shadow);
+}
+
+.pair-qr {
+  aspect-ratio: 1;
+  padding: 12px;
+  border-radius: 20px;
+  background: #ffffff;
+  transition: opacity 0.3s var(--ease), filter 0.3s var(--ease);
+}
+.pair-qr.is-busy { opacity: 0.35; filter: blur(2px); }
+.pair-qr-svg { display: block; width: 100%; height: 100%; }
+.pair-qr-svg path { fill: var(--pair-qr-ink); }
+.pair-qr-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  background: #f2f2f6;
+}
+
+.pair-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  min-height: 40px;
+}
+.pair-status p { margin: 0; }
+.pair-error { color: var(--ink-danger); }
+
+.pair-ring { flex: none; }
+.pair-ring-track { fill: none; stroke: var(--ink-fill); stroke-width: 3; }
+.pair-ring-fill {
+  fill: none;
+  stroke: var(--dot-base);
+  stroke-width: 3;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 1s linear;
+}
+.pair-ring-text {
+  fill: var(--ink-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.pair-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 4px;
+  padding: 32px 8px;
+  animation: pair-pop 0.4s var(--ease) both;
+}
+.pair-success p { margin: 0; }
+.pair-success .t-headline { margin-top: 8px; text-wrap: balance; }
+
+@keyframes pair-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- Pied de page ---- */
+
+.pair-footer {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 6px;
+  max-width: 34em;
+  margin: 0 auto;
+  text-align: center;
+  text-wrap: pretty;
+}
+.pair-footer svg { flex: none; margin-top: 2px; }
+
+/* ---- Grand écran : deux colonnes ---- */
+
+@media (min-width: 880px) {
+  .pair { padding: 32px 40px; }
+  .pair-close { top: 24px; right: 24px; }
+  .pair-main {
+    grid-template-columns: 1.15fr 0.85fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .pair-intro { align-items: flex-start; text-align: left; }
+  .pair-hero { justify-content: flex-start; margin-left: -12px; }
+  .pair-title { font-size: 44px; line-height: 50px; letter-spacing: -1.2px; }
+  .pair-card { padding: 24px; }
+}
+
+@media (max-width: 360px) {
+  .pair-title { font-size: 28px; line-height: 34px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pair-ring-fill, .pair-qr { transition: none; }
+  .pair-success { animation: none; }
+}

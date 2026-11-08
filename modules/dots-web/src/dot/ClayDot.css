@@ -1,0 +1,35 @@
+/* Calques de ClayDot.tsx : tous plein cadre, empilés ; les transformations sont écrites par la boucle
+   d'animation partagée. */
+.clay-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.clay-dot > img,
+.clay-dot-body,
+.clay-dot-body > img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  -webkit-user-drag: none;
+}
+
+/* Changement de couleur : le nouveau corps apparaît en fondu par-dessus l'ancien (Crossfade 450 ms). */
+.clay-dot-fade {
+  animation: clay-dot-fade 450ms ease-out both;
+}
+
+@keyframes clay-dot-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clay-dot-fade { animation: none; }
+}
