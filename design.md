@@ -178,7 +178,7 @@ Hermes Agent uses the **LLM Agent Pattern**: each module exposes typed tools ove
 | Component | Host | Network Access | Specs |
 |---|---|---|---|
 | **Actual Budget** | Existing server | Public HTTPS for web UI; API through `actual-api` (auth required) | Existing production instance |
-| **Hermes Agent** | Production server (Docker) | Telegram + Slack channels, memory, cron, skills, MCP client | ~3 GB limit (`mem_limit: 3g`) |
+| **Hermes Agent** | Production server (Docker) | Telegram + Slack channels, memory, cron, skills, MCP client | ~4 GB limit (`mem_limit: 3g`) |
 | **expense-tracker** | Production server (Docker) | MCP + REST tool server, IMAP IDLE | ~512 MB (`mem_limit: 512m`) |
 | **portfolio-tracker** | Production server (Docker) | MCP + REST tool server, IMAP ingress (Trades folder), PP XML read/write, OneDrive | ~512 MB (`mem_limit: 512m`) |
 | **actual-api** | Production server (Docker) | Official `@actual-app/api` (Node.js), WebSocket sync | — |

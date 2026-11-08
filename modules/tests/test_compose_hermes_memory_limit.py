@@ -8,10 +8,16 @@ COMPOSE_FILE = Path(__file__).parents[1] / "docker-compose.yml"
 
 
 class HermesComposeConfigTests(unittest.TestCase):
-    def test_hermes_memory_limit_is_three_gib(self):
+    def test_hermes_memory_limit_is_four_gib(self):
         compose = yaml.safe_load(COMPOSE_FILE.read_text(encoding="utf-8"))
 
-        self.assertEqual("3g", compose["services"]["hermes"]["mem_limit"])
+        self.assertEqual("4g", compose["services"]["hermes"]["mem_limit"])
+
+    def test_browser_outlasts_a_takeover(self):
+        config = yaml.safe_load(COMPOSE_FILE.with_name("hermes").joinpath("config.yaml").read_text(encoding="utf-8"))
+
+        self.assertNotIn("browser", config["agent"]["disabled_toolsets"])
+        self.assertGreater(config["browser"]["inactivity_timeout"], 15 * 60)
 
     def test_hermes_dashboard_and_webui_are_not_run(self):
         # Both were removed to free memory on the 8 GB host (#157). The
