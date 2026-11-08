@@ -665,6 +665,7 @@ class DotsAdapter(BasePlatformAdapter):
         self._browser_task: Optional[str] = None
         self._screen_task: Optional[asyncio.Task] = None
         self._screen_cdp: Any = None
+        self._screen_attach_warned: Optional[str] = None
         self._screen_sessions: dict[str, str] = {}  # page targetId -> attached CDP session
         self._screen_viewport = (1280, 720)
         # Takeover requests from the browser_request_takeover tool: id -> (event, owner's note).
@@ -1376,6 +1377,7 @@ class DotsAdapter(BasePlatformAdapter):
         try:
             cdp = self._screen_cdp
             if cdp is None or cdp.task_id != task_id or not cdp.is_valid():
+                self._attach_screen_supervisor(task_id)
                 cdp = self._screen_cdp = SUPERVISOR_REGISTRY.capture(task_id, timeout=3)
                 self._screen_sessions = {}
             session = self._visible_page_session(cdp)
@@ -1394,6 +1396,28 @@ class DotsAdapter(BasePlatformAdapter):
         except (CapturedCDPInvalid, TimeoutError, RuntimeError, KeyError, IndexError, TypeError):
             self._screen_cdp = None
             return None
+
+    def _attach_screen_supervisor(self, task_id: str) -> None:
+        """Friday patch: browser_exec does not always leave a CDP supervisor in the gateway, and the
+        screen is blank without one. Attach to the browser Hermes already runs; never launch one."""
+        from tools.browser_session import session_for_task
+        from tools.browser_session_cdp import get_cdp_override, get_dialog_policy_config, resolve_cdp_override
+        from tools.browser_supervisor import SUPERVISOR_REGISTRY
+        try:
+            session_url = str(session_for_task(task_id).get("cdp_url") or "")
+            cdp_url = get_cdp_override() or (resolve_cdp_override(session_url) if session_url else "")
+            if not cdp_url:
+                raise LookupError("no active browser session")
+            policy, timeout_s = get_dialog_policy_config()
+            # ponytail: Hermes' cleanup stops supervisors by session key, not this bare task id, so one
+            # can outlive its browser until the next attach replaces it; stop it here if threads pile up.
+            SUPERVISOR_REGISTRY.get_or_start(
+                task_id=task_id, cdp_url=cdp_url, dialog_policy=policy, dialog_timeout_s=timeout_s)
+            self._screen_attach_warned = None
+        except Exception as exc:  # the stream polls this every 1.5 s: name the cause once, keep idling
+            if self._screen_attach_warned != task_id:
+                self._screen_attach_warned = task_id
+                logger.warning("[Dots] Live screen cannot attach to the browser for task %s: %s", task_id, exc)
 
     def _visible_page_session(self, cdp: Any) -> str:
         """The supervisor is pinned to Chromium's first tab, often a blank new-tab page, while the
