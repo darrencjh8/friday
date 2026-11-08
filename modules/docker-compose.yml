@@ -408,8 +408,37 @@ services:
         shm_size: 1g
         logging: *default-logging
 
+    # Speech-to-text for Hermes. Separate from the gateway so a model that
+    # outgrows its limit costs one transcript, not the gateway. No published
+    # port: only the compose network reaches it.
+    whisper:
+        build:
+            context: ./whisper
+            dockerfile: Dockerfile
+        environment:
+            - WHISPER_MODEL=small
+        volumes:
+            - whisper_models:/models
+        mem_limit: 1500m
+        restart: unless-stopped
+        init: true
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "python",
+                    "-c",
+                    "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+                ]
+            interval: 30s
+            timeout: 5s
+            retries: 3
+            start_period: 15s
+        logging: *default-logging
+
 volumes:
     codex_router_state:
+    whisper_models:
     onedrive_data:
 
 networks:
