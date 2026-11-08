@@ -1,0 +1,24 @@
+{
+  "name": "dots-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "sync-dots": "node scripts/sync-dots.mjs"
+  },
+  "dependencies": {
+    "dompurify": "3.4.17",
+    "marked": "15.0.12",
+    "preact": "10.29.8",
+    "qrcode-generator": "1.5.2"
+  },
+  "devDependencies": {
+    "@preact/preset-vite": "2.10.5",
+    "typescript": "5.9.3",
+    "vite": "6.4.5"
+  }
+}

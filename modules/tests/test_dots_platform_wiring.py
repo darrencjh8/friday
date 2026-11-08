@@ -31,12 +31,20 @@ class DotsPlatformWiringTest(unittest.TestCase):
     def test_gateway_is_published_on_host_loopback_only(self):
         self.assertIn("127.0.0.1:8788:8788", hermes_service()["ports"])
 
-    def test_token_is_optional_and_browsers_stay_refused(self):
+    def test_token_and_web_origins_are_optional(self):
         env = hermes_service()["environment"]
         for line in ("DOTS_TOKEN=${DOTS_TOKEN:-}", "DOTS_BIND=0.0.0.0:8788",
                      "DOTS_ALLOWED_USERS=owner", "DOTS_HOME_CHANNEL=owner"):
             self.assertIn(line, env)
-        self.assertFalse([line for line in env if line.startswith("DOTS_WEB_ORIGINS")])
+        self.assertIn("DOTS_WEB_ORIGINS=${DOTS_WEB_ORIGINS:-}", env)
+
+    def test_web_app_is_published_on_host_loopback_only(self):
+        service = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["dots-web"]
+        self.assertEqual(service["build"]["context"], "../modules/dots-web")
+        self.assertEqual(service["ports"], ["127.0.0.1:8789:8789"])
+
+    def test_web_origins_come_from_a_deploy_secret(self):
+        self.assertIn("DOTS_WEB_ORIGINS: ${{ secrets.DOTS_WEB_ORIGINS }}", WORKFLOW.read_text(encoding="utf-8"))
 
     def test_private_release_proxy_is_configured_and_token_authenticated(self):
         env = hermes_service()["environment"]
@@ -51,7 +59,7 @@ class DotsPlatformWiringTest(unittest.TestCase):
 
     def test_settings_reach_the_profile_secret_scope(self):
         block = SEED.read_text(encoding="utf-8").split("mirrored_exact = (", 1)[1].split("\n)", 1)[0]
-        for key in ("DOTS_TOKEN", "DOTS_BIND", "DOTS_HOME_CHANNEL"):
+        for key in ("DOTS_TOKEN", "DOTS_BIND", "DOTS_HOME_CHANNEL", "DOTS_WEB_ORIGINS"):
             self.assertIn(f'"{key}"', block)
 
     def test_fcm_credentials_are_written_as_an_optional_read_only_file(self):

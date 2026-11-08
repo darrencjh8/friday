@@ -344,6 +344,23 @@ jobs:
               if: always() && steps.changed.outputs.run == 'true'
               run: docker rm -f hermes-image-test || true
 
+    dots-web:
+        runs-on: ubuntu-latest
+        defaults:
+            run:
+                working-directory: modules/dots-web
+        steps:
+            - uses: actions/checkout@v4
+            - uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+            - run: node --test server.test.mjs
+            # The tests use a fixture build, so only the image proves the real one is served.
+            - run: docker build -t dots-web-smoke .
+            - run: docker run -d --name dots-web-smoke -p 127.0.0.1:8789:8789 dots-web-smoke
+            - run: sleep 3 && curl -fsS http://127.0.0.1:8789/ | grep -q '<title>Hermes'
+            - run: test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8789/api/pair?id=AAAAAAAAAAAAAAAAAAAAAA')" = 204
+
     image-gen:
         runs-on: ubuntu-latest
         steps:
