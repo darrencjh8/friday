@@ -1,21 +1,23 @@
 /*
  * Charte de l'app Android (ui/theme/Color.kt, Theme.kt, Type.kt) traduite en variables CSS.
- * Thème clair uniquement, comme demandé pour le web. Les neutres « Ink » suivent les couleurs système iOS ; la palette du dot (--dot-*) teinte tout,
+ * Clair et sombre via light-dark() : `color-scheme` décide, voir src/theme.ts.
+ * ponytail: light-dark() demande Chrome 123 / Safari 17.5 / Firefox 120 ; en dessous, les couleurs manquent.
+ * Les neutres « Ink » suivent les couleurs système iOS ; la palette du dot (--dot-*) teinte tout,
  * elle est posée sur l'élément racine du chat par `paletteStyle()` (src/dot/palettes.ts).
  */
 :root {
-  --ink-primary: #111114;
-  --ink-secondary: #8a8a8f;
-  --ink-tertiary: #c7c7cc;
-  --ink-separator: #e6e6eb;
-  --ink-fill: #f2f2f6;
-  --ink-agent-bubble: #f0f0f4;
-  --ink-grouped: #f5f5f8;
-  --ink-surface: #ffffff;
-  --ink-raised: #ffffff;
-  --ink-success: #30c15a;
-  --ink-warning: #e08a00;
-  --ink-danger: #ff3b30;
+  --ink-primary: light-dark(#111114, #f2f2f7);
+  --ink-secondary: light-dark(#8a8a8f, #98989f);
+  --ink-tertiary: light-dark(#c7c7cc, #55555b);
+  --ink-separator: light-dark(#e6e6eb, #2e2e33);
+  --ink-fill: light-dark(#f2f2f6, #26262b);
+  --ink-agent-bubble: light-dark(#f0f0f4, #26262b);
+  --ink-grouped: light-dark(#f5f5f8, #0b0b0d);
+  --ink-surface: light-dark(#ffffff, #0e0e11);
+  --ink-raised: light-dark(#ffffff, #1c1c20);
+  --ink-success: light-dark(#30c15a, #3dd26a);
+  --ink-warning: light-dark(#e08a00, #ffa62b);
+  --ink-danger: light-dark(#ff3b30, #ff5a50);
 
   /* Palette par défaut (Tangerine) : remplacée par celle de l'agent affiché. */
   --dot-base: #ff8a3d;
@@ -28,7 +30,7 @@
   --radius-bubble: 20px;
   --radius-card: 20px;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
-  color-scheme: light;
+  color-scheme: light dark;
 }
 
 

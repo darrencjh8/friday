@@ -16,6 +16,7 @@ before(async () => {
     const dist = mkdtempSync(join(tmpdir(), "dots-web-"));
     writeFileSync(join(dist, "index.html"), "<title>Hermes</title>");
     writeFileSync(join(dist, "app.js"), "export {}");
+    writeFileSync(join(dist, "manifest-nova.webmanifest"), "{}");
     server = spawn(process.execPath, [fileURLToPath(new URL("./server.mjs", import.meta.url))], {
         env: { ...process.env, PORT: String(PORT), DOTS_WEB_DIST: dist },
         stdio: "inherit",
@@ -45,6 +46,11 @@ test("serves the app with the Vercel security headers", async () => {
 test("serves files with their type and falls back to the app for routes", async () => {
     assert.match((await fetch(`${base}/app.js`)).headers.get("content-type"), /javascript/);
     assert.match(await (await fetch(`${base}/pair`)).text(), /Hermes/);
+});
+
+test("serves the PWA manifest with its type", async () => {
+    const res = await fetch(`${base}/manifest-nova.webmanifest`);
+    assert.match(res.headers.get("content-type"), /manifest\+json/);
 });
 
 test("never serves anything outside the build directory", async () => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ClayDot } from "../dot/ClayDot";
 import { paletteStyle } from "../dot/palettes";
+import { setAppIcon } from "../appIcon";
 import type { GatewayClient } from "../gateway/GatewayClient";
 import { getClient, syncClients, useGateway } from "../gateway/registry";
 import { PairingScreen } from "../pairing/PairingScreen";
@@ -70,6 +71,7 @@ export function ChatApp({ agents }: { agents: WebAgent[] }) {
 
   useEffect(() => {
     if (active) writeActive(active.session_id);
+    if (active) setAppIcon(active.species);
     for (const agent of agents) getClient(agent)?.setActive(agent.session_id === active?.session_id);
   }, [active, agents]);
 

@@ -98,7 +98,7 @@ export async function decryptDeposit(deposit: unknown, privateKey: CryptoKey, id
 // ---------------------------------------------------------------------------------------------
 // Validation du message en clair
 
-const SPECIES: SpeciesId[] = ["galet", "nuage", "pave"];
+const SPECIES: SpeciesId[] = ["galet", "nuage", "pave", "nova"];
 const PALETTES: PaletteId[] = ["tangerine", "bubblegum", "sky", "lime", "sun", "grape"];
 const ACCESSORIES: AccessoryId[] = ["winged_cap", "none"];
 const MAX_AGENTS = 32;

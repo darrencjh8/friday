@@ -36,6 +36,7 @@ const PATHS: Record<string, string[]> = {
   download: ["M12 3v12", "M7 10l5 5 5-5", "M5 21h14"],
   play: [],
   pause: [],
+  theme: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18z", "M12 3v18", "M12 7h5", "M12 11h7.5", "M12 15h6.5"],
   logout: ["M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4", "M16 17l5-5-5-5", "M21 12H9"],
   close: ["M18 6L6 18", "M6 6l12 12"],
   hand: [

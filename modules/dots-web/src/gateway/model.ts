@@ -139,7 +139,7 @@ export const EMPTY_SNAPSHOT: GatewaySnapshot = {
   unread: 0,
 };
 
-const SPECIES: Record<string, SpeciesId> = { galet: "galet", nuage: "nuage", pave: "pave" };
+const SPECIES: Record<string, SpeciesId> = { galet: "galet", nuage: "nuage", pave: "pave", nova: "nova" };
 const PALETTES: PaletteId[] = ["tangerine", "bubblegum", "sky", "lime", "sun", "grape"];
 
 /** `dots` du gateway → sous-dots ; défauts de l'app (SubDots.kt) : Nuage, Sky, pétase. */

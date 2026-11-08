@@ -22,8 +22,8 @@ export function palette(id: string | undefined): DotPalette {
   return PALETTES[(id as PaletteId) ?? "tangerine"] ?? PALETTES.tangerine;
 }
 
-/** Variables CSS d'une palette, à poser en `style` sur un conteneur (le web n'a que le thème clair). */
+/** Variables CSS d'une palette, à poser en `style` sur un conteneur. En sombre, mêmes mélanges que Theme.kt. */
 export function paletteStyle(id: string | undefined): Record<string, string> {
   const p = palette(id);
-  return { "--dot-base": p.base, "--dot-deep": p.deep, "--dot-light": p.light, "--dot-on-base": p.onBase };
+  return { "--dot-base": p.base, "--dot-deep": `light-dark(${p.deep}, color-mix(in srgb, ${p.base} 70%, white))`, "--dot-light": `light-dark(${p.light}, color-mix(in srgb, #1c1c20 74%, ${p.base}))`, "--dot-on-base": p.onBase };
 }
