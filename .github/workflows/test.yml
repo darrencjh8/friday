@@ -357,3 +357,19 @@ jobs:
             - name: Run tests
               working-directory: modules/image-gen
               run: node --test __tests__/server.test.js
+
+    whisper:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Build image
+              run: docker build -t whisper-test modules/whisper
+            - name: The image can decode audio
+              run: |
+                  docker run --rm whisper-test python -c "
+                  import ctranslate2, wave
+                  from faster_whisper.audio import decode_audio
+                  with wave.open('/tmp/t.wav', 'wb') as w:
+                      w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(bytes(32000))
+                  assert len(decode_audio('/tmp/t.wav')) == 16000
+                  "

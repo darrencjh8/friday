@@ -1,0 +1,3 @@
+faster-whisper==1.2.1
+# 16 and later dropped an argument faster-whisper still passes when decoding.
+av==15.1.0

@@ -7,7 +7,7 @@
 # Locally: reads .env files.
 #
 # Usage: ./modules/deploy.sh --component <name> [--component <name>...] [--non-interactive]
-#   --component <name>  Required. One of: all, hermes, portfolio-tracker, expense-tracker, actual-api, image-gen
+#   --component <name>  Required. One of: all, hermes, portfolio-tracker, expense-tracker, actual-api, image-gen, whisper
 #   --non-interactive    Skip OneDrive auth prompt
 # =============================================================================
 set -euo pipefail
@@ -36,6 +36,7 @@ if [[ ${#COMPONENTS[@]} -eq 0 ]]; then
   echo "  expense-tracker      Expense tracker"
   echo "  actual-api           Actual Budget API"
   echo "  image-gen            Image generation"
+  echo "  whisper              Speech-to-text for Hermes"
   echo "  codex-router         LiteLLM proxy (ChatGPT/DeepSeek router)"
   echo ""
   echo "Example:"
