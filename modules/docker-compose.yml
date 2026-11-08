@@ -225,8 +225,6 @@ services:
     dots-web:
         build:
             context: ../modules/dots-web
-        labels:
-            org.opencontainers.image.revision: ${HERMES_SOURCE_REVISION:-unknown}
         ports:
             - "127.0.0.1:8789:8789"
         environment:
