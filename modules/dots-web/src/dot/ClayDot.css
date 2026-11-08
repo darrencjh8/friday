@@ -33,3 +33,21 @@
 @media (prefers-reduced-motion: reduce) {
   .clay-dot-fade { animation: none; }
 }
+
+/* Friday : un buste 360 × 388 posé en bas du cadre carré des mascottes. */
+.portrait-dot {
+  position: relative;
+  display: inline-block;
+  flex: none;
+}
+.portrait-dot img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: 50% 100%;
+}
+.portrait-dot .is-showing { animation: portrait-in 0.45s both; }
+.portrait-dot .is-leaving { animation: portrait-in 0.45s reverse both; }
+@keyframes portrait-in { from { opacity: 0; } to { opacity: 1; } }

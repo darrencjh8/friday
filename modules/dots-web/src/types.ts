@@ -5,7 +5,7 @@
  * propre à ce navigateur (jamais le DOTS_TOKEN) et l'apparence choisie dans l'app.
  */
 
-export type SpeciesId = "galet" | "nuage" | "pave";
+export type SpeciesId = "galet" | "nuage" | "pave" | "nova";
 export type PaletteId = "tangerine" | "bubblegum" | "sky" | "lime" | "sun" | "grape";
 export type AccessoryId = "winged_cap" | "none";
 

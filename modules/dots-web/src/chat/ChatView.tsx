@@ -2,6 +2,7 @@ import type { Ref } from "preact";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ClayDot, type DotMood } from "../dot/ClayDot";
 import { paletteStyle } from "../dot/palettes";
+import { cycleTheme, readTheme } from "../theme";
 import type { GatewayClient } from "../gateway/GatewayClient";
 import { MAIN_CHAT, type GatewaySnapshot } from "../gateway/model";
 import { useGateway } from "../gateway/registry";
@@ -100,6 +101,7 @@ function ChatHeader({
   snapshot: GatewaySnapshot;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [theme, setTheme] = useState(readTheme);
   const busy = snapshot.status === "online" && snapshot.activity !== "idle";
 
   useEffect(() => {
@@ -141,6 +143,19 @@ function ChatHeader({
           </button>
           {menuOpen && (
             <div class="menu" role="menu">
+              <button
+                type="button"
+                role="menuitem"
+                class="menu-item"
+                onClick={(e) => {
+                  // Le menu reste ouvert : on peut passer d'un mode à l'autre d'affilée.
+                  e.stopPropagation();
+                  setTheme(cycleTheme(theme));
+                }}
+              >
+                <Icon name="theme" size={16} />
+                {t.theme(theme)}
+              </button>
               <button
                 type="button"
                 role="menuitem"

@@ -5,6 +5,7 @@ import { loadAgents, onAgentsChange } from "./store";
 import type { WebAgent } from "./types";
 import { PairingScreen } from "./pairing/PairingScreen";
 import { ChatApp } from "./chat/ChatApp";
+import { applyTheme } from "./theme";
 
 /** Sans agent appairé : l'écran du QR code. Sinon : le chat. */
 function App() {
@@ -13,4 +14,5 @@ function App() {
   return agents.length === 0 ? <PairingScreen /> : <ChatApp agents={agents} />;
 }
 
+applyTheme();
 render(<App />, document.getElementById("app")!);

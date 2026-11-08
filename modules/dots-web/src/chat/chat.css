@@ -163,8 +163,8 @@
   background: linear-gradient(
     to bottom,
     var(--ink-surface) calc(100% - 32px),
-    rgba(255, 255, 255, 0.7) calc(100% - 16px),
-    rgba(255, 255, 255, 0) 100%
+    color-mix(in srgb, var(--ink-surface) 70%, transparent) calc(100% - 16px),
+    transparent 100%
   );
   pointer-events: none;
 }

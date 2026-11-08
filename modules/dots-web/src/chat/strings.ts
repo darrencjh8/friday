@@ -51,6 +51,7 @@ export const t = strings({
     dots: "Dots",
     addAgent: "Add an agent",
     more: "More",
+    theme: (mode: string) => `Theme: ${mode}`,
     logout: "Log out this browser",
     logoutConfirm: (name: string) =>
       `Log this browser out of ${name}? You will need to scan a QR code from the phone app to reconnect.`,
@@ -106,6 +107,7 @@ export const t = strings({
     dots: "Dots",
     addAgent: "Ajouter un agent",
     more: "Plus",
+    theme: (mode: string) => `Thème : ${({ system: "système", light: "clair", dark: "sombre" } as Record<string, string>)[mode]}`,
     logout: "Déconnecter ce navigateur",
     logoutConfirm: (name: string) =>
       `Déconnecter ce navigateur de ${name} ? Il faudra scanner un QR code depuis l'app du téléphone pour le reconnecter.`,

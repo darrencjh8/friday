@@ -1,7 +1,7 @@
 /* Écran d'appairage : même identité que l'app (blanc, pastels, typographie iOS de theme.css), fond en
    dégradé pastel comme le visuel du README. Une colonne au téléphone, deux sur grand écran. */
 .pair {
-  --pair-bg: linear-gradient(165deg, #e4eeff 0%, #edf0fb 45%, #f5effd 100%);
+  --pair-bg: linear-gradient(165deg, light-dark(#e4eeff, #10131c) 0%, light-dark(#edf0fb, #0e0e11) 45%, light-dark(#f5effd, #15111c) 100%);
   --pair-card-shadow: 0 1px 2px rgba(17, 17, 20, 0.04), 0 18px 48px -12px rgba(47, 80, 160, 0.18);
   --pair-qr-ink: #111114;
   position: relative;

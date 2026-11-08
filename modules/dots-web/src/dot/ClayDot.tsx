@@ -1,6 +1,7 @@
 import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { AccessoryId, PaletteId, SpeciesId } from "../types";
+import { PortraitDot } from "./PortraitDot";
 import "./ClayDot.css";
 
 /**
@@ -49,7 +50,7 @@ interface Art {
   swaying: Swaying | null;
 }
 
-const ART: Record<SpeciesId, Art> = {
+const ART: Record<Exclude<SpeciesId, "nova">, Art> = {
   galet: { prefix: "dot_", bodyTop: 0.3478, bodyBottom: 0.85, eyeY: 0.5935, mouthY: 0.6421, shadowY: 0.88, mouthRest: false, swaying: null },
   nuage: {
     prefix: "dot_nuage_", bodyTop: 0.3344, bodyBottom: 0.8125, eyeY: 0.6135, mouthY: 0.6594, shadowY: 0.835, mouthRest: true,
@@ -280,6 +281,10 @@ function setFollow(el: HTMLElement | undefined, y: number, alpha: number) {
 const BODY_FADE_MS = 450;
 
 export function ClayDot(props: ClayDotProps): JSX.Element {
+  return props.species === "nova" ? <PortraitDot mood={props.mood} size={props.size} class={props.class} /> : <Clay {...props} species={props.species} />;
+}
+
+function Clay(props: ClayDotProps & { species: Exclude<SpeciesId, "nova"> }): JSX.Element {
   const { species, palette, accessory = "winged_cap", mood = "idle", size, shadow = true } = props;
   const art = ART[species] ?? ART.galet;
   const pal = PALETTE_IDS.includes(palette) ? palette : "tangerine";
