@@ -28,7 +28,6 @@ agent:
         - computer_use
         - image_gen
         - tts
-        - browser
 
 display:
     show_reasoning: false
@@ -111,6 +110,11 @@ terminal:
     # execute_code scrubs *_SECRET and unlisted names from its child env, so the
     # gtasks CLI it may spawn (wiki-due-reminders) needs its OAuth client passed.
     env_passthrough: [GTASKS_CLIENT_ID, GTASKS_CLIENT_SECRET]
+
+browser:
+    # Longer than browser_request_takeover's 15-minute wait, which is not browser
+    # activity: the default 120 s would close the page while the owner is on it.
+    inactivity_timeout: 960
 
 web:
     search_backend: brave-free

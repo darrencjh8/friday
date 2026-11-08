@@ -39,6 +39,8 @@ x-codex-router-color: &codex-router-color
         # always pre-empt the lane. Forwarded from the deploy workflow's
         # environment; this default applies when it is not set there.
         - CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS=${CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS:-300}
+        # Several threaded Python processes; same reasoning as hermes below.
+        - MALLOC_ARENA_MAX=2
     restart: unless-stopped
     # A colour publishes no port of its own: the front owns 4100, so both
     # colours can run at once without a bind conflict.
@@ -401,7 +403,8 @@ services:
             # not reused by another, so RSS climbs and stays high. 2 is enough
             # under the GIL.
             - MALLOC_ARENA_MAX=2
-        mem_limit: 3g
+        # 4g since the agent drives a local Chromium inside this container.
+        mem_limit: 4g
         networks:
             - default
             - hermes_shared
