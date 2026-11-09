@@ -92,11 +92,16 @@ def main():
         await adapter._on_user_reaction({"message_id": "not-an-approval", "emoji": "👍"})
         adapter._approvals["appr2"] = "session2"
         await adapter._on_user_reaction({"message_id": "appr2", "emoji": None})
+        # Reaction:removed must leave the approval pending (assert, don't pop).
+        if "appr2" not in adapter._approvals:
+            print(f"FAIL: {TEST_ID} reaction:removed wrongly resolved pending approval appr2")
+            failures.append("removed")
         adapter._approvals.pop("appr2", None)
 
+    failures = []
     asyncio.run(run())
 
-    ok = True
+    ok = not failures
     if ("session1", "once") not in resolved:
         print(f"FAIL: {TEST_ID} thumbs-up on pending approval did not resolve it (resolved={resolved})")
         ok = False
