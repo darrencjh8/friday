@@ -64,7 +64,7 @@ jobs:
             - uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.inputs.ref || '' }}
-                  fetch-depth: 2
+                  fetch-depth: 0
                   clean: false
                   token: ${{ secrets.SUBMODULE_PAT }}
 
@@ -80,6 +80,8 @@ jobs:
               env:
                   FORCE_ALL: ${{ inputs.force_all || 'false' }}
                   DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  DISPATCH_REF: ${{ inputs.ref || '' }}
               run: |
 
                   # Workflow dispatch with explicit components: use them directly
@@ -92,7 +94,29 @@ jobs:
                       echo "components=all" >> "$GITHUB_OUTPUT"
                       exit 0
                   fi
-                  CHANGED=$(git diff --name-only HEAD~1 HEAD 2>/dev/null || echo "")
+                  # Resolve the base: the last successful deploy's commit, so a
+                  # run that replaces a cancelled queued run ships everything
+                  # since then, not just its own commit.
+                  BASE_SHA="${LAST_SUCCESSFUL_DEPLOY_SHA:-}"
+                  if [ -z "$BASE_SHA" ]; then
+                      LOOKUP_BASE=false
+                      if [ "${GITHUB_EVENT_NAME:-}" = "push" ]; then
+                          LOOKUP_BASE=true
+                      elif [ "${GITHUB_EVENT_NAME:-}" = "workflow_dispatch" ]; then
+                          if [ -z "${DISPATCH_REF:-}" ] || [ "${DISPATCH_REF:-}" = "main" ]; then
+                              LOOKUP_BASE=true
+                          fi
+                      fi
+                      if [ "$LOOKUP_BASE" = "true" ]; then
+                          BASE_SHA=$(curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/380193322/runs?branch=main&status=success&event=push&per_page=1" 2>/dev/null | sed -n 's/.*"head_sha": *"\([0-9a-f]\{40\}\)".*/\1/p' | head -n 1 || true)
+                      fi
+                  fi
+                  if [ -z "$BASE_SHA" ]; then
+                      echo "components=all" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  git merge-base --is-ancestor "$BASE_SHA" HEAD || { echo "components=all" >> "$GITHUB_OUTPUT"; exit 0; }
+                  CHANGED=$(git diff --name-only "$BASE_SHA" HEAD 2>/dev/null || echo "")
                   COMPONENTS=""
                   echo "$CHANGED" | grep -q "^modules/hermes/"          && COMPONENTS="$COMPONENTS hermes"
                   echo "$CHANGED" | grep -q "^modules/expense-tracker/" && COMPONENTS="$COMPONENTS expense-tracker"
