@@ -8,7 +8,9 @@ import type { DotMood } from "./ClayDot";
  * d'entrée et de sortie comme sur Android. WebCodecs ImageDecoder si on les veut un jour.
  */
 const CLIPS: Record<DotMood, string> = { idle: "idle", thinking: "thinking", talking: "speaking", happy: "idle", sleeping: "sleeping" };
-const FADE_MS = 450;
+const FADE_MS = 200;
+/** Le buste, cadré jusqu'à la taille, paraît petit dans la place d'un dot rond : il en prend le double. */
+const SCALE = 2;
 const clipSrc = (clip: string) => `/dots/nova/${clip}.webp`;
 
 export function PortraitDot(props: { mood?: DotMood; size: number; class?: string }): JSX.Element {
@@ -27,10 +29,12 @@ export function PortraitDot(props: { mood?: DotMood; size: number; class?: strin
   const image = (name: string, cls: string) => (
     <img key={name} class={cls} src={still ? "/dots/nova/still.webp" : clipSrc(name)} alt="" draggable={false} decoding="async" />
   );
+  const box = `${props.size * SCALE}px`;
+  // L'ancien clip s'efface par-dessus le nouveau, déjà opaque : fondre les deux assombrirait le buste.
   return (
-    <div class={`portrait-dot${props.class ? " " + props.class : ""}`} style={{ width: `${props.size}px`, height: `${props.size}px` }} aria-hidden="true">
-      {leaving && leaving !== clip && image(leaving, "is-leaving")}
+    <div class={`portrait-dot${props.class ? " " + props.class : ""}`} style={{ width: box, height: box }} aria-hidden="true">
       {image(clip, "is-showing")}
+      {leaving && leaving !== clip && image(leaving, "is-leaving")}
     </div>
   );
 }
