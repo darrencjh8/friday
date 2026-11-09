@@ -169,8 +169,8 @@
   pointer-events: none;
 }
 .chat-header > * { pointer-events: auto; }
-/* Friday domine l'écran de conversation ; la hauteur d'écran la borne sur les petits téléphones. */
-.chat-identity .portrait-dot { width: min(260px, 30vh) !important; height: min(260px, 30vh) !important; }
+/* Friday un peu plus grande dans l'en-tête de conversation que le double d'un dot rond. */
+.chat-identity .portrait-dot { width: 123px !important; height: 123px !important; }
 .chat-header > .chat-header-side:first-child { pointer-events: none; }
 
 /* -- Sélecteur des dots (principal + sous-dots) ------------------------------------------------- */
