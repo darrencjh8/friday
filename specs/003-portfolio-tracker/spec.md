@@ -216,7 +216,7 @@ Useful for debugging or when the user only wants to sync the file without runnin
 
 **Acceptance Criteria:**
 - Hermes invokes `portfolio_sync` on schedule (configurable via `PP_SYNC_ALL_CRON`)
-- Portfolio-tracker's internal apscheduler remains but can be deprecated later
+- There is no apscheduler anywhere in the code; the only scheduler is the Hermes cron job `finance-portfolio-sync`
 
 ### US-7: Telegram commands via Hermes (Priority: P2)
 
@@ -341,7 +341,7 @@ Function:
 | IBKR Flex Web Service unreachable during sync | Logs warning, skips flex import, continues with balance sync + taxonomy |
 | IBKR Flex Web Service returns no new trades | Import step returns `trades_imported: 0` — sync continues |
 | Java CLI `import` with duplicate trades | PP native extractor handles dedup; returns `items_skipped > 0` |
-| Hermes cron and apscheduler both trigger sync | Idempotent — delta = 0 if already synced |
+| Only the Hermes cron job `finance-portfolio-sync` triggers sync | Idempotent — delta = 0 if already synced |
 | AB budget API down | Log error, exit without modifying PP |
 | Zero budget data (all categories = 0) | Report "All balances are 0 — may need review", skip update |
 | PP file corrupted (unparseable XML) | Java CLI exits with error, no write attempted |

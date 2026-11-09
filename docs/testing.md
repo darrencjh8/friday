@@ -17,16 +17,20 @@ deploying on non-push events. Keep this page in step with that file.
 | `compose-config` | repo root | `docker compose config -q` on every tracked `docker-compose.yml`, then `python -m unittest discover -s modules/tests` | |
 | `hermes-scripts` | repo root | `shellcheck`, the `modules/hermes/tests/*.sh` suites, and the Python `unittest` modules listed in the job | |
 | `hermes-image` | repo root | builds and boots the Hermes image when `modules/hermes/`, the compose file or `test.yml` changed | |
+| `dots-web` | `modules/dots-web` | `node --test server.test.mjs`, then a Docker smoke test serving the built app on `127.0.0.1:8789` | |
 | `image-gen` | `modules/image-gen` | `node --test __tests__/server.test.js` | there is no `npm test` script |
+| `whisper` | repo root | builds the whisper image and decodes a silent WAV fixture with it | |
+| `docs-drift` | repo root | `bash scripts/check-docs-drift.sh` — verifies the docs state the same facts as the code | also runs inside the `hermes-scripts` job |
 
 `secrets-scan.yml` (gitleaks, PII literals, author email) and
 `codex-router-ci.yml` (the router repository's suite, see
 [operations.md](operations.md)) guard the rest.
 
 Not every `modules/hermes/tests/*.sh` file is wired into `hermes-scripts`:
-`test-config-nochown.sh`, `test-mnemosyne-seed.sh`, `test-mnemosyne-vacuum.sh`
+`test-config-nochown.sh`, `test-mnemosyne-seed.sh`
 and `test-skills-backup-restore.sh` have no CI step, so nothing exercises a
-change to them unless you run them yourself.
+change to them unless you run them yourself. (`test-mnemosyne-vacuum.sh` is
+wired into the `hermes-scripts` job.)
 
 ## Running them locally
 

@@ -1,3 +1,4 @@
+> Historical record: loan sync is implemented (tests committed) and this plan's premise no longer holds. This file is kept as a record of the plan.
 QUESTIONS
 q: How is the currency of a source verified? | a: The operator confirms that membership in the configured primary Actual Budget establishes SGD; reject any explicit conflicting currency.
 q: How are customer-specific source and destination accounts supplied? | a: Supply private runtime configuration; do not include account identifiers or names in public repository content or logs.

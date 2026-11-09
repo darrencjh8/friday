@@ -1,61 +1,28 @@
 # OneDrive Sync Module
 
-Syncs specific OneDrive folders to local disk for portfolio-tracker to consume.
+> Retired as a sync container: there is no `onedrive-sync` service in
+> `modules/docker-compose.yml` and no rclone sync. Portfolio sync now happens
+> inside portfolio-tracker via the Microsoft Graph API
+> (`modules/portfolio-tracker/src/onedrive.js`, `pp-pull` / `pp-push`).
 
-## Quick Start (delegated auth, recommended)
+This directory is retained only for the OAuth refresh token path:
+`modules/onedrive-sync/config/onedrive/`, which `modules/deploy.sh` still
+points at. The token is created once by `authorize.sh` and read by
+portfolio-tracker at runtime.
 
-One-time setup:
+## One-time setup (delegated auth)
+
 ```bash
 cd modules/onedrive-sync
 ./authorize.sh
 ```
 
-This opens a browser for Microsoft OAuth. After authorizing, the refresh token is stored in
-`config/onedrive/` and all future syncs run headlessly.
-
-Then start the sync:
-```bash
-docker compose up -d onedrive-sync
-```
-
-## Architecture
-
-```
-OneDrive Cloud
-  └── PortfolioPerformance/portfolio.xml
-        │
-        ▼  driveone/onedrive (syncs every 5min)
-  /onedrive_data/PortfolioPerformance/portfolio.xml
-        │
-        ▼  portfolio-tracker (reads via shared volume)
-  Java CLI → PP XML processing
-```
+This opens a browser for Microsoft OAuth. After authorizing, the refresh token
+is stored in `config/onedrive/` and all future syncs run headlessly from
+portfolio-tracker — there is nothing to start here.
 
 ## Configuration
 
 | File | Purpose |
 |---|---|
-| `config/sync_list` | Folders/files to sync (relative to OneDrive root) |
 | `config/onedrive/` | OAuth tokens (created by `authorize.sh`) |
-
-## Alternative: Client Credentials (headless, app-only)
-
-Register an app in Azure AD → App registrations:
-1. Name: `portfolio-sync`
-2. API permissions: `Microsoft Graph` → `Files.Read.All` (Application)
-3. Grant admin consent
-4. Certificates & secrets → New client secret
-
-Set these env vars in your `.env`:
-```bash
-ONEDRIVE_TENANT_ID=your-tenant-id
-ONEDRIVE_CLIENT_ID=your-client-id
-ONEDRIVE_CLIENT_SECRET=your-secret
-```
-
-Then run:
-```bash
-python sync.py
-```
-
-This uses `sync.py` which authenticates via Microsoft Graph API without any browser interaction.

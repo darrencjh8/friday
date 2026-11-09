@@ -1,6 +1,6 @@
 ---
 name: full-deploy
-description: Full production redeploy — sync .env, backup OneDrive token and app data, git pull, rebuild all containers, health check, OneDrive sync test, non-destructive API audit, log audit, report.
+description: Full production redeploy — sync .env, back up OneDrive token and app data, merge to main, let CI deploy, verify health, OneDrive sync test, non-destructive API audit, log audit, report.
 ---
 
 # Full Deploy
@@ -15,13 +15,11 @@ Typical values: SSH as `darren` to the production server, project root at `~/fri
 
 ## Phase 0 — Pre-flight
 
-SSH to production and capture current state:
+Deploys are CI-only: production is never deployed by hand. Before anything else, confirm the change is merged to `main` and let `.github/workflows/deploy.yml` own the deploy — do NOT `ssh` to the host to pull, build, or run `deploy.sh` yourself.
 
-```bash
-ssh <user>@<server> 'cd ~/friday/modules && docker compose ps'
-```
-
-Note which services are running, their status, and uptime. Report this to the user before proceeding.
+1. Confirm the pull request is merged to `main` (or that the change is already on `main`) and note the merged HEAD commit.
+2. Confirm the deploy workflow will run: a push to `main` triggers `deploy.yml` on the self-hosted runner, which checks out the repo, detects changed components, builds, and deploys. If the push already happened, the workflow is running or done — check its status before proceeding.
+3. Do the `.env` sync (Phase 1) and backup (Phase 2) first if the change needs them; the deploy itself still goes through CI.
 
 ## Phase 1 — Sync .env Files
 
@@ -89,33 +87,19 @@ ssh <user>@<server> "ls -la /home/darren/backups/full-deploy-$TS/"
 
 Store `$TS` — you'll need it in Phase 6 if token restoration is required. Report the backup path and file sizes to the user.
 
-## Phase 3 — Git Pull
+## Phase 3 — Merge to main (no git pull on production)
 
-Ensure the production repo is on `main` and up to date:
+Never run `git pull` on the production host. The deploy workflow checks out `main` itself on the self-hosted runner.
 
-```bash
-ssh <user>@<server> 'cd ~/friday && git branch --show-current && git --no-pager log -1 --oneline'
-```
+1. Merge the change to `main` through a reviewed pull request.
+2. Record the merged HEAD commit. The push to `main` triggers `.github/workflows/deploy.yml`; if the change is already merged, the workflow has already run or is running.
+3. If a deploy must be forced (for example, to re-deploy unchanged code), use a manual `workflow_dispatch` run of `deploy.yml` with `force_all=true` — never a manual `deploy.sh` run on the host.
 
-If not on `main`, ask the user before switching. Then:
+## Phase 4 — Wait for the CI deploy
 
-```bash
-ssh <user>@<server> 'cd ~/friday && git pull origin main'
-```
+The deploy is owned by `.github/workflows/deploy.yml` on the self-hosted runner: it detects changed components, runs `modules/build.sh`, then `modules/deploy.sh --component ... --non-interactive --skip-build`. This takes several minutes. Wait for the workflow run to complete and read its output (including the health check results at the end) before proceeding to Phase 5.
 
-Report the new HEAD commit to the user.
-
-## Phase 4 — Redeploy (background agent)
-
-The deploy script does `docker compose build` + `docker compose up -d`. This takes several minutes and will time out if run directly. **Use `spawn_agent` to run it in the background:**
-
-```
-spawn_agent label="Redeploy" message="SSH to <user>@<server> and run: cd ~/friday && bash ./modules/deploy.sh --component all --non-interactive. Report the full output including the health check results at the end."
-```
-
-Wait for the agent to complete.
-
-**Note about deploy.sh**: It health-checks actual-api (3000), expense-tracker (8080), portfolio-tracker (8081), codex-router (4100), and each discovered pluggable module. It does NOT check 8083 (image-gen). A non-zero exit code may come from warp-cli or chrome-daemon setup, not from container failures. Read the actual output to judge success. Proceed to Phase 5 for full verification regardless.
+**Note about deploy.sh**: It health-checks actual-api (3000), expense-tracker (8080), portfolio-tracker (8081), codex-router (4100 `/health/liveliness`), hermes via `s6-svstat` on the `gateway-default` service, and each discovered pluggable module. It does NOT check 8083 (image-gen). A non-zero exit code may come from warp-cli or chrome-daemon setup, not from container failures. Read the actual output to judge success. Proceed to Phase 5 for full verification regardless.
 
 ## Phase 5 — Health Verification
 
@@ -127,12 +111,14 @@ After the deploy agent finishes, verify everything:
 ssh <user>@<server> 'cd ~/friday/modules && docker compose ps'
 ```
 
-All 7 services must show `Up`:
+All 9 services must show `Up`:
 
 - `hermes`
 - `expense-tracker`
 - `actual-api`
 - `portfolio-tracker`
+- `dots-web`
+- `whisper`
 - `codex-router` (Caddy front)
 - `codex-router-a`
 - `codex-router-b`
@@ -146,7 +132,8 @@ ssh <user>@<server> '
 for url in \
   http://localhost:3000/health \
   http://localhost:8080/health \
-  http://localhost:8081/health; do
+  http://localhost:8081/health \
+  http://localhost:4100/health/liveliness; do
   code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 "$url" 2>/dev/null || echo "000")
   echo "$url -> $code"
 done
@@ -155,7 +142,17 @@ done
 
 All must return `200`.
 
-### 5c. CDP (Chrome Daemon) for image-gen
+### 5c. Hermes gateway process
+
+Hermes has no HTTP health port, so check the gateway process directly:
+
+```bash
+ssh <user>@<server> 'docker exec hermes /package/admin/s6/command/s6-svstat -o up /run/hermes-service/gateway-default'
+```
+
+It must print `true`.
+
+### 5d. CDP (Chrome Daemon) for image-gen
 
 The `image-gen` service depends on the Chrome DevTools Protocol proxy running on the host:
 
@@ -264,7 +261,7 @@ ssh <user>@<server> 'cd ~/friday/modules && docker compose logs --tail=100 --no-
 Then get the last 30 lines of each service for a manual scan:
 
 ```bash
-ssh <user>@<server> 'cd ~/friday/modules && for svc in hermes expense-tracker actual-api portfolio-tracker codex-router codex-router-a codex-router-b; do echo "=== $svc ===" && docker compose logs --tail=30 "$svc" --no-log-prefix 2>&1; echo; done'
+ssh <user>@<server> 'cd ~/friday/modules && for svc in hermes expense-tracker actual-api portfolio-tracker dots-web whisper codex-router codex-router-a codex-router-b; do echo "=== $svc ===" && docker compose logs --tail=30 "$svc" --no-log-prefix 2>&1; echo; done'
 ```
 
 Look for:
@@ -303,8 +300,9 @@ Summarize everything in a structured report:
 - Result: success / failed
 
 ### Health
-- All 7 services: Up / (list failures)
+- All 9 services: Up / (list failures)
 - All 4 health endpoints: 200 / (list failures)
+- Hermes gateway (`s6-svstat` on `gateway-default`): up / down
 - CDP ports 9222/9223: listening / not
 
 ### OneDrive Sync

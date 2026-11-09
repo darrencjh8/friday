@@ -1,5 +1,7 @@
 # Spec Drift Audit
 
+> Note: verified at commit `f22135d`; its counts have since moved. The current drift check is `scripts/check-docs-drift.sh` (the `docs-drift` CI job).
+
 **Status:** DOCS FIXED + PORTFOLIO DEAD-CODE/PROMPT FIXES (see `code-notes.md`)
 **Branch:** `usr/darren/spec-drift-audit`
 **Worktree:** `../friday-spec-drift`

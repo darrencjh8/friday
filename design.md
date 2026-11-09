@@ -51,7 +51,7 @@
 | **actual-api** | Actual Budget REST/WebSocket proxy (`@actual-app/api`) | Implemented |
 | **codex-router** | LLM router exposing one OpenAI-compatible endpoint over multiple upstream models | Implemented (separate repo, checked out at deploy) |
 | **image-gen** | Image generation skill | Implemented |
-| **statement-reconciliation** | PDF credit card statement reconciliation + outlier detection | Specified, Planned, Tasked — Implementation Pending |
+| **statement-reconciliation** | PDF credit card statement reconciliation + outlier detection | Implemented |
 
 ---
 
@@ -65,7 +65,7 @@ friday/                          # Umbrella repository root (product name: Frida
 ├── SETUP.md                              # Production host setup + permissions model
 ├── AGENTS.md                             # Repository agent rules
 ├── modules/
-│   ├── docker-compose.yml                # expense-tracker, portfolio-tracker, actual-api, codex-router, hermes
+│   ├── docker-compose.yml                # expense-tracker, portfolio-tracker, actual-api, codex-router, codex-router-a, codex-router-b, hermes, dots-web, whisper
 │   ├── deploy.sh                         # Component-aware deploy: build + compose up
 │   ├── build.sh                          # Component-aware image build (no downtime)
 │   ├── hermes/                           # Agent runtime
@@ -74,8 +74,8 @@ friday/                          # Umbrella repository root (product name: Frida
 │   │   ├── 50-seed-defaults              # Seeds skills/profiles/cron into the container
 │   │   ├── SOUL.md.template              # Agent persona template
 │   │   ├── SLACK.md                      # Slack app setup + manifest instructions
-│   │   ├── skills/                       # expense-tracker, image-gen, spec-auditor, hermes-troubleshooting
-│   │   ├── profiles/                     # architect, code-reviewer, project-manager, spec-auditor
+│   │   ├── skills/                       # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, skill-merge-approval, spec-auditor
+│   │   ├── profiles/                     # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                      # Skill reconciler, Slack manifest generator
 │   │   └── tests/                        # Shell-based contract tests
 │   ├── expense-tracker/                  # Node.js ESM MCP + REST tool server
@@ -159,7 +159,7 @@ graph LR
 
     Decision -->|"confident"| Insert["insert_transaction()<br/>→ Actual Budget"]
     Decision -->|"promo/spam"| Skip["mark_email_read()<br/>→ Skip"]
-    Decision -->|"uncertain"| Notify["notify_user()<br/>→ User email"]
+    Decision -->|"uncertain"| Notify["notify_user()<br/>→ Hermes webhook :8644 → Telegram/Dots"]
 
     Insert --> Dedup["check_duplicate()<br/>→ Dedup Journal"]
     Dedup -->|"not duplicate"| AB_API["Actual Budget<br/>via actual-api"]
@@ -178,11 +178,13 @@ Hermes Agent uses the **LLM Agent Pattern**: each module exposes typed tools ove
 | Component | Host | Network Access | Specs |
 |---|---|---|---|
 | **Actual Budget** | Existing server | Public HTTPS for web UI; API through `actual-api` (auth required) | Existing production instance |
-| **Hermes Agent** | Production server (Docker) | Telegram + Slack channels, memory, cron, skills, MCP client | ~4 GB limit (`mem_limit: 3g`) |
-| **expense-tracker** | Production server (Docker) | MCP + REST tool server, IMAP IDLE | ~512 MB (`mem_limit: 512m`) |
+| **Hermes Agent** | Production server (Docker) | Telegram + Slack channels, memory, cron, skills, MCP client | ~4 GB limit (`mem_limit: 4g`) |
+| **expense-tracker** | Production server (Docker) | MCP + REST tool server, IMAP IDLE | no `mem_limit` (unlimited by compose) |
 | **portfolio-tracker** | Production server (Docker) | MCP + REST tool server, IMAP ingress (Trades folder), PP XML read/write, OneDrive | ~512 MB (`mem_limit: 512m`) |
 | **actual-api** | Production server (Docker) | Official `@actual-app/api` (Node.js), WebSocket sync | — |
-| **codex-router** | Production server (Docker) | OpenAI-compatible LLM endpoint on :4100 | ~1.5 GB (`mem_limit: 1536m`) |
+| **dots-web** | Production server (Docker) | Dots web app and pairing relay on :8789 | ~128 MB (`mem_limit: 128m`) |
+| **whisper** | Production server (Docker) | Speech-to-text for Hermes (no published port) | ~1.5 GB (`mem_limit: 1500m`) |
+| **codex-router** | Production server (Docker) | OpenAI-compatible LLM endpoint on :4100 | front ~128 MB (`mem_limit: 128m`); the two colours inherit 1536m from the shared `x-codex-router-color` anchor |
 | **Email Burner** | Any IMAP provider | Public IMAP | Dedicated inbox |
 | **DeepSeek API** | DeepSeek Cloud | Public HTTPS, reached through `codex-router` | Pay-per-token |
 
@@ -237,7 +239,7 @@ graph TB
 
 ### 5.1 Purpose
 
-An LLM-powered agent that handles receipt emails, extracts structured transactions, and inserts them into Actual Budget. The tool registry exposes 39 tools; 27 of them are registered on the MCP server for Hermes (with learning commands on), 31 are mounted as REST `/tools/*` endpoints, and 3 are on neither surface. The LLM orchestrator, IMAP handling, and memory are now owned by Hermes — expense-tracker is a tool server.
+An LLM-powered agent that handles receipt emails, extracts structured transactions, and inserts them into Actual Budget. The tool registry exposes 39 tools; 27 of them are registered on the MCP server for Hermes (with learning commands on; 28 with learning off), 32 are mounted as REST `/tools/*` endpoints (33 with learning off), and 3 are on neither surface. The 27 / 32 are surface counts, not a partition of the 39-tool registry: three surfaced tools sit outside the registry (`compact_facts` and `search_facts` on MCP, `match_broker_deposit` on REST), and with learning commands on a fourth registry tool, `confirm_learning`, is on neither surface — so "3 on neither surface" counts only the tools that are never on either surface. The LLM orchestrator, IMAP handling, and memory are now owned by Hermes — expense-tracker is a tool server.
 
 ### 5.2 Technology Stack
 
@@ -267,7 +269,7 @@ Expense-tracker exposes an MCP server at `:8080/mcp`. Hermes handles email inges
 
 ### 5.5 Implementation Status
 
-- ✅ 27 tools registered on the MCP server with learning commands on (28 when off, since `confirm_learning` is registered only then); 39 tools in the registry, 31 mounted over REST (`confirm_learning` is skipped when learning is on); `check_schedule_collision`, `fetch_schedules` and `submit_decision` are on neither surface
+- ✅ 27 tools registered on the MCP server with learning commands on (28 when off, since `confirm_learning` is registered only then); 39 tools in the registry, 32 mounted over REST (33 when off, since `confirm_learning` is skipped when learning is on); `check_schedule_collision`, `fetch_schedules` and `submit_decision` are on neither surface
 - ✅ Dedup journal (dedup.db + statement.db)
 - ✅ PDF extraction (pdftotext)
 - ✅ WASM embeddings baked into Docker image
@@ -279,11 +281,11 @@ Expense-tracker exposes an MCP server at `:8080/mcp`. Hermes handles email inges
 
 ### 5A.1 Purpose
 
-A parallel pipeline for processing monthly bank/credit card statements (PDF/HTML). Unlike receipt emails which insert new transactions, statements reconcile against existing entries: matching line items are marked cleared, unmatched are inserted as outliers. Uses `deepseek-flash` for higher accuracy on multi-line extraction.
+A parallel pipeline for processing monthly bank/credit card statements (PDF/HTML). Unlike receipt emails which insert new transactions, statements reconcile against existing entries: matching line items are marked cleared, unmatched are inserted as outliers. It uses the shared `LLMClient`; the default model is `auto-thinking` via codex-router, with `deepseek-flash` only when the provider is DeepSeek.
 
 ### 5A.2 Architecture
 
-An email is pre-classified by Hermes as "statement" vs "transaction" before dispatch. Statements go to the StatementProcessor (separate orchestrator, `deepseek-flash`, max 20 iterations). The pipeline: extract content → LLM extracts line items → fuzzy match against unreconciled transactions → mark matched as cleared, insert outliers → notify user with summary. Full details in [spec 004](./specs/004-statement-reconciliation/spec.md).
+An email is pre-classified by Hermes as "statement" vs "transaction" before dispatch. Statements go to the StatementProcessor, which uses the shared `LLMClient` (default model `auto-thinking` via codex-router; `deepseek-flash` only for the DeepSeek provider) with a max of 20 tool iterations. The pipeline: extract content → LLM extracts line items → fuzzy match against unreconciled transactions → mark matched as cleared, insert outliers → notify user with summary. Full details in [spec 004](./specs/004-statement-reconciliation/spec.md).
 
 ### 5A.3 Key Design Decisions
 
@@ -355,16 +357,20 @@ graph TB
 | Job | Schedule | Action |
 |---|---|---|
 | finance-portfolio-sync | `0 12 * * *` (daily noon, container time) | `portfolio-sync.sh` — REST `POST /tools/pp-sync-all` (no_agent, zero tokens) |
-| ops-github-token-refresh | Every 15 min | `github-auth.sh` — App-first `gh` auth (no_agent, zero tokens) |
-| memory-backup | Every 360 min | Backup Hermes memories to private repo |
-| memory-mnemosyne-vacuum | `0 3 * * 0` (Sundays 03:00) | Mnemosyne VACUUM report (no_agent) |
+| ops-github-token-refresh | every 15m | `github-auth.sh` — App-first `gh` auth (no_agent, zero tokens) |
+| memory-backup | every 360m | Backup Hermes memories to private repo |
+| memory-mnemosyne-vacuum | `0 3 * * 0` | Mnemosyne VACUUM report (no_agent) |
 | ops-log-issues | `30 18 * * *` (daily 18:30) | Daily log issue triage; artifact-only workdir |
 | memory-approve-queue | `0 8 * * *` (daily 08:00) | Drain the memory write-approval queue |
-| memory-compact | `30 7 * * 0` (Sundays 07:30) | Weekly merge of duplicate MEMORY.md / USER.md entries under their caps |
+| memory-compact | `30 7 * * *` (daily 07:30) | Daily merge of duplicate MEMORY.md / USER.md entries under their caps |
 | wiki-finance-refresh | `0 4 * * 1` (Mondays 04:00) | Wiki finance refresh |
 | wiki-repo-docs | `30 3 * * 1` (Mondays 03:30) | Wiki repo docs refresh |
 | wiki-due-reminders | `15 8 * * *` (daily 08:15) | Wiki due-date reminders |
-| skills-merge-proposals | `15 4 * * 0` (Sundays 04:15) | Skill merge proposals (no_agent) |
+| skills-merge-proposals | `15 4 * * 0` (every sunday 4:15am) | Skill merge proposals (no_agent) |
+| gtasks-clear-completed | `0 7 1 * *` (1st of the month 07:00) | Clear completed Google Tasks (no_agent) |
+| notion-monthly-bills-reset | `0 0 1 * *` (1st of the month 00:00) | Reset monthly bills in Notion |
+| actual-backup | `0 0 1 * *` (1st of the month 00:00) | Back up Actual Budget data |
+| proactive-tick | `0 8-21 * * *` (hourly 08:00–21:00) | Proactive check-in tick |
 
 Jobs are seeded by `modules/hermes/50-seed-defaults`. Schedules are container time (`Asia/Singapore`).
 
@@ -453,23 +459,23 @@ https://docs.docker.com/go/wsl2/, off after |
 flowchart TD
     A["Email arrives at burner inbox"] --> B["IMAP IDLE detects new message"]
     B --> PREFILTER{"isRecentlyProcessed(uid)?"}
-    PREFILTER -->|"Yes (within 60 min)"| SKIP["Skip — no LLM calls"]
+    PREFILTER -->|"Yes (within 12h)"| SKIP["Skip — no LLM calls"]
     PREFILTER -->|"No"| C["fetchUnread() — raw MIME"]
     C --> CLASSIFY["classifyEmail() — lightweight LLM"]
     
     CLASSIFY -->|"skip"| MARK_SKIP["mark_email_read()"]
-    CLASSIFY -->|"transaction"| ORCH["AgentOrchestrator — LLM tool loop (max 5)"]
-    CLASSIFY -->|"statement"| STMT["StatementProcessor (future)"]
+    CLASSIFY -->|"transaction"| ORCH["AgentOrchestrator — LLM tool loop (max 3 rounds / 6 calls)"]
+    CLASSIFY -->|"statement"| STMT["StatementProcessor"]
     
     ORCH --> DECISION{"LLM final decision?"}
     
     DECISION -->|"Confident"| CHECK["check_duplicate() then insert_transaction()"]
     CHECK --> MARK["mark_email_read() + dedup.record()"]
-    MARK --> NOTIFY["notify_user() via gateway webhook"]
+    MARK --> NOTIFY["notify_user() via Hermes webhook :8644 → Telegram/Dots"]
     
     DECISION -->|"Not a transaction"| SKIPLOG["log_decision(skipped) + mark_email_read()"]
     
-    DECISION -->|"Uncertain/Error"| NOTIFY2["notify_user() via gateway webhook"]
+    DECISION -->|"Uncertain/Error"| NOTIFY2["notify_user() via Hermes webhook :8644 → Telegram/Dots"]
     NOTIFY2 --> UNREAD["Email left unread — UID NOT recorded → retry next cycle"]
 ```
 
@@ -479,7 +485,7 @@ flowchart TD
 stateDiagram-v2
     [*] --> New: Email arrives in inbox
     New --> PreCheck: IMAP IDLE callback fires
-    PreCheck --> Skipped: UID in processed_uids (within 60 min)
+    PreCheck --> Skipped: UID in processed_uids (within 12h)
     PreCheck --> Classified: UID not recent
     Classified --> Processed_Skip: classifyEmail returns "skip"
     Classified --> Processing: classifyEmail returns "transaction"
@@ -638,15 +644,17 @@ flowchart LR
 
 ### Artifact Hierarchy
 
+There is no `.speckit/` directory. The constitution lives at `.specify/memory/constitution.md` and specs live under `specs/<NNN-name>/`:
+
 ```
-.speckit/
-├── constitution.md          # Project-level (governs all modules)
-├── agent.md                 # Agent harness (workflow state machine)
-└── features/
-    └── <feature-name>/
-        ├── spec.md          # What to build
-        ├── plan.md          # How to build it
-        └── tasks.md         # Step-by-step breakdown
+.specify/
+└── memory/
+    └── constitution.md          # Project-level (governs all modules)
+specs/
+└── <NNN-name>/
+    ├── spec.md                  # What to build
+    ├── plan.md                  # How to build it
+    └── tasks.md                 # Step-by-step breakdown
 ```
 
 ---
@@ -707,7 +715,6 @@ gantt
 | **Current** | statement-reconciliation: Spec, Plan, Tasks complete | ✅ |
 | **Current** | OpenClaw gateway → Hermes Agent migration (Telegram, Slack, email, cron, MCP client) | ✅ |
 | **Current** | expense-tracker + portfolio-tracker registered as MCP servers | ✅ |
-| **Next** | statement-reconciliation: `/implement` — Phase 0 (Foundation) | ⬜ |
 | **Future** | image-gen: register as an MCP server in `modules/hermes/config.yaml` | ⬜ |
 
 ### 13.1 Technical Debt

@@ -32,4 +32,4 @@ To deploy a single component:
 ./modules/build.sh --component hermes        # build images only, no restart
 ```
 
-`deploy.sh` flags: `--component <name>` (repeatable; names: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `codex-router`, `image-gen`), `--non-interactive` (skip the OneDrive auth prompt), and `--skip-build` (skip the internal `git pull` and image build — used by CI, which builds earlier in the same workflow).
+`deploy.sh` flags: `--component <name>` (repeatable; names: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `codex-router`, `image-gen`, `whisper`), `--non-interactive` (skip the OneDrive auth prompt), and `--skip-build` (skip the internal `git pull` and image build — used by CI, which builds earlier in the same workflow).

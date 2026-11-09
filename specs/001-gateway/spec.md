@@ -12,7 +12,7 @@
 
 All modules migrated from OpenClaw Gateway to Hermes Agent. Hermes provides Telegram, Email (IMAP), Memory, Cron, MCP — replacing the entire custom OpenClaw stack. The OpenClaw gateway container, `gateway/` directory, and all `openclaw.json` config have been removed.
 
-**Completed**: expense-tracker, portfolio-tracker, ktmb-booking, image-gen.
+**Completed**: expense-tracker, portfolio-tracker, image-gen. (`ktmb-booking` is retired.)
 
 ## Architecture Change
 
@@ -32,10 +32,10 @@ BEFORE (OpenClaw)                    AFTER (Hermes)
 │  All modules         │      │  All modules         │
 │  • expense-tracker   │      │  • expense-tracker   │
 │  • portfolio-tracker │      │  • portfolio-tracker │
-│  • ktmb-booking      │      │  • ktmb-booking      │
-│  • image-gen         │      │  • image-gen         │
-│  HTTP REST + curl    │      │  MCP (Streamable HTTP)│
-└──────────────────────┘      └──────────────────────┘
+│  • ktmb-booking      │      │  • image-gen         │
+│  • image-gen         │      │  MCP (Streamable HTTP)│
+│  HTTP REST + curl    │      └──────────────────────┘
+└──────────────────────┘
 ```
 
 All modules expose an MCP server. Hermes connects to each via `mcp_servers` config. No module has its own IMAP, LLM loop, or memory — Hermes owns those concerns.
@@ -202,7 +202,7 @@ All modules expose an MCP server. Hermes connects to each via `mcp_servers` conf
 |------|-----------|--------|------------|
 | Email polling misses IMAP IDLE real-time behavior | Low | Low | 15s poll interval; receipts aren't time-sensitive beyond 30s |
 | Memory migration loses semantic relationships | Medium | Medium | Manual review of migrated facts; test with known merchants |
-| MCP SSE transport adds latency | Low | Low | Docker network = sub-ms overhead per tool call |
+| MCP Streamable HTTP transport adds latency | Low | Low | Docker network = sub-ms overhead per tool call |
 | Hermes Python runtime unfamiliar | Low | Medium | Extensive docs; no custom Python code needed beyond config |
 | DeepSeek provider config mismatch | Low | High | Verify with `hermes chat` before production; DeepSeek is OpenAI-compatible |
 | Docker socket security | Low | Medium | Mount read-only where possible; Hermes security model + approval gate |

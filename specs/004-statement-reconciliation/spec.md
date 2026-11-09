@@ -2,7 +2,7 @@
 
 **Feature:** statement-reconciliation
 **Spec Version:** 3.0.0
-**Status:** Implementing (expense-tracker wired, PT pending)
+**Status:** Implemented (expense-tracker); no portfolio-tracker side in scope
 **Constitution Hash:** v2.0.0
 
 ---

@@ -18,7 +18,7 @@
 
 An LLM-powered agent (Hermes) that monitors a dedicated Email burner inbox via IMAP IDLE. When a receipt or transaction alert email is forwarded to this inbox, the agent extracts structured transaction data and inserts it into the user's existing **Actual Budget** instance.
 
-The intelligence layer is a **DeepSeek LLM** (`deepseek-flash`). The Node.js host (`modules/expense-tracker`) provides deterministic tools — **28 REST `/tools/*` endpoints** and **24 MCP tools** — that the LLM/orchestrator calls to fetch live context and execute actions. No business rules (category mapping, account matching, currency detection) are hardcoded in the tool layer.
+The intelligence layer is an LLM reached through codex-router — model `auto-thinking`, with DeepSeek (`deepseek-flash`) as the final fallback. The Node.js host (`modules/expense-tracker`) provides deterministic tools — **32 REST `/tools/*` endpoints** (33 with learning commands off) and **27 MCP tools** (28 with learning commands off) — that the LLM/orchestrator calls to fetch live context and execute actions. No business rules (category mapping, account matching, currency detection) are hardcoded in the tool layer.
 
 Incoming emails are pre-classified by a lightweight LLM call into one of three categories before dispatch: `"transaction"` (alert pipeline, 3-phase orchestrator), `"statement"` (reconciliation pipeline), or `"skip"` (silently ignored — for trade/portfolio emails handled by a separate module).
 

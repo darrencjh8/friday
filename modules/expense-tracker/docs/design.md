@@ -4,7 +4,7 @@
 **Last Updated:** 2026-06-10
 **Runtime:** Node.js 22 (ESM) | **LLM:** `auto-thinking` on the codex-router over the Responses API (DeepSeek `deepseek-flash` over Chat Completions as the final fallback) | **Budget:** Actual Budget REST API
 
-For workflow, tool schemas, and deployment, see `.speckit/features/expense-tracking/plan.md` and `.speckit/agent.md`.
+For workflow, tool schemas, and deployment, see `specs/002-expense-tracking/spec.md`.
 
 ---
 
@@ -48,17 +48,17 @@ For workflow, tool schemas, and deployment, see `.speckit/features/expense-track
                                ▼
                     ┌──────────────────┐
                     │  ToolRegistry    │
-                    │  27 MCP / 31 REST│
+                    │  27 MCP / 32 REST│
                     │  tools (:8080)   │
                     └────────┬─────────┘
                              │
               ┌──────────────┼──────────────┐
               ▼              ▼              ▼
         ┌──────────┐  ┌──────────┐  ┌──────────────────┐
-        │ Actual   │  │ SQLite   │  │ Gateway Webhook  │
+        │ Actual   │  │ SQLite   │  │ Hermes Webhook  │
         │ Budget   │  │ Journals │  │ (notify-webhook  │
-        │ API      │  │ (dedup + │  │  :18800)         │
-        │          │  │ statement)│  │ → Telegram Bot   │
+        │ API      │  │ (dedup + │  │  :8644)          │
+        │          │  │ statement)│  │ → Telegram/Dots  │
         └──────────┘  └──────────┘  └──────────────────┘
 ```
 
@@ -83,7 +83,7 @@ The expense-tracker's pre-classification returns `"skip"` for IBKR/trade emails,
 
 ```
 src/
-├── index.js App entry: wiring, Express, 31 REST /tools/* routes, MCP server, IMAP
+├── index.js App entry: wiring, Express, 32 REST /tools/* routes, MCP server, IMAP
 ├── config.js Env-var Config class (MEMORY_PATH = data/MEMORY.md)
 ├── mcp-server.js MCP Streamable HTTP server — 27 server.tool() registrations (28 with learning commands off)
 ├── orchestrator.js 3-phase alert pipeline (LLM Analysis → Resolution → Execute) + DeepSeekClient
@@ -102,7 +102,7 @@ src/
     └── matcher.js fuzzy match: amount/date/merchant scoring
 ```
 
-The module registers **31 REST `/tools/*` POST endpoints** (`index.js`; 32 with `confirm_learning` mounted, which happens only when learning commands are off) and **27 MCP tools** (`mcp-server.js`; 28 with learning commands off). The tool registry holds 39 tools. `fetch_accounts`, `fetch_categories`, `fetch_payees` and `check_duplicate` are REST-only; `fetch_context` is the MCP entry point for account, category and payee lookups. `check_schedule_collision`, `fetch_schedules` and `submit_decision` are on neither surface. The dedup and statement journals are SQLite (`data/dedup.db`, `data/statement.db`); statement tracking lives in `src/statement/`.
+The module registers **32 REST `/tools/*` POST endpoints** (`index.js`; 33 with `confirm_learning` mounted, which happens only when learning commands are off) and **27 MCP tools** (`mcp-server.js`; 28 with learning commands off). The tool registry holds 39 tools. `fetch_accounts`, `fetch_categories`, `fetch_payees` and `check_duplicate` are REST-only; `fetch_context` is the MCP entry point for account, category and payee lookups. `check_schedule_collision`, `fetch_schedules` and `submit_decision` are on neither surface. These are surface counts, not a partition of the 39-tool registry: three surfaced tools sit outside the registry (`compact_facts` and `search_facts` on MCP, `match_broker_deposit` on REST), and with learning commands on a fourth registry tool, `confirm_learning`, is on neither surface — so "3 on neither surface" counts only the tools that are never on either surface. The dedup and statement journals are SQLite (`data/dedup.db`, `data/statement.db`); statement tracking lives in `src/statement/`.
 
 ---
 
@@ -242,7 +242,7 @@ A person is never web-searched: `resolve_merchant` takes `no_search` for an inco
 | **Classification** | `_classify_email()` returns correct category; `dispatch_email()` routing logic |
 | **Agent Orchestrator** | Orchestrator construction, message building, SYSTEM_PROMPT content, happy-path flow with mocked LLM |
 | **Statement Pipeline** | StatementProcessor, fuzzy matcher, journal CRUD, reconcile, fetch-unreconciled, record, history |
-| **Tool Registry** | 39 registry tools; 27 MCP tool schemas / 31 REST endpoints; tool dispatch, individual tool handlers |
+| **Tool Registry** | 39 registry tools; 27 MCP tool schemas / 32 REST endpoints; tool dispatch, individual tool handlers |
 | **Extractors** | HTML → text, PDF → OCR, MIME multipart extraction, text cleaning |
 | **IMAP** | IMAP connect/fetch/mark-read, idle loop with mocks |
 | **Dedup Journal** | Hash computation, insert/check cycles, duplicate detection |

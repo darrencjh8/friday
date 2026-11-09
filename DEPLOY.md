@@ -42,11 +42,13 @@ There is no `gateway/` directory in the repository (`git ls-files gateway` retur
    - `modules/expense-tracker/` → `expense-tracker`
    - `modules/portfolio-tracker/` → `portfolio-tracker`
    - `modules/actual-api/` → `actual-api`
-   - changes to `.github/workflows/deploy.yml`, `modules/docker-compose.yml`, or `modules/deploy.sh` → `codex-router`
+   - changes to `.github/workflows/deploy.yml` → `codex-router`
+   - changes to `modules/docker-compose.yml` or `modules/deploy.sh` → `codex-router` first, then overridden to `all` by the rule below
    - changes to `modules/codex-router-front/` → `codex-router`
-   - root `Dockerfile` / `deploy.sh` / `modules/docker-compose.yml`, or nothing matched → `all`
+   - changes to `modules/fetch-claude-usage.py` → `codex-router`
+   - a change to `Dockerfile` or `deploy.sh` at the repo root, or to `modules/docker-compose.yml` or `modules/deploy.sh` (there is no root `Dockerfile` or root `deploy.sh`, so in practice only the last two fire this rule), or nothing matched → `all`
    - The `gateway/` rule is a vestige; that directory no longer exists.
-4. **Create data dirs:** `mkdir -p /home/runner/data/{expense-tracker/data,portfolio-tracker/data,hermes/{data,workspace},codex-router}`.
+4. **Create data dirs:** `mkdir -p /home/runner/data/{expense-tracker/data,expense-tracker/state,portfolio-tracker/data,hermes/{data,workspace},codex-router}`.
 5. **Build:** `bash ./modules/build.sh` (all) or `bash ./modules/build.sh --component <c> ...`.
 6. **Deploy:** `bash ./modules/deploy.sh --component all --non-interactive --skip-build`, or one `--component <c>` per detected component. `GITHUB_ACTIONS=true` makes `deploy.sh` read secrets from the environment instead of `.env` files.
 7. **Record:** the deployed codex-router revision is written to `codex-router-sha.txt` and uploaded as a workflow artifact.
@@ -176,7 +178,7 @@ Validates every component's required env vars, then runs `docker-compose --proje
 ./modules/deploy.sh --component <name> [--component <name>...] [--non-interactive] [--skip-build]
 ```
 
-- `--component` is **required**; with none it prints usage and exits 1. Choices printed by the script: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `image-gen`, `codex-router`.
+- `--component` is **required**; with none it prints usage and exits 1. Choices printed by the script: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `image-gen`, `codex-router`, `whisper`.
 - `--non-interactive` skips the OneDrive auth prompt.
 - `--skip-build` skips the built-in `git pull` + `docker-compose build` (used by CI, which builds in a separate step).
 
@@ -234,11 +236,11 @@ Skills and profiles are baked into the Hermes image and seeded onto the data vol
 
 - `modules/hermes/Dockerfile` copies `config.yaml`, `SOUL.md.template`, `skills/`, `scripts/`, and `profiles/` into `/opt/hermes-defaults/`, then installs `50-seed-defaults` as `/etc/cont-init.d/50-seed-defaults`.
 - On boot, `modules/hermes/50-seed-defaults`:
-  - merges `/opt/hermes-defaults/config.yaml` into `/opt/data/config.yaml` (baked keys win; top-level keys the baked config does not define are carried over),
+  - merges `/opt/hermes-defaults/config.yaml` into `/opt/data/config.yaml` per server for `mcp_servers` (baked wins per server; live-only servers are carried over; retired servers are dropped), with other top-level keys carried over when the baked config does not define them,
   - seeds `SOUL.md` only if absent,
   - copies `skills/*` into `/opt/data/skills/` and `scripts/*` into `/opt/data/scripts/`,
   - creates `/opt/data/memories/topics/INDEX.md`,
-  - seeds each profile into `/opt/data/profiles/<name>/{config.yaml,SOUL.md,profile.yaml}` (only if absent), removes retired profiles (`static-analyst`, `qa-engineer`, `quality-assurance`), and registers each with `hermes profile create <name> --no-alias`.
+  - seeds each profile into `/opt/data/profiles/<name>/{config.yaml,SOUL.md,profile.yaml}` (only if absent), removes retired profiles (`static-analyst`, `qa-engineer`, `quality-assurance`, `architect`, `project-manager`, `spec-auditor`) — only `code-reviewer` remains — and registers each with `hermes profile create <name> --no-alias`.
 - `modules/hermes/scripts/sync-codex-router-skills.sh` reconciles codex-router's canonical skills (staged at `/opt/data/.codex-router-skills` by the deploy) into the managed roots `/opt/data/skills`, `/opt/data/.agents/skills`, and `/opt/data/home/.agents/skills`. A skill removed from the canonical source is removed from every root.
 - `modules/hermes/scripts/refresh-codex-router-checkout.sh` advances the container's own codex-router checkout at `/workspace/codex-router`, which is where dev-loop sessions execute the driver from (`codex/skills/dev-loop/scripts/loop.py`). The deploy runs it with the revision it checked out; the boot hook runs it with no target so it tracks `origin/main`. It skips a checkout that is dirty, on another branch, or absent, and exits non-zero when a clean checkout cannot reach the target. It never forces, so a checkout that diverged from `origin/main` (after a force-push, say) keeps failing every deploy; the checkout has to exist before it can be advanced (a session creates it by cloning; the script skips an absent path and the deploy says so), and the recovery is run in the hermes container as its `hermes` owner: `docker exec -u hermes hermes sh -c 'git -C /workspace/codex-router -c credential.helper="!gh auth git-credential" fetch origin main && git -C /workspace/codex-router reset --hard origin/main'` (the outer single quotes keep the `!` away from the interactive shell's history expansion, which would otherwise rewrite or refuse the helper) (a helper is required because the container's git has none and the remote is HTTPS: the script itself prefers the PAT its caller exports as `GH_TOKEN` and falls back to gh's helper, which is the one this interactive recipe names because a shell has no exported PAT, and the reset discards whatever the checkout holds — uncommitted changes and any local commit of its own).
 

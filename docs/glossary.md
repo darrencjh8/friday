@@ -69,18 +69,19 @@ This is the set Hermes calls.
 `extract_email_content` · `extract_inbox_pdf` · `extract_pdf_text` ·
 `list_inbox_emails` · `read_inbox_email` · `mark_email_read` ·
 `learn_fact` · `search_facts` · `list_facts` · `update_fact` · `delete_fact` ·
-`compact_facts` · `cleanup_facts` · `list_pending_learning` ·
-`confirm_learning` · `decline_learning`
+`compact_facts` · `cleanup_facts` · `list_pending_learning` · `search_wiki` ·
+`decline_learning`
 
 ### expense-tracker — REST-only tools
 
 On the HTTP surface at `POST /tools/<name>` but **not** registered on the MCP
 server, so Hermes cannot call them as tools — reach them over REST or through a
-quick command instead. These ten, exactly:
+quick command instead. These eleven, exactly:
 
 `check_duplicate` · `check_statement_duplicate` · `fetch_accounts` ·
 `fetch_categories` · `fetch_payees` · `fetch_statement_history` ·
-`log_decision` · `notify_user` · `record_statement` · `search_memory`
+`log_decision` · `notify_user` · `record_statement` · `search_memory` ·
+`match_broker_deposit`
 
 Six more are MCP-only, with no HTTP route at all: `fetch_context`,
 `list_inbox_emails`, `process_transaction`, `read_inbox_email`, `search_facts`,
@@ -142,7 +143,7 @@ How they map to the REST names:
 All **twenty-two** of these, exactly. The two surfaces share no **name**: none of
 the 12 MCP tool names is also a REST route name. They do share six
 **handlers** — every name the six dispatch sites pass to
-`registry.executeTool` (`mcp-server.js:223, 255, 266, 280, 291, 298`) is
+`registry.executeTool` (`mcp-server.js:362, 394, 405, 419, 430, 437`) is
 itself one of the 22 routes below: `insert_pp_transaction`, `fetch_pp_portfolio`,
 `query_pp_security`, `query_pp_taxonomies`, `search_memory`, and `learn_fact`.
 So six of the names listed here are reachable through MCP too, just under a

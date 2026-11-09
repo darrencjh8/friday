@@ -87,7 +87,7 @@ Both trackers expose a **Streamable HTTP MCP server at `/mcp`** in addition to t
 ```
 friday/
 ├── modules/
-│   ├── docker-compose.yml            # The five runtime services
+│   ├── docker-compose.yml            # The nine runtime services: expense-tracker, actual-api, portfolio-tracker, dots-web, codex-router, codex-router-a, codex-router-b, hermes, whisper
 │   ├── deploy.sh                     # Env validation + build + compose up + health checks
 │   ├── build.sh                      # Image builds only (no downtime)
 │   ├── codex-router-auth-recovery.py
@@ -105,9 +105,9 @@ friday/
 │   │   ├── SOUL.md.template
 │   │   ├── SLACK.md                  # Slack app setup and Socket Mode notes
 │   │   ├── opencode/                 # opencode/Codex CLI defaults
-│   │   ├── profiles/                 # architect, code-reviewer, project-manager, spec-auditor
+│   │   ├── profiles/                 # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                  # github-auth, memory-backup/restore/triage, portfolio-sync, slack-manifest, skill sync
-│   │   ├── skills/                   # expense-tracker, image-gen, spec-auditor, hermes-troubleshooting
+│   │   ├── skills/                   # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, skill-merge-approval, spec-auditor
 │   │   └── tests/
 │   ├── portfolio-tracker/
 │   │   ├── src/                      # orchestrator, imap, tools, mcp-server, onedrive, ibkr, sheets
@@ -171,7 +171,7 @@ To deploy a single component:
 ./modules/build.sh --component hermes        # build images only, no restart
 ```
 
-`deploy.sh` flags: `--component <name>` (repeatable; names: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `codex-router`, `image-gen`), `--non-interactive` (skip the OneDrive auth prompt), and `--skip-build` (skip the internal `git pull` and image build — used by CI, which builds earlier in the same workflow).
+`deploy.sh` flags: `--component <name>` (repeatable; names: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `codex-router`, `image-gen`, `whisper`), `--non-interactive` (skip the OneDrive auth prompt), and `--skip-build` (skip the internal `git pull` and image build — used by CI, which builds earlier in the same workflow).
 
 ## Operations
 
@@ -214,7 +214,7 @@ Other workflows:
 | [modules/hermes/SLACK.md](modules/hermes/SLACK.md) | Slack app setup, Socket Mode, and token/scopes. |
 | [modules/portfolio-tracker/README.md](modules/portfolio-tracker/README.md) | Portfolio tracker details and local run instructions. |
 | [modules/expense-tracker/docs/design.md](modules/expense-tracker/docs/design.md) | Expense tracker design. |
-| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `image-gen`, `spec-auditor`, `hermes-troubleshooting`. |
+| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `hermes-troubleshooting`, `image-gen`, `skill-merge-approval`, `spec-auditor`. |
 | [.agents/skills/full-deploy/SKILL.md](.agents/skills/full-deploy/SKILL.md) | Full-deploy operator runbook. |
 
 ## Ports

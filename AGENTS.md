@@ -9,7 +9,7 @@
 
 - Always propose a plan before making changes. Wait for explicit approval before implementing.
 - Before running any command on production for the first time, ask for explicit approval.
-- Never expose or commit credentials, tokens, `.env` files, `modules/expense-tracker/db.sqlite`, or `modules/expense-tracker/metadata.json`.
+- Never expose or commit credentials, tokens, `.env` files, `modules/expense-tracker/data/dedup.db`, `modules/expense-tracker/data/statement.db`, or `modules/expense-tracker/metadata.json`.
 
 ## Production Server
 
@@ -78,13 +78,12 @@ Use MCP GitHub tools only when `gh` CLI cannot accomplish the task (e.g., search
 ## Repository: darrencjh8/friday
 
 - **URL:** https://github.com/darrencjh8/friday
-- **Status:** Initialized with README.md, .gitignore, config files, and constitution.md
-- **Remaining files to push locally:** spec.md, plan.md, tasks.md, agent.md, design.md, source stubs
 
 ---
 
 ## Excluded files (never commit)
-- `modules/expense-tracker/db.sqlite` — dedup journal with transaction hashes
+- `modules/expense-tracker/data/dedup.db` — dedup journal with transaction hashes
+- `modules/expense-tracker/data/statement.db` — statement state
 - `modules/expense-tracker/metadata.json` — Actual Budget IDs, user UUIDs, encryption keys
 - `.env` / `.env.*` — API keys and credentials
 
