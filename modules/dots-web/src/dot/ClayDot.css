@@ -48,6 +48,5 @@
   object-fit: contain;
   object-position: 50% 100%;
 }
-.portrait-dot .is-showing { animation: portrait-in 0.45s both; }
-.portrait-dot .is-leaving { animation: portrait-in 0.45s reverse both; }
-@keyframes portrait-in { from { opacity: 0; } to { opacity: 1; } }
+.portrait-dot .is-leaving { animation: portrait-out 0.2s both; }
+@keyframes portrait-out { to { opacity: 0; } }
