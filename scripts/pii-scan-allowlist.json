@@ -156,6 +156,10 @@
     {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/incoming-credit-booking-680.test.js"},
     {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/transfer-hold-families.test.js"},
     {"detector": "Presidio", "name": "PII name", "value": "Darren DBS", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/expense-tracker/tests/transfer-shape-resilience.test.js"},
-    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/50-seed-defaults"}
+    {"detector": "Presidio", "name": "PII name", "value": "Darren SGD", "commit": "de3ba48a4a69bda3ab189ff29a1fd91231dbee7f", "file": "modules/hermes/50-seed-defaults"},
+    {"detector": "Presidio", "name": "PII name", "value": "Segoe UI", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/src/styles/theme.css"},
+    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/api/_lib/pairing.ts"},
+    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/api/pair.ts"},
+    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "40516864241758f8716660b5a9e2a56c20a5578f", "file": "docs/plans/185-pii-allowlist-false-positives.md"}
   ]
 }
