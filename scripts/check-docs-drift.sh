@@ -103,7 +103,7 @@ grep -q "expense-tracker.*no \`mem_limit\`" design.md || fail "check 2: design.m
 const25=$(awk '/^### 2.5 Memory Budget/,/^### 2.6/' .specify/memory/constitution.md)
 printf '%s\n' "$const25" | grep -q '| hermes | 4g |' || fail "check 2: constitution §2.5 does not say hermes mem_limit 4g"
 printf '%s\n' "$const25" | grep -q '| portfolio-tracker | 512m |' || fail "check 2: constitution §2.5 does not say portfolio-tracker mem_limit 512m"
-printf '%s\n' "$const25" | grep -q '| expense-tracker | no `mem_limit` |' || fail "check 2: constitution §2.5 does not say expense-tracker has no mem_limit"
+printf '%s\n' "$const25" | grep -q "| expense-tracker | no \`mem_limit\` |" || fail "check 2: constitution §2.5 does not say expense-tracker has no mem_limit"
 
 # ---------------------------------------------------------------- check 3
 # Compose published ports per service vs SETUP.md and docs/operations.md.
