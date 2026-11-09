@@ -57,10 +57,16 @@ vi.mock("../src/imap.js", () => ({
 }));
 
 describe("index.js tool routes (#720)", () => {
+    // Cache the map: the module import runs main() once, and the shared
+    // postMock history is not re-recorded on a second import, so a second
+    // call must reuse the routes the first call observed.
+    let cachedRoutes = null;
     async function routes() {
+        if (cachedRoutes) return cachedRoutes;
         await import("../src/index.js");
         await vi.waitFor(() => expect(postMock).toHaveBeenCalled());
-        return new Map(postMock.mock.calls.map(([path, handler]) => [path, handler]));
+        cachedRoutes = new Map(postMock.mock.calls.map(([path, handler]) => [path, handler]));
+        return cachedRoutes;
     }
     const res = () => ({ json: vi.fn(), status: vi.fn().mockReturnThis() });
 

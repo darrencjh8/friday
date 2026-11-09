@@ -5,7 +5,7 @@ const connect = vi.fn(async () => {});
 const mailboxOpen = vi.fn(async () => {});
 
 vi.mock("imapflow", () => ({
-  ImapFlow: vi.fn(() => ({ on, connect, mailboxOpen })),
+  ImapFlow: vi.fn(function () { return { on, connect, mailboxOpen }; }),
 }));
 
 const { ImapIdleHandler } = await import("../src/imap.js");

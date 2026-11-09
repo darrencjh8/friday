@@ -28,7 +28,7 @@ describe("ImapIdleHandler", () => {
             idle: vi.fn().mockResolvedValue(undefined),
         };
 
-        ImapFlow.mockImplementation(() => mockClient);
+        ImapFlow.mockImplementation(function () { return mockClient; });
 
         handler = new ImapIdleHandler(
             "imap.example.com",

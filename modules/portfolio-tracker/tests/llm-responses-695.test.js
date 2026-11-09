@@ -8,10 +8,12 @@ const chatCreate = vi.fn();
 const responsesCreate = vi.fn();
 
 vi.mock("openai", () => ({
-    default: vi.fn(() => ({
-        chat: { completions: { create: chatCreate } },
-        responses: { create: responsesCreate },
-    })),
+    default: vi.fn(function () {
+        return {
+            chat: { completions: { create: chatCreate } },
+            responses: { create: responsesCreate },
+        };
+    }),
 }));
 
 import { LLMClient } from "../src/orchestrator.js";
