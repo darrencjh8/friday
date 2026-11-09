@@ -10,15 +10,6 @@ then ship a fix through a pull request so CI/CD applies it. See
 `modules/deploy.sh` validates configuration before it builds or restarts
 anything, so a missing variable fails the run without touching production.
 
-- **"N variable(s) missing or empty."** The message names the variable above it.
-  In GitHub Actions the value comes from repository secrets; locally it comes from
-  the module's `.env` file. `COMMANDCODE_API_KEY` is the one most often missing
-  and it is **required**, not optional: six of the seven Hermes auxiliary slots
-  pin `commandcode/*` as their primary model, and without the key the router never
-  publishes it, which breaks compression, vision, `web_extract`,
-  `kanban_decomposer`, `triage_specifier`, and `profile_describer` outright
-  rather than degrading them. The seventh slot, `approval`, is unaffected
-  because it pins `auto-thinking` instead.
 - **"Module .env not found at …"** A pluggable module declares its required
   variables in `modules/<name>/module.env`; outside GitHub Actions those
   variables are read from that module's `.env`. Locally the file is simply

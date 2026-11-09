@@ -161,7 +161,9 @@ jobs:
             - name: Lint bash scripts
               run: |
                   sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-                  shellcheck modules/hermes/scripts/*.sh modules/hermes/50-seed-defaults
+                  shellcheck modules/hermes/scripts/*.sh modules/hermes/50-seed-defaults scripts/check-docs-drift.sh
+            - name: Check docs against code
+              run: bash scripts/check-docs-drift.sh
             - name: Test github-auth.sh
               run: bash modules/hermes/tests/test-github-auth.sh
             - name: Test 50-seed-defaults cron jobs
@@ -390,3 +392,10 @@ jobs:
                       w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000); w.writeframes(bytes(32000))
                   assert len(decode_audio('/tmp/t.wav')) == 16000
                   "
+
+    docs-drift:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v4
+            - name: Check docs against code
+              run: bash scripts/check-docs-drift.sh

@@ -24,6 +24,6 @@ Tag agent files with `@` in Zed to run each phase.
 
 ### Key Rules
 
-- Feature numbering is sequential (next is 014)
+- Feature numbering is sequential (next is 031)
 - Approve each phase before proceeding
 - Constitution at `.specify/memory/constitution.md` (TDD mandatory, Docker-first, etc.)

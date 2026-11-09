@@ -3,7 +3,7 @@
 ```
 friday/
 ├── modules/
-│   ├── docker-compose.yml            # The seven runtime services (router front + two colours)
+│   ├── docker-compose.yml            # The nine runtime services: expense-tracker, actual-api, portfolio-tracker, dots-web, codex-router, codex-router-a, codex-router-b, hermes, whisper (router front + two colours)
 │   ├── deploy.sh                     # Env validation + build + compose up + health checks
 │   ├── build.sh                      # Image builds only (no downtime)
 │   ├── codex-router-auth-recovery.py
@@ -22,7 +22,7 @@ friday/
 │   │   ├── SLACK.md                  # Slack app setup and Socket Mode notes
 │   │   ├── profiles/                 # code-reviewer (friday default profile is seeded at boot)
 │   │   ├── scripts/                  # github-auth, memory-backup/restore/triage, portfolio-sync, slack-manifest, skill sync
-│   │   ├── skills/                   # expense-tracker, image-gen, spec-auditor, hermes-troubleshooting
+│   │   ├── skills/                   # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, skill-merge-approval, spec-auditor
 │   │   └── tests/
 │   ├── portfolio-tracker/
 │   │   ├── src/                      # orchestrator, imap, tools, mcp-server, onedrive, ibkr, sheets

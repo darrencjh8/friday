@@ -2,7 +2,7 @@
 
 ## What We're Building
 
-Add MCP server to portfolio-tracker module. Phase 1 exposes **6 MCP tools** in 3 groups.
+Add MCP server to portfolio-tracker module. Phase 1 exposes **12 MCP tools** in 3 groups.
 IBKR flex import is folded into `portfolio_sync` — pulled from IBKR Flex Web Service, not a standalone MCP tool.
 
 ## Files Already Changed
@@ -54,7 +54,7 @@ java -jar target/pp-cli.jar import \
   --ibkr-xml /path/to/ibkr-flex.xml
 ```
 
-## 6 MCP Tools
+## 12 MCP Tools
 
 | Group | Tool | Implementation |
 |---|---|---|
@@ -76,7 +76,7 @@ java -jar target/pp-cli.jar import \
 5. **LLM orchestrator preserved** — stays for PDF trade confirmations only.
 6. **MCP transport**: Streamable HTTP (same as expense-tracker pattern). SSE was rejected because it breaks on container restart (session mismatch); see `mcp-server.js` header.
 7. **OneDrive OAuth via MCP** — New `src/onedrive_oauth.js` for interactive setup flow. No more SSH + `authorize.sh`.
-8. **Cron coexistence**: Hermes cron + internal apscheduler both run. Sync is idempotent.
+8. **Cron**: only the Hermes cron job `finance-portfolio-sync` triggers sync. Sync is idempotent.
 
 ## Files Still To Create
 

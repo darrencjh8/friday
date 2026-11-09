@@ -44,7 +44,7 @@ Both users are in the `docker` group — either can run `docker` commands.
         │   └── google-service-account.json  # → /app/config/ in portfolio-tracker (ro)
 ```
 
-`.github/workflows/deploy.yml` pre-creates `expense-tracker/data`, `portfolio-tracker/data`, and `hermes/{data,workspace}` on every deploy (`mkdir -p /home/runner/data/...`). The `onedrive_token/` and `google-service-account.json` paths are created out-of-band and mounted read-write/read-only by `modules/docker-compose.yml`.
+`.github/workflows/deploy.yml` pre-creates `expense-tracker/data`, `expense-tracker/state`, `portfolio-tracker/data`, `hermes/{data,workspace}`, and `codex-router` on every deploy (`mkdir -p /home/runner/data/...`). The `onedrive_token/` and `google-service-account.json` paths are created out-of-band and mounted read-write/read-only by `modules/docker-compose.yml`.
 
 ---
 
@@ -87,14 +87,16 @@ This changes the group to `runner` and adds group read permission without touchi
 
 | Service | Container | Host Port | Internal Port | Healthcheck |
 |---------|-----------|-----------|---------------|-------------|
-| Hermes | `hermes` | 8642, 8644, 8788 | same | waits on expense-tracker + portfolio-tracker |
+| Hermes | `hermes` | 8642, 8644, 8788, 9120, 8300, 8299 | same | waits on expense-tracker + portfolio-tracker |
 | Expense Tracker | `modules-expense-tracker-1` | 127.0.0.1:8080 | 8080 | `/health` |
 | Portfolio Tracker | `modules-portfolio-tracker-1` | 127.0.0.1:8081 | 8081 | `/health` |
 | Actual API | `modules-actual-api-1` | 127.0.0.1:3000 | 3000 | — |
+| Dots Web | `modules-dots-web-1` | 127.0.0.1:8789 | 8789 | — |
+| Whisper | `modules-whisper-1` | — (no published port) | — | — |
 | Codex Router (front) | `modules-codex-router-1` | 0.0.0.0:4100 | 4100 | `/health/liveliness` |
 | Codex Router (colours) | `modules-codex-router-a-1`, `modules-codex-router-b-1` | — | 4100 | `/health/liveliness` |
 
-Expense Tracker, Portfolio Tracker, and Actual API bind to `127.0.0.1` (localhost only). Hermes publishes `8644` on all interfaces and `8642` (the API server) and `8788` (Dots) on `127.0.0.1` only, and the Codex Router front publishes `4100` on all interfaces so Hermes providers can reach `http://codex-router:4100/v1`.
+Expense Tracker, Portfolio Tracker, and Actual API bind to `127.0.0.1` (localhost only). Hermes publishes `8644` on all interfaces and `8642` (the API server), `8788` (Dots), `9120` (browser webapp), `8300` (reminders dashboard), and `8299` (Google Tasks OAuth callback) on `127.0.0.1` only, and the Codex Router front publishes `4100` on all interfaces so Hermes providers can reach `http://codex-router:4100/v1`.
 
 Codex Router is three containers: the caddy front `codex-router`, which owns port 4100, and the two identical router colours `codex-router-a` and `codex-router-b`, which publish nothing and are only reachable through the front. A deploy replaces one colour at a time, so 4100 keeps serving.
 
@@ -117,7 +119,7 @@ Shipping is CI/CD only: pushing to `main` triggers `.github/workflows/deploy.yml
 
 Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--skip-build`, `modules/deploy.sh` performs its own `git pull` and image build, which bypasses the pipeline's change detection and health gate. Merges to `main` are the only shipping path.
 
-`modules/deploy.sh` requires at least one `--component`. Available: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `image-gen`, `codex-router`. Running it with no component prints usage and exits 1.
+`modules/deploy.sh` requires at least one `--component`. Available: `all`, `hermes`, `portfolio-tracker`, `expense-tracker`, `actual-api`, `image-gen`, `codex-router`, `whisper`. Running it with no component prints usage and exits 1.
 
 ---
 
@@ -149,17 +151,21 @@ Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--
 
 | Job | Schedule | Purpose |
 |-----|----------|---------|
-| `ops-github-token-refresh` | Every 15 min | Refresh GitHub App installation token |
-| `memory-backup` | Every 360 min | Backup memories to private git repo |
-| `finance-portfolio-sync` | Daily at 12:00 SGT (container `Asia/Singapore`) | Zero-token `POST /tools/pp-sync-all` portfolio sync |
-| `wiki-due-reminders` | Daily at 08:15 | Wiki due-date reminders |
-| `memory-approve-queue` | Daily at 08:00 | Drain the memory write-approval queue |
-| `ops-log-issues` | Daily at 18:30 | Daily log issue triage (artifact-only workdir) |
-| `wiki-repo-docs` | Mondays at 03:30 | Wiki repo docs refresh |
-| `wiki-finance-refresh` | Mondays at 04:00 | Wiki finance refresh |
-| `memory-compact` | Sundays at 07:30 | Weekly merge of duplicate MEMORY.md / USER.md entries under their caps |
-| `memory-mnemosyne-vacuum` | Sundays at 03:00 | Mnemosyne VACUUM report (no_agent) |
-| `skills-merge-proposals` | Sundays at 04:15 | Skill merge proposals (no_agent) |
+| `ops-github-token-refresh` | every 15m | Refresh GitHub App installation token |
+| `memory-backup` | every 360m | Backup memories to private git repo |
+| `finance-portfolio-sync` | `0 12 * * *` (daily noon) | Zero-token `POST /tools/pp-sync-all` portfolio sync |
+| `wiki-due-reminders` | `15 8 * * *` (daily 08:15) | Wiki due-date reminders |
+| `memory-approve-queue` | `0 8 * * *` (daily 08:00) | Drain the memory write-approval queue |
+| `ops-log-issues` | `30 18 * * *` (daily 18:30) | Daily log issue triage (artifact-only workdir) |
+| `wiki-repo-docs` | `30 3 * * 1` (Mondays 03:30) | Wiki repo docs refresh |
+| `wiki-finance-refresh` | `0 4 * * 1` (Mondays 04:00) | Wiki finance refresh |
+| `memory-compact` | `30 7 * * *` (daily 07:30) | Daily merge of duplicate MEMORY.md / USER.md entries under their caps |
+| `memory-mnemosyne-vacuum` | `0 3 * * 0` | Mnemosyne VACUUM report (no_agent) |
+| `skills-merge-proposals` | `15 4 * * 0` (every sunday 4:15am) | Skill merge proposals (no_agent) |
+| `gtasks-clear-completed` | `0 7 1 * *` (1st of the month 07:00) | Clear completed Google Tasks (no_agent) |
+| `notion-monthly-bills-reset` | `0 0 1 * *` (1st of the month 00:00) | Reset monthly bills in Notion |
+| `actual-backup` | `0 0 1 * *` (1st of the month 00:00) | Back up Actual Budget data |
+| `proactive-tick` | `0 8-21 * * *` (hourly 08:00–21:00) | Proactive check-in tick |
 
 Check status:
 
