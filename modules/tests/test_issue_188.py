@@ -2,7 +2,8 @@
 
 At base, _on_user_reaction only forwards to _reaction_handler, which is never
 registered, so the pending approval stays pending. After the fix, a 👍 on the
-approval message resolves it as "once" (same as the approve button).
+approval message resolves it as "once" (same as the approve button) and a 👎
+resolves it as "deny". Skin-tone variants and the variation selector count.
 Run from the repo root: python3 modules/tests/test_issue_188.py
 """
 import asyncio
@@ -66,6 +67,32 @@ class _HistoryStub:
         return True
 
 
+class _Case:
+    """One fresh adapter with a pending approval, plus captured side effects."""
+
+    def __init__(self, adapter_mod, resolved, approval_id="appr1", session="session1",
+                 handler=None):
+        self.adapter = adapter_mod.DotsAdapter.__new__(adapter_mod.DotsAdapter)
+        self.adapter._approvals = {approval_id: session}
+        self.adapter._reaction_handler = handler
+        self.adapter._history = _HistoryStub()
+        self.pushed = []
+        self.forwarded = []
+        self.resolved = resolved
+
+        async def _push(event):
+            self.pushed.append(event)
+
+        self.adapter._push = _push
+        if handler is not None:
+            async def _handler(event):
+                self.forwarded.append(event)
+            self.adapter._reaction_handler = _handler
+
+    async def react(self, message_id, emoji):
+        await self.adapter._on_user_reaction({"message_id": message_id, "emoji": emoji})
+
+
 def main():
     adapter_mod = _load_adapter()
     resolved = []
@@ -75,42 +102,106 @@ def main():
     sys.modules["tools"] = tools_pkg
     sys.modules["tools.approval"] = approval_mod
 
-    adapter = adapter_mod.DotsAdapter.__new__(adapter_mod.DotsAdapter)
-    adapter._approvals = {"appr1": "session1"}
-    adapter._reaction_handler = None
-    adapter._history = _HistoryStub()
-    pushed = []
+    failures = []
 
-    async def _push(event):
-        pushed.append(event)
-
-    adapter._push = _push
+    def check(label, cond):
+        if not cond:
+            failures.append(label)
+            print(f"FAIL: {TEST_ID} {label}")
 
     async def run():
-        await adapter._on_user_reaction({"message_id": "appr1", "emoji": "👍"})
-        # Decision-neutral guards (must hold at base and at HEAD):
-        await adapter._on_user_reaction({"message_id": "not-an-approval", "emoji": "👍"})
-        adapter._approvals["appr2"] = "session2"
-        await adapter._on_user_reaction({"message_id": "appr2", "emoji": None})
-        # Reaction:removed must leave the approval pending (assert, don't pop).
-        if "appr2" not in adapter._approvals:
-            print(f"FAIL: {TEST_ID} reaction:removed wrongly resolved pending approval appr2")
-            failures.append("removed")
-        adapter._approvals.pop("appr2", None)
+        # Core: 👍 resolves as "once", with approval_resolved push + history.
+        case = _Case(adapter_mod, resolved)
+        await case.react("appr1", "👍")
+        check("thumbs-up on pending approval did not resolve it",
+              ("session1", "once") in resolved and len(resolved) == 1)
+        check("approval appr1 still pending after thumbs-up",
+              "appr1" not in case.adapter._approvals)
+        check("approval_resolved push missing after thumbs-up",
+              {"type": "approval_resolved", "approval_id": "appr1",
+               "choice": "once"} in case.pushed)
+        check("history not updated resolved=once after thumbs-up",
+              ("appr1", {"resolved": "once"}) in case.adapter._history.updates)
 
-    failures = []
+        # 👎 resolves as "deny".
+        case = _Case(adapter_mod, resolved, approval_id="appr2", session="session2")
+        await case.react("appr2", "👎")
+        check("thumbs-down did not resolve as deny",
+              ("session2", "deny") in resolved)
+        check("history not updated resolved=deny after thumbs-down",
+              ("appr2", {"resolved": "deny"}) in case.adapter._history.updates)
+
+        # Skin-tone 👍 and variation-selector 👍 resolve.
+        case = _Case(adapter_mod, resolved, approval_id="appr3", session="session3")
+        await case.react("appr3", "👍🏻")
+        check("skin-tone thumbs-up did not resolve", ("session3", "once") in resolved)
+        case = _Case(adapter_mod, resolved, approval_id="appr4", session="session4")
+        await case.react("appr4", "👍️")
+        check("variation-selector thumbs-up did not resolve",
+              ("session4", "once") in resolved)
+
+        # Skin-tone 👎 resolves as "deny".
+        case = _Case(adapter_mod, resolved, approval_id="appr5", session="session5")
+        await case.react("appr5", "👎🏽")
+        check("skin-tone thumbs-down did not resolve as deny",
+              ("session5", "deny") in resolved)
+
+        # 👍 on a non-approval message resolves nothing.
+        before = len(resolved)
+        case = _Case(adapter_mod, resolved)
+        await case.react("not-an-approval", "👍")
+        check("thumbs-up on non-approval resolved something",
+              len(resolved) == before)
+
+        # 👍 after the approval already resolved resolves nothing.
+        case = _Case(adapter_mod, resolved, approval_id="appr6", session="session6")
+        await case.react("appr6", "👍")
+        before = len(resolved)
+        await case.react("appr6", "👍")
+        check("second thumbs-up after resolve resolved again",
+              len(resolved) == before)
+
+        # Duplicate 👍 then 👎: second frame is a no-op (one-shot pop).
+        case = _Case(adapter_mod, resolved, approval_id="appr7", session="session7")
+        await case.react("appr7", "👍")
+        before = len(resolved)
+        await case.react("appr7", "👎")
+        check("thumbs-down after thumbs-up resolved again",
+              len(resolved) == before and ("session7", "deny") not in resolved)
+
+        # reaction:removed resolves nothing AND the approval stays pending.
+        case = _Case(adapter_mod, resolved, approval_id="appr8", session="session8")
+        await case.react("appr8", None)
+        check("reaction:removed wrongly resolved pending approval",
+              len(resolved) == before)
+        check("reaction:removed wrongly dropped pending approval",
+              "appr8" in case.adapter._approvals)
+
+        # Other emoji resolves nothing.
+        case = _Case(adapter_mod, resolved, approval_id="appr9", session="session9")
+        await case.react("appr9", "❤️")
+        check("heart reaction resolved something", len(resolved) == before)
+
+        # Non-string emoji and empty message_id do not crash.
+        case = _Case(adapter_mod, resolved, approval_id="appr10", session="session10")
+        await case.react("appr10", 123)
+        await case.react("", "👍")
+        await case.react(None, "👍")
+        check("non-string emoji or empty message_id resolved something",
+              len(resolved) == before)
+
+        # Reaction still forwarded to _reaction_handler when registered.
+        case = _Case(adapter_mod, resolved, approval_id="appr11", session="session11",
+                     handler=True)
+        await case.react("appr11", "👍")
+        check("reaction not forwarded to registered handler",
+              len(case.forwarded) == 1
+              and case.forwarded[0]["event_name"] == "reaction:added"
+              and case.forwarded[0]["reaction"] == "👍")
+
     asyncio.run(run())
 
     ok = not failures
-    if ("session1", "once") not in resolved:
-        print(f"FAIL: {TEST_ID} thumbs-up on pending approval did not resolve it (resolved={resolved})")
-        ok = False
-    if "appr1" in adapter._approvals:
-        print(f"FAIL: {TEST_ID} approval appr1 still pending after thumbs-up")
-        ok = False
-    if len(resolved) != 1:
-        print(f"FAIL: {TEST_ID} expected exactly one resolution, got {resolved}")
-        ok = False
     print(f"{TEST_ID}: {'PASS' if ok else 'FAIL'}")
     return 0 if ok else 1
 
