@@ -50,6 +50,13 @@ class DeployChangeDetectionTests(unittest.TestCase):
             (repo / "README.md").write_text("base\n", encoding="utf-8")
             subprocess.run(git + ["add", "-A"], cwd=repo, check=True)
             subprocess.run(git + ["commit", "-q", "-m", "base"], cwd=repo, check=True)
+            # The detect step (friday #144) diffs against the last successful
+            # deploy's commit, not HEAD~1. Supply it via the test-harness
+            # override so these mapping tests still control the base.
+            base_sha = subprocess.run(
+                git + ["rev-parse", "HEAD"], cwd=repo, check=True,
+                capture_output=True, text=True,
+            ).stdout.strip()
 
             for changed_path in changed_paths:
                 target = repo / changed_path
@@ -63,6 +70,7 @@ class DeployChangeDetectionTests(unittest.TestCase):
                 "GITHUB_OUTPUT": str(output_file),
                 "FORCE_ALL": "false",
                 "DEPLOY_COMPONENTS_OVERRIDE": "",
+                "LAST_SUCCESSFUL_DEPLOY_SHA": base_sha,
             }
             subprocess.run(
                 ["bash", "-e", "-c", detection_script()],
