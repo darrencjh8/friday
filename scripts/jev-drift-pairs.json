@@ -1,0 +1,311 @@
+{
+ "pairs": [
+  {
+   "id": "j02",
+   "claim": "DOC (.specify/memory/constitution.md) calls the project '{project}' and says the runtime '{runline}'. CODE: compose defines {n_openclaw} openclaw services; modules/hermes/Dockerfile builds FROM '{from}'.",
+   "fill": {
+    "project": {
+     "file": ".specify/memory/constitution.md",
+     "match": "Project:",
+     "lines": 1
+    },
+    "runline": {
+     "file": ".specify/memory/constitution.md",
+     "match": "official.*(hermes-agent|openclaw)|NOT a custom-built",
+     "lines": 1
+    },
+    "n_openclaw": {
+     "run": "grep -ci openclaw modules/docker-compose.yml || true"
+    },
+    "from": {
+     "run": "grep -m1 '^FROM' modules/hermes/Dockerfile"
+    }
+   },
+   "require": [
+    "Hermes"
+   ]
+  },
+  {
+   "id": "j09",
+   "claim": "DOC (modules/expense-tracker/docs/design.md) routes notifications through '{hook}' to '{dest}' and presents no `.speckit/` path as an existing location. CODE: service emits NOTIFY_URL '{url}' with config port {port}; `.speckit/` in repo: {spek}.",
+   "fill": {
+    "hook": {
+     "file": "modules/expense-tracker/docs/design.md",
+     "match": "Hermes Webhook|notify-webhook"
+    },
+    "dest": {
+     "file": "modules/expense-tracker/docs/design.md",
+     "match": "Telegram/Dots"
+    },
+    "url": {
+     "run": "grep -m1 -o 'http://127.0.0.1:[0-9]*/[^\\\"]*' modules/hermes/plugins/email-intake/intake/service.py"
+    },
+    "port": {
+     "run": "grep -m1 -o 'port: [0-9]*' modules/hermes/config.yaml"
+    },
+    "spek": {
+     "run": "test -d .speckit && echo exists || echo absent"
+    }
+   },
+   "require": [
+    "8644",
+    "absent"
+   ]
+  },
+  {
+   "id": "j10",
+   "claim": "DOC (design.md section 5A.2) says statement processing uses '{llm}' and deepseek-flash '{scope}'. CODE: config default is '{default}'; deepseek-flash applies '{cond}'.",
+   "fill": {
+    "llm": {
+     "file": "design.md",
+     "match": "shared `LLMClient`"
+    },
+    "scope": {
+     "file": "design.md",
+     "match": "deepseek-flash.*only (when|for) the.*[Pp]rovider"
+    },
+    "default": {
+     "run": "grep -m1 -o 'auto-thinking[a-z -]*' modules/expense-tracker/src/config.js"
+    },
+    "cond": {
+     "run": "grep -m1 'deepseek-flash' modules/expense-tracker/src/config.js"
+    }
+   },
+   "require": [
+    "auto-thinking"
+   ]
+  },
+  {
+   "id": "j15",
+   "claim": "DOC (design.md section 11) says '{deny}' and points at '{hier}'. CODE: `.speckit/` in repo: {spek}; `.specify/` in repo: {specify}; `specs/` in repo: {specs}.",
+   "fill": {
+    "deny": {
+     "file": "design.md",
+     "match": "There is no `.speckit/` directory"
+    },
+    "hier": {
+     "file": "design.md",
+     "match": ".specify/memory/constitution.md"
+    },
+    "spek": {
+     "run": "test -d .speckit && echo exists || echo absent"
+    },
+    "specify": {
+     "run": "test -d .specify && echo exists || echo absent"
+    },
+    "specs": {
+     "run": "test -d specs && echo exists || echo absent"
+    }
+   },
+   "require": [
+    "absent",
+    "exists"
+   ]
+  },
+  {
+   "id": "j16",
+   "claim": "DOC (design.md) marks statement-reconciliation '{status}'. CODE: implementation files: {impl}; tests: {tests}.",
+   "fill": {
+    "status": {
+     "file": "design.md",
+     "match": "statement-reconciliation.*Implemented"
+    },
+    "impl": {
+     "run": "ls modules/expense-tracker/src/statement/ 2>/dev/null | tr '\\n' ' '"
+    },
+    "tests": {
+     "run": "ls modules/expense-tracker/tests/statement/ 2>/dev/null | tr '\\n' ' '"
+    }
+   },
+   "require": [
+    "Implemented"
+   ]
+  },
+  {
+   "id": "j19",
+   "claim": "DOC (DEPLOY.md) maps '{rules}'. CODE detect step maps '{coderules}' with fallback '{fallback}'.",
+   "fill": {
+    "rules": {
+     "file": "DEPLOY.md",
+     "match": "codex-router",
+     "lines": 6
+    },
+    "coderules": {
+     "run": "grep -E 'COMPONENTS=' .github/workflows/deploy.yml | head -n 8"
+    },
+    "fallback": {
+     "run": "grep -m1 -o 'COMPONENTS=\"all\"' .github/workflows/deploy.yml"
+    }
+   },
+   "require": [
+    "fetch-claude-usage",
+    "codex-router"
+   ]
+  },
+  {
+   "id": "j28",
+   "claim": "DOC (docs/email-intake-cutover.md) quotes the log lines '{l1}' and '{l2}'. CODE emits '{code}'.",
+   "fill": {
+    "l1": {
+     "file": "docs/email-intake-cutover.md",
+     "match": "live mode started"
+    },
+    "l2": {
+     "file": "docs/email-intake-cutover.md",
+     "match": "live dispatch waits"
+    },
+    "code": {
+     "run": "grep -m1 -o 'email-intake live dispatch waits[^\"]*' modules/hermes/plugins/email-intake/intake/dispatch.py"
+    }
+   },
+   "require": [
+    "old_watcher_running"
+   ]
+  },
+  {
+   "id": "j33",
+   "claim": "DOC (modules/onedrive-sync/README.md) says '{retired}'; sync now happens '{where}'. CODE: onedrive-sync service in compose: {svc}; portfolio sync client: {client}.",
+   "fill": {
+    "retired": {
+     "file": "modules/onedrive-sync/README.md",
+     "match": "Retired as a sync container"
+    },
+    "where": {
+     "file": "modules/onedrive-sync/README.md",
+     "match": "Microsoft Graph API"
+    },
+    "svc": {
+     "run": "grep -c '^    onedrive-sync:' modules/docker-compose.yml || true"
+    },
+    "client": {
+     "run": "head -n 2 modules/portfolio-tracker/src/onedrive.js | tail -n 1"
+    }
+   },
+   "require": [
+    "Graph"
+   ]
+  },
+  {
+   "id": "j34",
+   "claim": "DOC (specs/001-gateway/spec.md) lists completed work '{done}' with note '{note}' and transport '{transport}'. CODE transport: '{codetransport}'.",
+   "fill": {
+    "done": {
+     "file": "specs/001-gateway/spec.md",
+     "match": "\\*\\*Completed\\*\\*:"
+    },
+    "note": {
+     "file": "specs/001-gateway/spec.md",
+     "match": "ktmb-booking.*retired"
+    },
+    "transport": {
+     "file": "specs/001-gateway/spec.md",
+     "match": "Streamable HTTP transport"
+    },
+    "codetransport": {
+     "run": "grep -m1 -o 'streamable-http' modules/expense-tracker/src/mcp-server.js"
+    }
+   },
+   "require": [
+    "retired",
+    "streamable-http"
+   ]
+  },
+  {
+   "id": "j35",
+   "claim": "DOC (specs/002-expense-tracking/spec.md) says the intelligence layer is '{layer}' with '{rest}' REST and '{mcp}' MCP tools. CODE: default model '{default}'; {mcpn} MCP registrations; {restn} REST routes.",
+   "fill": {
+    "layer": {
+     "file": "specs/002-expense-tracking/spec.md",
+     "match": "intelligence layer is"
+    },
+    "rest": {
+     "file": "specs/002-expense-tracking/spec.md",
+     "match": "32 REST"
+    },
+    "mcp": {
+     "file": "specs/002-expense-tracking/spec.md",
+     "match": "27 MCP tools"
+    },
+    "default": {
+     "run": "grep -m1 -o 'auto-thinking[a-z -]*' modules/expense-tracker/src/config.js"
+    },
+    "mcpn": {
+     "run": "grep -c 'server.tool(' modules/expense-tracker/src/mcp-server.js"
+    },
+    "restn": {
+     "run": "sed -n '/const toolNames/,/];/p' modules/expense-tracker/src/index.js | grep -c '\"'"
+    }
+   },
+   "require": [
+    "auto-thinking",
+    "32 REST",
+    "27 MCP"
+   ]
+  },
+  {
+   "id": "j38",
+   "claim": "DOC (specs/030-spec-drift/audit.md) carries header note '{note}'. CODE: current drift check is '{guard}'.",
+   "fill": {
+    "note": {
+     "file": "specs/030-spec-drift/audit.md",
+     "match": "verified at commit|current drift check"
+    },
+    "guard": {
+     "run": "test -f scripts/check-docs-drift.sh && echo scripts/check-docs-drift.sh || echo missing"
+    }
+   },
+   "require": [
+    "check-docs-drift"
+   ]
+  },
+  {
+   "id": "j40",
+   "claim": "DOC (docs/loan-sync-147-plan.md) carries header '{header}' and the plan body remains for record. CODE: loan-sync implementation: {impl}.",
+   "fill": {
+    "header": {
+     "file": "docs/loan-sync-147-plan.md",
+     "match": "Historical record"
+    },
+    "impl": {
+     "run": "git ls-files modules/portfolio-tracker | grep -i loan | head -n 3"
+    }
+   },
+   "require": [
+    "Historical record"
+   ]
+  },
+  {
+   "id": "j41",
+   "claim": "DOC-A (full-deploy SKILL.md) says '{a}'. DOC-B (SETUP.md) says '{b}'. The two agree: deploys are CI-owned, no manual pull/deploy on production.",
+   "fill": {
+    "a": {
+     "file": ".agents/skills/full-deploy/SKILL.md",
+     "match": "CI-only|never a manual"
+    },
+    "b": {
+     "file": "SETUP.md",
+     "match": "only shipping path"
+    }
+   },
+   "require": [
+    "CI"
+   ]
+  },
+  {
+   "id": "j32",
+   "claim": "DOC (docs/glossary.md) pins the six dispatch sites at '{lines}'. CODE: those lines contain '{calls}'.",
+   "fill": {
+    "lines": {
+     "file": "docs/glossary.md",
+     "match": "mcp-server.js:[0-9, ]+|mcp-server.js:[0-9]+"
+    },
+    "calls": {
+     "run": "for l in 362 394 405 419 430 437; do echo -n \"$l: \"; sed -n \"${l}p\" modules/portfolio-tracker/src/mcp-server.js | grep -o 'executeTool(\"[a-z_]*\"\\|await registry\\|tx(await' | head -n 1; done | tr '\\n' ';'"
+    }
+   },
+   "require": [
+    "362"
+   ]
+  }
+ ]
+}
