@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Reproduction control for friday #185: the scheduled PII scan flags
-a font name and a service name as [PII name], but neither is a person.
+false positives as [PII name], but the flagged strings are not people.
 The fix whitelists the exact occurrences in
 scripts/pii-scan-allowlist.json; this test proves pii-scan-alert.collect()
 suppresses them once whitelisted.
+
+The flagged strings themselves are never written in this file: they are
+read out of the allowlist entries, and each entry is checked against the
+file it names, so the test stays true without hardcoding the values.
 
 Run: python3 modules/tests/test_issue_185.py
 """
@@ -21,37 +25,55 @@ spec = importlib.util.spec_from_file_location(
 alert = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(alert)
 
+# The commit whose scan flagged the false positives, and the plan file
+# that quotes them (and is therefore allowlisted at its own commit).
 COMMIT = "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9"
-
-# The three occurrences the CI scan flagged at commit 48ca43c3cf90, as
-# TruffleHog-shaped Presidio findings (see scripts/pii-scan-names.py:
-# DetectorName "Presidio", ExtraData.name "PII name").
-FINDINGS = [
-    ("Segoe UI", "modules/dots-web/src/styles/theme.css", 26),
-    ("Upstash Redis", "modules/dots-web/api/_lib/pairing.ts", 3),
-    ("Upstash Redis", "modules/dots-web/api/pair.ts", 5),
-]
+PLAN_FILE = "docs/plans/185-pii-allowlist-false-positives.md"
+EXPECTED_ENTRIES = 4
 
 
-def _finding(raw, file, line):
-    git = {"commit": COMMIT, "email": "dev <dev@example.com>", "line": line, "file": file}
+def _issue_entries():
+    with open(os.path.join(ROOT, "scripts", "pii-scan-allowlist.json"),
+              encoding="utf-8") as handle:
+        entries = json.load(handle)["entries"]
+    return [e for e in entries
+            if e["commit"] == COMMIT or e["file"] == PLAN_FILE]
+
+
+def _finding(entry):
+    git = {"commit": entry["commit"], "email": "dev <dev@example.com>",
+           "line": 1, "file": entry["file"]}
     return json.dumps({
-        "DetectorName": "Presidio",
-        "ExtraData": {"name": "PII name"},
-        "Raw": raw,
+        "DetectorName": entry["detector"],
+        "ExtraData": {"name": entry["name"]},
+        "Raw": entry["value"],
         "SourceMetadata": {"Data": {"Git": git}},
     })
 
 
 class TestIssue185(unittest.TestCase):
     def test_pii_false_positives_whitelisted(self):
-        allowed = alert.load_allowlist()
-        lines = [_finding(raw, file, line) for raw, file, line in FINDINGS]
-        found = alert.collect(lines, recent=None, allowed=allowed)
+        entries = _issue_entries()
         failures = []
-        for raw, _, _ in FINDINGS:
-            if ("PII name", raw) in found:
-                failures.append(f"{raw!r} still reported by the PII scan")
+        if len(entries) != EXPECTED_ENTRIES:
+            failures.append(
+                f"expected {EXPECTED_ENTRIES} allowlist entries for this "
+                f"issue, found {len(entries)}")
+        allowed = alert.load_allowlist()
+        lines = []
+        for entry in entries:
+            path = os.path.join(ROOT, entry["file"])
+            with open(path, encoding="utf-8") as handle:
+                if entry["value"] not in handle.read():
+                    failures.append(
+                        f"allowlisted value no longer occurs in "
+                        f"{entry['file']}")
+            lines.append(_finding(entry))
+        found = alert.collect(lines, recent=None, allowed=allowed)
+        for entry in entries:
+            if (entry["name"], entry["value"]) in found:
+                failures.append("allowlisted value still reported by the "
+                                "PII scan")
         if failures:
             print("FAIL: test_issue_185.TestIssue185.test_pii_false_positives_whitelisted "
                   + "; ".join(failures))
