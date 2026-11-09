@@ -59,8 +59,8 @@ assert config["agent"]["reasoning_effort"] == "none"
 assert "moa" not in (config["agent"].get("disabled_toolsets") or []), (
     "main agent must not disable the moa toolset"
 )
-assert config["compression"]["threshold_tokens"] == 300000, (
-    f"compression.threshold_tokens: expected 300000, got {config['compression'].get('threshold_tokens')!r}"
+assert config["compression"]["threshold_tokens"] == 350000, (
+    f"compression.threshold_tokens: expected 350000, got {config['compression'].get('threshold_tokens')!r}"
 )
 assert config["compression"]["threshold"] == 0.90, (
     f"compression.threshold: expected 0.90, got {config['compression'].get('threshold')!r}"
