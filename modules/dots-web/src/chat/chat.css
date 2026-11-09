@@ -170,7 +170,7 @@
 }
 .chat-header > * { pointer-events: auto; }
 /* La taille de Friday dans l'en-tête de conversation ; plus petite sur téléphone (voir plus bas). */
-.chat-identity .portrait-dot { width: 130px !important; height: 130px !important; }
+.chat-identity .portrait-dot { width: 150px !important; height: 150px !important; }
 .chat-header > .chat-header-side:first-child { pointer-events: none; }
 
 /* -- Sélecteur des dots (principal + sous-dots) ------------------------------------------------- */
