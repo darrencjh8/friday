@@ -33,6 +33,7 @@ FLOORS = {
     "source-map-js": [(1, 2, 2)],
     "vite": [(7, 3, 7)],
     "browserslist": [(4, 28, 7)],
+    "sharp": [(0, 35, 5)],
 }
 LOCKFILES = ["portfolio-tracker", "expense-tracker", "image-gen", "actual-api"]
 
@@ -65,6 +66,17 @@ class CriticalDependencyFloorTests(unittest.TestCase):
         text = (MODULES / "hermes" / "requirements-codex-router.txt").read_text()
         pinned = re.search(r"^litellm\[proxy\]==(\S+)", text, re.M).group(1)
         self.assertGreaterEqual(version(pinned), (1, 100, 4))
+
+    def test_pp_cli_guava_is_patched(self):
+        # Alert 317 (CVE-2026-102554 / GHSA-xxph-c9ww-hj94): guava deserialization
+        # OOM, fixed in 33.7.2-jre; the pom carries latest 33.8.0-jre.
+        text = (MODULES / "portfolio-tracker" / "pp-cli" / "pom.xml").read_text()
+        match = re.search(
+            r"<groupId>com\.google\.guava</groupId>\s*<artifactId>guava</artifactId>\s*<version>(\S+)</version>",
+            text,
+        )
+        self.assertIsNotNone(match, "guava dependency not found in pp-cli/pom.xml")
+        self.assertGreaterEqual(version(match.group(1)), (33, 7, 2))
 
 
 if __name__ == "__main__":
