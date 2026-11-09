@@ -88,3 +88,4 @@ modules/onedrive-sync/config/onedrive-state/
 # It holds actual personal data by design, so it must never be committed to a
 # public repository. Copy scripts/.pii-patterns.local.json.example to this path.
 scripts/.pii-patterns.local.json
+.agents/
