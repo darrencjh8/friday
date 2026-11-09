@@ -169,8 +169,8 @@
   pointer-events: none;
 }
 .chat-header > * { pointer-events: auto; }
-/* Friday un peu plus grande dans l'en-tête de conversation que le double d'un dot rond. */
-.chat-identity .portrait-dot { width: 123px !important; height: 123px !important; }
+/* La taille de Friday dans l'en-tête de conversation ; plus petite sur téléphone (voir plus bas). */
+.chat-identity .portrait-dot { width: 130px !important; height: 130px !important; }
 .chat-header > .chat-header-side:first-child { pointer-events: none; }
 
 /* -- Sélecteur des dots (principal + sous-dots) ------------------------------------------------- */
@@ -1098,6 +1098,7 @@
   .agent-add-icon { width: 28px; height: 28px; }
 
   .chat-header { padding: 10px 16px 32px; gap: 8px; }
+  .chat-identity .portrait-dot { width: 100px !important; height: 100px !important; }
   .chat-name { max-width: 50vw; }
   .stop-btn { padding: 0 10px; }
   .thread-inner { padding: calc(var(--header-h, 120px) - 16px) 16px 12px; }
