@@ -1613,6 +1613,18 @@ class DotsAdapter(BasePlatformAdapter):
 
     async def _on_user_reaction(self, frame: dict[str, Any]) -> None:
         message_id, emoji = str(frame.get("message_id", "")), frame.get("emoji")
+        # A thumbs-up/down on a pending approval resolves it, exactly like
+        # the Approve/Refuse button (friday #188). This runs before the
+        # handler guard below: the handler is never registered, so a check
+        # placed after it would never run. Skin-tone modifiers and the
+        # variation selector are stripped, so 👍🏻 and 👍️ count as 👍.
+        if isinstance(emoji, str) and message_id:
+            normalized = emoji.translate(str.maketrans(
+                "", "",
+                "\U0001F3FB\U0001F3FC\U0001F3FD\U0001F3FE\U0001F3FF\uFE0F"))
+            choice = {"👍": "once", "👎": "deny"}.get(normalized)
+            if choice is not None and message_id in self._approvals:
+                await self._on_approval({"approval_id": message_id, "choice": choice})
         if self._reaction_handler is None or not message_id:
             return
         await self._reaction_handler({
