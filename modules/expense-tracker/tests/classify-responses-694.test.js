@@ -9,10 +9,12 @@ const mockCreate = vi.fn();
 const mockResponsesCreate = vi.fn();
 
 vi.mock("openai", () => ({
-    default: vi.fn(() => ({
-        chat: { completions: { create: mockCreate } },
-        responses: { create: mockResponsesCreate },
-    })),
+    default: vi.fn(function () {
+        return {
+            chat: { completions: { create: mockCreate } },
+            responses: { create: mockResponsesCreate },
+        };
+    }),
 }));
 
 import { classifyEmail } from "../src/classify.js";

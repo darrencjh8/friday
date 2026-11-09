@@ -7,13 +7,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 // We need to mock OpenAI before importing orchestrator
 vi.mock("openai", () => {
     return {
-        default: vi.fn().mockImplementation((config) => ({
-            chat: {
-                completions: {
-                    create: vi.fn(),
+        default: vi.fn().mockImplementation(function () {
+            return {
+                chat: {
+                    completions: {
+                        create: vi.fn(),
+                    },
                 },
-            },
-        })),
+            };
+        }),
     };
 });
 

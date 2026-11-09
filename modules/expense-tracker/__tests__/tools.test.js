@@ -18,7 +18,7 @@ vi.mock("better-sqlite3", () => {
         all: vi.fn(() => []),
         run: vi.fn(() => ({ lastInsertRowid: 1 })),
     };
-    return { default: vi.fn(() => mockDb) };
+    return { default: vi.fn(function () { return mockDb; }) };
 });
 
 vi.mock("fs", () => ({ mkdirSync: vi.fn() }));

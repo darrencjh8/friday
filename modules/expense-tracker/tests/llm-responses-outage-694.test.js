@@ -9,10 +9,12 @@ const responsesCreate = vi.fn();
 
 vi.mock("openai", () => {
     class APIConnectionError extends Error {}
-    const OpenAI = vi.fn(() => ({
-        chat: { completions: { create: chatCreate } },
-        responses: { create: responsesCreate },
-    }));
+    const OpenAI = vi.fn(function () {
+        return {
+            chat: { completions: { create: chatCreate } },
+            responses: { create: responsesCreate },
+        };
+    });
     OpenAI.APIConnectionError = APIConnectionError;
     return { default: OpenAI };
 });

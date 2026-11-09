@@ -12,7 +12,7 @@ const { mockGet, mockUpdate, mockAppend } = vi.hoisted(() => ({
 vi.mock("googleapis", () => ({
   google: {
     auth: {
-      GoogleAuth: vi.fn().mockImplementation(() => ({})),
+      GoogleAuth: vi.fn().mockImplementation(function () { return {}; }),
     },
     sheets: vi.fn().mockReturnValue({
       spreadsheets: {

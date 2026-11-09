@@ -9,6 +9,11 @@
 
 import { describe, it, expect, vi } from "vitest";
 
+// Mocked at top level: vitest 4/5 rejects vi.mock inside a describe block.
+vi.mock("../src/extractors.js", () => ({
+    extractEmailContent: vi.fn(async () => "S$12.80 at Toast Box"),
+}));
+
 // ─── helpers to build config & tools mocks ───────────────────────
 
 function makeConfig(overrides = {}) {
@@ -3016,11 +3021,6 @@ describe("3-phase entry points", () => {
       ...overrides,
     };
   }
-
-  // Mock extractEmailContent to return a known string
-  vi.mock("../src/extractors.js", () => ({
-    extractEmailContent: vi.fn(async () => "S$12.80 at Toast Box"),
-  }));
 
   // ── processEmail (email path) ──────────────────────────────────
 
