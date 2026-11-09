@@ -5,6 +5,7 @@ FROM nousresearch/hermes-agent:stable@sha256:adb7890916de63245523492be8f68f9d209
 RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     qpdf \
+    sysstat \
     && rm -rf /var/lib/apt/lists/*
 # Own Google Tasks CLI (stdlib only, no third-party binary).
 COPY scripts/gtasks.py /usr/local/bin/gtasks
@@ -81,6 +82,10 @@ RUN chmod +x /etc/cont-init.d/50-seed-defaults
 COPY webui/s6-rc.d/reminders /etc/s6-overlay/s6-rc.d/reminders
 RUN chmod +x /etc/s6-overlay/s6-rc.d/reminders/run \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/reminders
+# Host metrics history (sysstat): sa1 sampler every ~2 min, 28-day retention.
+COPY webui/s6-rc.d/sysstat /etc/s6-overlay/s6-rc.d/sysstat
+RUN chmod +x /etc/s6-overlay/s6-rc.d/sysstat/run \
+    && touch /etc/s6-overlay/s6-rc.d/user/contents.d/sysstat
 # Debian's /etc/profile replaces PATH before it sources /etc/profile.d, so a
 # login shell (`bash -lc`, `sh -lc`) loses the image PATH entry for the
 # persisted volume directory and cannot see gh or ntn. Put it back for them;

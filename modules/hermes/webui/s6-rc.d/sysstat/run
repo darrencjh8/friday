@@ -1,0 +1,13 @@
+#!/command/with-contenv sh
+# sysstat collector: one sa1 sample every ~2 minutes, prune sa files
+# older than 28 days. sa1 is /usr/lib/sysstat/sa1 on bookworm and
+# /usr/libexec/sysstat/sa1 on trixie; take whichever exists, and fail
+# loudly (s6 restarts the service) rather than collect nothing.
+SA1=/usr/lib/sysstat/sa1
+[ -x "$SA1" ] || SA1=/usr/libexec/sysstat/sa1
+[ -x "$SA1" ] || exit 1
+while true; do
+    "$SA1" 1 1
+    find /var/log/sysstat -type f -name 'sa[0-9][0-9]' -mtime +28 -delete
+    sleep 120
+done
