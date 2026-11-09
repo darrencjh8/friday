@@ -10,13 +10,15 @@
 # not define (runtime-installed `hooks`, a hand-added `hooks_auto_accept`) is
 # carried over.
 #
-# ponytail: no retired-key drop list for this merge. A key the baked config
-# drops lingers in the live file until an operator removes it; Hermes ignores
-# unknown keys, and the baked `mcp_servers` wins here, so a retired MCP server
-# cannot survive in this file. Profile configs are different — they are only
-# copied when absent, so they carry a retired-key drop list in the managed
-# profile migration below. Add one here only if a retired key starts breaking
-# boot.
+# mcp_servers merges per server (#177), not wholesale: a baked server wins
+# on a name conflict, a live-only server is carried into the merged file,
+# and a retired server is dropped by the named list below. When an operator
+# removes a server from the baked config they add its name to that list in
+# the same change; the list applies to the live/carried side only — it does
+# not strip a name still present in the baked block (operator error; the
+# baked entry stays). Profile configs are different — they are only copied
+# when absent, so they carry their own retired-key drop list in the managed
+# profile migration below.
 # The merge runs as the hermes user, not root: the file it writes is born
 # hermes-owned, so no chown is ever needed for it. Root only bootstraps a
 # missing file (first boot, unwritable target); every later boot rewrites
@@ -60,22 +62,112 @@ if isinstance(canonical, dict) and isinstance(live, dict):
         if key not in canonical:
             carried[key] = value
 
+# mcp_servers merges per server (#177): baked wins per server, live-only
+# servers are carried, retired servers are dropped. A second, separate
+# retired list from the profile migration's own tuple below.
+retired_mcp_servers = ("ktmb-booking",)
+live_only_servers = {}
+if isinstance(canonical, dict) and isinstance(live, dict):
+    baked_servers = canonical.get("mcp_servers")
+    live_servers = live.get("mcp_servers")
+    if live_servers is None:
+        live_servers = {}
+    if not isinstance(live_servers, dict):
+        print("WARNING: live mcp_servers is not a mapping; ignoring it", file=sys.stderr)
+        live_servers = {}
+    if not isinstance(baked_servers, dict):
+        baked_servers = {}
+    for name, value in live_servers.items():
+        if name in retired_mcp_servers:
+            continue
+        if name in baked_servers:
+            continue
+        if not isinstance(value, dict):
+            print(f"WARNING: live mcp_servers.{name} is not a mapping; ignoring it", file=sys.stderr)
+            continue
+        live_only_servers[name] = value
+
 # Write the baked bytes unchanged and graft the carried keys on the end, so the
 # baked file's comments and formatting survive the merge. The memory provider
 # lives in the baked config itself, so no carry is needed for it.
 text = canonical_path.read_text()
+if "mcp_servers" not in canonical:
+    # The raw live block must never ride along in `carried` unfiltered;
+    # live-only servers are appended by the block below, if any.
+    carried.pop("mcp_servers", None)
 if carried:
     text = text.rstrip("\n") + "\n\n" + yaml.safe_dump(carried, sort_keys=False)
-try:
-    existing = live_path.read_text()
-except OSError:
-    existing = None
-if existing != text:
-    # Atomic replace: a kill mid-write must not truncate the live config.
-    tmp_path = live_path.with_name(live_path.name + ".tmp")
-    tmp_path.write_text(text)
-    os.replace(tmp_path, live_path)
-    print("config: merged baked config into live config")
+if live_only_servers:
+    if "mcp_servers" not in canonical:
+        # No baked block at all: append a new top-level block. Retired
+        # filtering already applied above, so only live-only servers land
+        # here — the raw live block must not ride along in `carried`, or
+        # retired servers would be appended unfiltered.
+        carried.pop("mcp_servers", None)
+        text = text.rstrip("\n") + "\n\n" + yaml.safe_dump(
+            {"mcp_servers": live_only_servers}, sort_keys=False
+        )
+    else:
+        # Insert after the last line of the baked mcp_servers block, before
+        # the next top-level key (column 0, non-empty, not a comment) or EOF.
+        # The entry indent is derived from the first baked entry line, so a
+        # non-4-space baked block still nests the inserted servers correctly;
+        # safe_dump with indent=4 keeps the 4-space step inside each server.
+        lines = text.split("\n")
+        start = next(
+            (i for i, line in enumerate(lines) if line.startswith("mcp_servers:")),
+            None,
+        )
+        if start is not None:
+            end = len(lines)
+            entry_indent = 4
+            for i in range(start + 1, len(lines)):
+                line = lines[i]
+                if line and not line[0].isspace() and not line.startswith("#"):
+                    end = i
+                    break
+            for i in range(start + 1, end):
+                line = lines[i]
+                if line.strip() and line[0].isspace():
+                    entry_indent = len(line) - len(line.lstrip())
+                    break
+            dumped = yaml.safe_dump(live_only_servers, sort_keys=False, indent=4)
+            pad = " " * entry_indent
+            inserted = [
+                pad + line if line.strip() else line
+                for line in dumped.rstrip("\n").split("\n")
+            ]
+            lines[end:end] = inserted
+            text = "\n".join(lines)
+# Guard (#177 code review): never write a merged file that does not re-parse
+# with the live-only servers in place. A flow-style or non-mapping baked
+# mcp_servers block would make the insertion invalid YAML; in that case warn
+# and leave the live file untouched instead of corrupting it at boot.
+if live_only_servers:
+    try:
+        merged_servers = (yaml.safe_load(text) or {}).get("mcp_servers") or {}
+        if not all(name in merged_servers for name in live_only_servers):
+            raise ValueError("live-only MCP servers missing after merge")
+    except Exception as exc:
+        print(
+            f"WARNING: merged config failed validation ({exc}); leaving live config untouched",
+            file=sys.stderr,
+        )
+        text = None
+if text is None:
+    # Validation failed above: live file left untouched, merge skipped.
+    pass
+else:
+    try:
+        existing = live_path.read_text()
+    except OSError:
+        existing = None
+    if existing != text:
+        # Atomic replace: a kill mid-write must not truncate the live config.
+        tmp_path = live_path.with_name(live_path.name + ".tmp")
+        tmp_path.write_text(text)
+        os.replace(tmp_path, live_path)
+        print("config: merged baked config into live config")
 PYCONFIG
 else
     cp /opt/hermes-defaults/config.yaml /opt/data/config.yaml

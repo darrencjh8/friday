@@ -1248,10 +1248,10 @@ config = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
 print((config.get("compression") or {}).get("threshold_tokens"))
 PY
 )
-if [ "$seeded_threshold_tokens" = "300000" ]; then
-    ok "config: compression.threshold_tokens is 300000 (seeded copy inherits 300k)"
+if [ "$seeded_threshold_tokens" = "350000" ]; then
+    ok "config: compression.threshold_tokens is 350000 (seeded copy inherits 350k)"
 else
-    nope "compression.threshold_tokens" "expected 300000, got $seeded_threshold_tokens"
+    nope "compression.threshold_tokens" "expected 350000, got $seeded_threshold_tokens"
 fi
 
 seeded_threshold=$(python3 - "$seed_config" <<'PY'
@@ -1354,7 +1354,7 @@ def trigger(window):
 
 
 failures = []
-for window, expected in ((272_000, 244_800), (400_000, 300_000), (1_048_576, 300_000)):
+for window, expected in ((272_000, 244_800), (400_000, 350_000), (1_048_576, 350_000)):
     try:
         got = trigger(window)
     except ValueError as exc:
@@ -1366,9 +1366,156 @@ print("pass" if not failures else "; ".join(failures))
 PY
 )
 if [ "$derived_trigger" = "pass" ]; then
-    ok "config: derived compaction trigger is min(floor_ratio x window, 300000)"
+    ok "config: derived compaction trigger is min(floor_ratio x window, 350000)"
 else
     nope "compaction trigger derivation" "$derived_trigger"
+fi
+
+echo ""
+echo "=== mcp_servers seed merge (#177) ==="
+
+# Failing-first case for #177: a live-only MCP server must survive the boot
+# seed, a baked server must win on a name conflict, a retired server must be
+# dropped, and a non-mapping live entry must be ignored, not carried.
+mkdir -p "$TMPDIR/mcp/hermes-defaults" "$TMPDIR/mcp/data"
+cp "$SCRIPT_DIR/../config.yaml" "$TMPDIR/mcp/hermes-defaults/config.yaml"
+cat > "$TMPDIR/mcp/data/config.yaml" <<'EOF'
+mcp_servers:
+  live-added-server:
+    url: http://live-added:8080/mcp
+    auth: oauth
+    supports_parallel_tool_calls: true
+    tools:
+      include:
+        - live-tool-one
+        - live-tool-two
+  expense-tracker:
+    url: http://stale-expense-tracker:9999/mcp
+  ktmb-booking:
+    url: http://ktmb-booking:8082/mcp
+  broken-server: not-a-mapping
+EOF
+mcp_status=0
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" "$TMPDIR/mcp/data/config.yaml" \
+    < "$TMPDIR/seed/merge.py" 2>"$TMPDIR/mcp/merge.err" || mcp_status=$?
+mcp_result=$(python3 - "$TMPDIR/mcp/data/config.yaml" <<'PY'
+import sys
+import yaml
+
+config = yaml.safe_load(open(sys.argv[1], encoding="utf-8"))
+servers = config.get("mcp_servers") or {}
+live = servers.get("live-added-server") or {}
+checks = [
+    live.get("url") == "http://live-added:8080/mcp",
+    live.get("auth") == "oauth",
+    (live.get("tools") or {}).get("include") == ["live-tool-one", "live-tool-two"],
+    (servers.get("expense-tracker") or {}).get("url") == "http://expense-tracker:8080/mcp",
+    "ktmb-booking" not in servers,
+    "broken-server" not in servers,
+    "notion" in servers,
+]
+print("pass" if all(checks) else "fail:" + ",".join(str(i) for i, c in enumerate(checks) if not c))
+PY
+)
+if [ "$mcp_status" -eq 0 ] && [ "$mcp_result" = "pass" ]; then
+    ok "config: live-only MCP server survives the seed, baked wins, retired dropped"
+else
+    nope "mcp_servers seed merge" "status=$mcp_status result=$mcp_result err=$(cat "$TMPDIR/mcp/merge.err" 2>/dev/null)"
+fi
+grep -q 'WARNING: live mcp_servers.broken-server is not a mapping' "$TMPDIR/mcp/merge.err" \
+    && ok "config: non-mapping live MCP server warns on stderr" \
+    || nope "non-mapping live MCP server warning" "no WARNING for broken-server in stderr"
+grep -q 'Keep this block AFTER `webhook`' "$TMPDIR/mcp/data/config.yaml" \
+    && ok "config: merged MCP file keeps the baked file's comments" \
+    || nope "merged MCP file keeps baked comments" "baked comment missing from merged config"
+
+# Appended-block path: a baked config with no mcp_servers block at all must
+# still carry a live-only server, and retired filtering applies there too.
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" <<'PY'
+import sys
+import yaml
+
+path = sys.argv[1]
+config = yaml.safe_load(open(path, encoding="utf-8"))
+config.pop("mcp_servers", None)
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(config, f, sort_keys=False)
+PY
+cat > "$TMPDIR/mcp/data/config.yaml" <<'EOF'
+mcp_servers:
+  appended-server:
+    url: http://appended:8080/mcp
+  ktmb-booking:
+    url: http://ktmb-booking:8082/mcp
+EOF
+append_status=0
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" "$TMPDIR/mcp/data/config.yaml" \
+    < "$TMPDIR/seed/merge.py" 2>/dev/null || append_status=$?
+append_result=$(python3 - "$TMPDIR/mcp/data/config.yaml" <<'PY'
+import sys
+import yaml
+
+servers = (yaml.safe_load(open(sys.argv[1], encoding="utf-8")).get("mcp_servers") or {})
+print("pass" if servers.get("appended-server", {}).get("url") == "http://appended:8080/mcp" and "ktmb-booking" not in servers else "fail")
+PY
+)
+if [ "$append_status" -eq 0 ] && [ "$append_result" = "pass" ]; then
+    ok "config: live MCP server is carried when baked has no mcp_servers block"
+else
+    nope "mcp_servers appended-block merge" "status=$append_status result=$append_result"
+fi
+
+# Malformed live input: a non-dict mcp_servers value must not crash the merge
+# and must not wipe the baked servers.
+cp "$SCRIPT_DIR/../config.yaml" "$TMPDIR/mcp/hermes-defaults/config.yaml"
+printf 'mcp_servers: not-a-dict\n' > "$TMPDIR/mcp/data/config.yaml"
+malformed_status=0
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" "$TMPDIR/mcp/data/config.yaml" \
+    < "$TMPDIR/seed/merge.py" 2>"$TMPDIR/mcp/malformed.err" || malformed_status=$?
+malformed_result=$(python3 - "$TMPDIR/mcp/data/config.yaml" <<'PY'
+import sys
+import yaml
+
+servers = (yaml.safe_load(open(sys.argv[1], encoding="utf-8")).get("mcp_servers") or {})
+print("pass" if "expense-tracker" in servers and "notion" in servers else "fail")
+PY
+)
+if [ "$malformed_status" -eq 0 ] && [ "$malformed_result" = "pass" ]; then
+    ok "config: non-dict live mcp_servers is ignored without breaking the merge"
+else
+    nope "mcp_servers malformed live input" "status=$malformed_status result=$malformed_result"
+fi
+grep -q 'WARNING: live mcp_servers is not a mapping' "$TMPDIR/mcp/malformed.err" \
+    && ok "config: non-dict live mcp_servers warns on stderr" \
+    || nope "non-dict live mcp_servers warning" "no WARNING in stderr"
+
+# Flow-style baked block: insertion would be invalid YAML, so the merge must
+# warn and leave the live file untouched instead of corrupting it.
+cp "$SCRIPT_DIR/../config.yaml" "$TMPDIR/mcp/hermes-defaults/config.yaml"
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" <<'PY'
+import sys
+import yaml
+
+path = sys.argv[1]
+config = yaml.safe_load(open(path, encoding="utf-8"))
+config["mcp_servers"] = {}
+with open(path, "w", encoding="utf-8") as f:
+    yaml.safe_dump(config, f, sort_keys=False, default_flow_style=True)
+PY
+cat > "$TMPDIR/mcp/data/config.yaml" <<'EOF'
+mcp_servers:
+  flow-live-server:
+    url: http://flow-live:8080/mcp
+EOF
+flow_before=$(cat "$TMPDIR/mcp/data/config.yaml")
+flow_status=0
+python3 - "$TMPDIR/mcp/hermes-defaults/config.yaml" "$TMPDIR/mcp/data/config.yaml" \
+    < "$TMPDIR/seed/merge.py" 2>"$TMPDIR/mcp/flow.err" || flow_status=$?
+flow_after=$(cat "$TMPDIR/mcp/data/config.yaml")
+if [ "$flow_before" = "$flow_after" ] && grep -q 'WARNING: merged config failed validation' "$TMPDIR/mcp/flow.err"; then
+    ok "config: flow-style baked mcp_servers leaves the live file untouched"
+else
+    nope "flow-style baked mcp_servers guard" "status=$flow_status live file changed or no warning"
 fi
 
 echo ""
