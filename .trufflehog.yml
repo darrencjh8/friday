@@ -8,7 +8,7 @@ detectors:
       regex:
           value: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
       exclude_regexes_match:
-          - '(?i)@(.*\.)?(example\.(com|org|net)|test\.com|[a-z0-9-]+\.invalid|your-[a-z-]*\.[a-z.]+|users\.noreply\.github\.com)$'
+          - '(?i)@(.*\.)?(example\.(com|org|net)|test\.com|[a-z0-9-]+\.invalid|[a-z0-9-]+\.local|your-[a-z-]*\.[a-z.]+|users\.noreply\.github\.com)$'
           - '(?i)^noreply@'
           - '(?i)^support@github\.com$'
     - name: PII SG phone

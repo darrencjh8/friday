@@ -29,7 +29,7 @@ spec.loader.exec_module(alert)
 # that quotes them (and is therefore allowlisted at its own commit).
 COMMIT = "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9"
 PLAN_FILE = "docs/plans/185-pii-allowlist-false-positives.md"
-EXPECTED_ENTRIES = 4
+EXPECTED_ENTRIES = 5
 
 
 def _issue_entries():

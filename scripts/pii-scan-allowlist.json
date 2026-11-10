@@ -160,6 +160,9 @@
     {"detector": "Presidio", "name": "PII name", "value": "Segoe UI", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/src/styles/theme.css"},
     {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/api/_lib/pairing.ts"},
     {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "48ca43c3cf90f5ec64861a6d8c198c3500cdf8a9", "file": "modules/dots-web/api/pair.ts"},
-    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "40516864241758f8716660b5a9e2a56c20a5578f", "file": "docs/plans/185-pii-allowlist-false-positives.md"}
+    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "40516864241758f8716660b5a9e2a56c20a5578f", "file": "docs/plans/185-pii-allowlist-false-positives.md"},
+    {"detector": "Presidio", "name": "PII name", "value": "Chrome Daemon", "commit": "8a182bcce1e0618e145986edd478ab2087fc5935", "file": ".agents/skills/full-deploy/SKILL.md"},
+    {"detector": "Presidio", "name": "PII name", "value": "Upstash Redis", "commit": "2bccac8885aeac21762129286d66c98ed51c839a", "file": "docs/plans/185-pii-allowlist-false-positives.md"}
+
   ]
 }
