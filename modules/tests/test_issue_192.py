@@ -21,6 +21,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from datetime import date, timedelta
 from pathlib import Path
 
 SEED = Path(__file__).resolve().parents[2] / "modules" / "hermes" / "50-seed-defaults"
@@ -87,11 +88,15 @@ class TestIssue192(unittest.TestCase):
                 'if [ "$4" = "view" ]; then echo "[]"; fi\n'
                 "exit 0\n")
             fake.chmod(0o755)
+            # Due tomorrow: inside the monthly 3-day lead window, and
+            # never overdue no matter when the suite runs (a fixed date
+            # goes overdue once the runner date passes it).
+            action_date = (date.today() + timedelta(days=1)).isoformat()
             candidates = [{
                 "key": "bill",
                 "type": "monthly",
                 "title": "Pay card bill",
-                "action_date": "2026-11-09",
+                "action_date": action_date,
                 "note": "",
             }]
             env = {**os.environ,
@@ -105,7 +110,7 @@ class TestIssue192(unittest.TestCase):
             # logged call spans two lines; check the whole log.
             log_text = log.read_text()
         self.assertEqual(log_text.count("tasks add "), 1)
-        self.assertIn("-d 2026-11-09", log_text)
+        self.assertIn(f"-d {action_date}", log_text)
 
 
 if __name__ == "__main__":
