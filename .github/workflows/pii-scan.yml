@@ -76,6 +76,7 @@ jobs:
                   SMTP_USERNAME: ${{ secrets.IMAP_USERNAME }}
                   SMTP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
                   PII_SCAN_EMAIL_TO: ${{ secrets.PII_SCAN_EMAIL_TO }}
+                  JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
               run: python3 scripts/pii-scan-alert.py "$RUNNER_TEMP/findings.jsonl" "$RUNNER_TEMP/names.jsonl"
 
             - name: Fail if the name scan failed

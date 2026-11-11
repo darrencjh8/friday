@@ -21,6 +21,7 @@ import smtplib
 import ssl
 import subprocess
 import sys
+import urllib.request
 from email.message import EmailMessage
 
 SMTP_HOST = "smtp.zoho.com"
@@ -30,6 +31,43 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ALLOWLIST_PATH = os.path.join(HERE, "pii-scan-allowlist.json")
 ALLOWLIST_KEYS = {"detector", "name", "value", "commit", "file"}
 HEX40 = re.compile(r"[0-9a-f]{40}")
+
+# JEV adjudication (issue #205): same SystemOne contract as
+# scripts/jev_drift_audit.py, with its calibrated gates. Only the names in
+# ADJUDICABLE_NAMES are ever sent; everything else is always emailed.
+JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+JEV_MODEL = "jev-latest"
+JEV_TIMEOUT = 30
+JEV_MIN_CONFIDENCE = 0.65
+JEV_MIN_MARGIN = 0.3
+ADJUDICABLE_NAMES = {"PII email", "PII SG phone", "PII NRIC", "PII card", "PII SG address", "PII name"}
+# DetectorName follows from the ExtraData name: the five CustomRegex detectors
+# in .trufflehog.yml, and the Presidio name detector in pii-scan-names.py.
+DETECTOR_FOR_NAME = {
+    "PII email": "CustomRegex",
+    "PII SG phone": "CustomRegex",
+    "PII NRIC": "CustomRegex",
+    "PII card": "CustomRegex",
+    "PII SG address": "CustomRegex",
+    "PII name": "Presidio",
+}
+VERDICT_QUESTION = {
+    "verdict": {
+        "type": "choice",
+        "instructions": (
+            "You judge one PII-scan finding: a detector matched a value in a git "
+            "repository. Answer false_positive when the value is synthetic test "
+            "fixture data, an example, a placeholder, or a product name — not a "
+            "real person's data. Answer real when it is or could be a real "
+            "person's data. If the evidence does not decide it, answer uncertain."
+        ),
+        "criteria": {
+            "false_positive": "synthetic fixture, example, placeholder, or product name — not a real person's data",
+            "real": "is or could be a real person's data or a real secret",
+            "uncertain": "not enough evidence",
+        },
+    }
+}
 
 
 class AllowlistError(ValueError):
@@ -103,6 +141,57 @@ def render(found: dict[tuple[str, str], list[str]]) -> str:
     return "\n\n".join(entries) + "\n"
 
 
+def _jev_is_false_positive(name: str, value: str, locations: list[str], key: str) -> bool:
+    """Ask JEV whether one surviving finding is a false positive.
+
+    True only on a confident false_positive; every other outcome — real,
+    uncertain, low confidence, low margin, malformed answer, error — is
+    False, so the finding is reported. Never raises. The state carries only
+    this finding's own fields: detector, name, value, and all its locations.
+    """
+    state = "\n".join([
+        f"Detector: {DETECTOR_FOR_NAME[name]}",
+        f"Finding: {name}",
+        f"Value: {value}",
+        "Locations:",
+        *(f"  {location}" for location in locations),
+    ])
+    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": VERDICT_QUESTION}).encode()
+    request = urllib.request.Request(
+        JEV_ENDPOINT, data=body,
+        headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=JEV_TIMEOUT) as response:
+            verdict = json.load(response)["answers"]["verdict"]
+        if verdict.get("choice") != "false_positive":
+            return False
+        confidence = verdict.get("confidence") or 0
+        probs = sorted((verdict.get("probabilities") or {}).values(), reverse=True)
+        margin = (probs[0] - probs[1]) if len(probs) > 1 else 0.0
+        return confidence >= JEV_MIN_CONFIDENCE and margin >= JEV_MIN_MARGIN
+    except Exception:
+        return False
+
+
+def adjudicate(found: dict[tuple[str, str], list[str]], key: str) -> tuple[dict[tuple[str, str], list[str]], int]:
+    """Drop findings JEV confidently calls false positives.
+
+    Returns (reported, suppressed_count). Without a key, adjudication is
+    skipped and every finding is reported. A per-finding failure never
+    raises: the finding is reported.
+    """
+    if not key:
+        return found, 0
+    reported: dict[tuple[str, str], list[str]] = {}
+    suppressed = 0
+    for (name, value), locations in found.items():
+        if name in ADJUDICABLE_NAMES and _jev_is_false_positive(name, value, locations, key):
+            suppressed += 1
+        else:
+            reported[(name, value)] = locations
+    return reported, suppressed
+
+
 def main(argv: list[str]) -> int:
     try:
         # Checked before the scan result is read, so a missing secret turns the
@@ -114,12 +203,16 @@ def main(argv: list[str]) -> int:
         allowed = load_allowlist()
         with fileinput.input(files=argv[1:], encoding="utf-8") as lines:
             found = collect(lines, recent, allowed)
+        found, suppressed = adjudicate(found, os.environ.get("JEV_API_KEY", ""))
         if found:
             message = EmailMessage()
             message["Subject"] = "friday: scheduled scan found PII or secrets"
             message["From"] = user
             message["To"] = to
-            message.set_content(render(found))
+            content = render(found)
+            if suppressed:
+                content += f"\nJEV adjudication suppressed {suppressed} finding(s) as false positives.\n"
+            message.set_content(content)
             with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=ssl.create_default_context(), timeout=30) as smtp:
                 smtp.login(user, password)
                 smtp.send_message(message)
