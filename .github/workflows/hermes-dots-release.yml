@@ -42,6 +42,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release: ${{ steps.check.outputs.release }}
+      sha: ${{ steps.head.outputs.sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -80,8 +81,20 @@ jobs:
             echo "New commits since $last: releasing."
           fi
 
-  release:
+      - name: Head commit
+        id: head
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  test:
     needs: check
+    if: needs.check.outputs.release == 'true'
+    uses: ./.github/workflows/hermes-dots-ci.yml
+    with:
+      ref: ${{ needs.check.outputs.sha }}
+    secrets: inherit
+
+  release:
+    needs: [check, test]
     if: needs.check.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
