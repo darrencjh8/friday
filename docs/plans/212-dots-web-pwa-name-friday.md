@@ -3,12 +3,46 @@ q: How does a static manifest file carry a dynamic name? | a: Server-side substi
 q: Why not a client-generated manifest (blob:/data: URL)? | a: Rejected. Chrome requires a same-origin manifest — a runtime-built blob: manifest is a known non-installable pattern (the manifest URL is what `start_url`/`scope` resolve against and they must stay on its origin), and iOS Safari reads the manifest only from a same-origin link. The server substitution keeps a plain same-origin URL.
 q: What name shows before anything is paired? | a: "Hermes" — the static manifest, the static `index.html` title, and the `appName` fallback. There is no first agent to read yet, and hardcoding "Friday" as the fallback would reintroduce exactly the hardcoding Darren asked to remove.
 q: Which agent's name — first connected, or the active one? | a: First connected: `agents[0]` in store order (`mergeAgents` appends new pairings at the end, so `agents[0]` is the oldest surviving pairing). Opening a second agent never renames the PWA. For Darren the first agent is Friday, so his PWA still says Friday.
-q: What if the first agent is removed, or the user re-pairs to a different phone? | a: `agents[0]` becomes the next-oldest paired agent and the name follows it (tab title immediately; installed name on the platform refresh schedule). A re-pairing merges new agents in behind the existing ones, so the first agent — and the name — is unchanged. No agents at all: back to "Hermes".
+q: What if the first agent is removed, or the user re-pairs to a different phone? | a: A re-pair updates the agent in place: `mergeAgents` replaces a re-paired agent at its existing position (new in this change — today it filters the agent out and appends it, which would move a re-paired first agent to the end and rename the PWA). So the name is unchanged by a re-pair. Removing the first agent promotes the next-oldest paired agent and the name follows it. No agents at all: back to "Hermes".
 q: Pairing screen — which strings change, and what about "Open Friday on your phone"? | a: The title and step 1 become functions of the app name: "{name} in your browser" / "Open {name} on your phone" (both locales). The honest wrinkle: step 1 names the agent, not the phone app the user must open — the phone launcher still says Hermes, so a first-time user looking for "Friday" in their app list will not find that label. That is what Darren asked for ("name everything the same"); renaming the phone launcher is a separate hermes-dots decision, out of scope. The QR label and the from-link note stay "Hermes": they name the phone app that does the scanning, and there is no "Friday app" on the phone.
 q: Do the other "Hermes" strings change — agent-name fallbacks, pairing validation default? | a: No. `crypto.ts:149` stays "Hermes": it is the default for a nameless agent arriving in the pairing payload, and it feeds the dynamic name (a nameless first agent is consistently called Hermes everywhere). `ChatApp.tsx:185` and `ChatView.tsx:48` stay: they already show the agent's own name when known, and "Hermes" is only the unknown-name fallback. The `GatewayClient.ts` / `toolLabels.ts` mentions are code comments naming the product, not a user-visible name.
 q: What does the CI smoke test assert now? | a: Unchanged: `.github/workflows/test.yml:363` still greps `<title>Hermes`. `curl` runs no JS, so it can only ever see the static served title — which is now the pre-pairing fallback by design. The dynamic title is covered by the new JS test instead (see Verification).
 q: How does this sequence with #211's seven new per-logo manifests? | a: Order-independent, and #211's manifests need no content change: their static name stays "Hermes" (the correct pre-pairing fallback) and the server substitutes at serve time, whichever manifest file the link points at. The shared touch points are `appIcon.ts` and the `setAppIcon` call in `ChatApp.tsx` — whichever PR merges second rebases those. This change touches no manifest file, so the old manifest conflict is gone.
 q: What happens for an already-installed PWA? | a: Same platform limit as #211's icon and the old plan: Chrome on Android refreshes the installed name via WebAPK when the manifest changes, all PWA windows closed, charging on Wi-Fi, manifest checked at most once a day on launch; desktop Chrome/Edge never replace the installed name; iOS Safari never refreshes it — delete and re-add. A fresh install after pairing shows the first agent's name immediately. An install made before pairing shows "Hermes" until the refresh or a reinstall.
+
+## Plan change since dcb8c1e3… (round-3 plan, CHANGES, 1 High + 1 Medium + 1 Low)
+
+Round 3 found one real miss and two smaller ones, so this revision
+fixes all three — one mutation, then the gate is escalated (the run
+has used its 3 plan rounds), so the fixed plan goes to the operator
+decision instead of a round 4.
+
+- H1 (new test file breaks the build): step 7's `src/appIcon.test.ts`
+  imports `node:test`/`node:assert/strict`, but `tsconfig.json`
+  includes `src` and no `@types/node` is installed — exactly the
+  breakage #211's implementation had to fix with an exclude. Added
+  step 8: `tsconfig.json` gains `"exclude": ["src/**/*.test.ts"]`
+  (one line; if #211 has merged first the line is already there and
+  the implementer verifies instead of duplicating). File count
+  7 → 8 before the M1/L1 adjustments below.
+- M1 (re-pair moves the first agent): `mergeAgents` today filters a
+  re-paired agent out and appends it, so re-pairing the first agent
+  moves it to the end of `agents` and renames the PWA — against
+  Darren's "first agent that was connected" rule. Fixed at the root
+  cause, not the wording: `mergeAgents` now replaces a re-paired
+  agent at its existing position and appends only genuinely new
+  agents (steps 8–9 in the renumbered change, plus a `store.test.ts`
+  merge-order test). The QUESTIONS re-pairing answer and the
+  fact-check now state the in-place rule. The sidebar order also
+  stops jumping on a re-pair; the only `mergeAgents` caller is
+  `PairingScreen.succeed`, and the newly-added-agent activation in
+  `ChatApp` keys on `session_id`, so a re-paired agent still
+  becomes active.
+- L1 (dead step): step 5 passed `appName` to the bare
+  `PairingScreen` in `main.tsx`, but that screen renders only when
+  `agents.length === 0`, so the value is always the `"Hermes"`
+  fallback the prop default already provides. Deleted; file count
+  10 → 9 (see The change).
 
 ## Plan change since 29386e44… (revision, static → dynamic)
 
@@ -32,9 +66,10 @@ strings to "Friday"; this revision replaces it wholesale:
   RED control is the JS tests below; the implementation phase
   supersedes the recorded repro with them (`loop.py repro
   --supersede`) before the tests gate.
-- File count 7 → 7, but a different 7: no manifest files, no
-  `index.html`, no workflow file; instead `server.mjs`,
-  `src/appIcon.test.ts` (new), and the `main.tsx` prop.
+- File count 7 → 9 after the round-3 fixes (see "Plan change since
+  dcb8c1e3…" above), but no manifest files, no `index.html`, no
+  workflow file; instead `server.mjs`, the two new test files,
+  `tsconfig.json`, and `store.ts`.
 
 # Plan: dots-web PWA name follows the first connected agent (#212)
 
@@ -72,11 +107,23 @@ Kind: bug (installed PWA is named Hermes)
   change adds the name alongside it, in whichever order the two
   land (see the call-site note in The change).
 - The store (`modules/dots-web/src/store.ts`) keeps paired agents in
-  localStorage (`dots.agents.v1`) in pairing order: `mergeAgents`
-  appends incoming agents after the existing ones, `removeAgent`
-  filters one out. So `agents[0]` is the first agent that was
-  connected and still is. Each `WebAgent` (`src/types.ts`) carries a
-  `name` from the phone's pairing payload.
+  localStorage (`dots.agents.v1`) in pairing order — today:
+  `mergeAgents` filters out any existing agent matching an incoming
+  key (`agent_id ?? url`) and appends the incoming agents at the
+  end, so a re-paired agent moves to the end of the list. Its only
+  caller is `PairingScreen.succeed`. `removeAgent` is called by
+  `GatewayClient` on revoke/disconnect and is untouched by this
+  change. Each `WebAgent` (`src/types.ts`) carries a `name` from
+  the phone's pairing payload.
+- A new `node:test` file under `src/` breaks `npm run build` as
+  written: `modules/dots-web/tsconfig.json` has `"include": ["src",
+  "api", "vite.config.ts", "dev"]` with no `exclude`, and no
+  `@types/node` is installed (lockfile: only `@types/estree` and
+  `@types/trusted-types`; the two `@types/node` hits are a peer
+  declaration inside another package, not an installed package).
+  #211's implementation hit exactly this and added `"exclude":
+  ["src/**/*.test.ts"]` as a one-line deviation — this change needs
+  the same line when it lands first.
 - The server (`modules/dots-web/server.mjs`) serves static files from
   `dist/` as-is: `serveFile` reads the file for `url.pathname` and
   answers with its content type (`.webmanifest` →
@@ -114,7 +161,7 @@ Kind: bug (installed PWA is named Hermes)
   and the title. That is no longer the fix, so the implementation
   phase replaces it with the JS tests in Verification.
 
-## The change (7 files)
+## The change (9 files)
 
 1. `modules/dots-web/server.mjs` — in the request handler, when the
    pathname ends `.webmanifest` and `?name=` is present: read the
@@ -152,18 +199,18 @@ Kind: bug (installed PWA is named Hermes)
    `"Open {name} on your phone"`, fr `"{name} dans ton
    navigateur"` / `"Ouvre {name} sur ton téléphone"`. The QR label
    and the from-link note stay "Hermes" (they name the phone app
-   that scans). Subtitle, steps 2–3, footer: unchanged.
-5. `modules/dots-web/src/main.tsx` — pass
-   `appName={appName(agents)}` to the bare `PairingScreen`
-   (no agents → the `"Hermes"` fallback).
-6. `modules/dots-web/server.test.mjs` — the manifest fixture
+   that scans). Subtitle, steps 2–3, footer: unchanged. (No
+   `main.tsx` change: it renders `PairingScreen` only when no agent
+   is paired, so the prop default already supplies the `"Hermes"`
+   fallback there.)
+5. `modules/dots-web/server.test.mjs` — the manifest fixture
    becomes a realistic manifest (`{id: "/", name: "Hermes",
    short_name: "Hermes", …}`; today it is `"{}"`, which cannot
    show a substitution). New tests: `?name=Friday` serves JSON
    with `name`/`short_name` `"Friday"` and a manifest content
    type; no `?name=` serves the static `"Hermes"`; a hostile
    over-long name serves valid JSON with the name capped at 24.
-7. `modules/dots-web/src/appIcon.test.ts` (new) — same minimal
+6. `modules/dots-web/src/appIcon.test.ts` (new) — same minimal
    fake-`document` pattern as #211's `appIcon.test.ts`:
    `appName([])` → `"Hermes"`; first agent named `"Friday"` →
    `"Friday"`; a second agent named differently is ignored; a
@@ -173,6 +220,27 @@ Kind: bug (installed PWA is named Hermes)
    "Hermes" manifest is identical, and the `no-store` on the
    substituted response is what lets the installed name follow a
    later change).
+7. `modules/dots-web/tsconfig.json` — add `"exclude":
+   ["src/**/*.test.ts"]` (one line, exactly #211's deviation):
+   without it the new `node:test` files break `tsc --noEmit`
+   (`tsconfig.json` includes `src`, no `@types/node` installed).
+   If #211 has merged first the line is already there; the
+   implementer verifies instead of duplicating it.
+8. `modules/dots-web/src/store.ts` — `mergeAgents` replaces a
+   re-paired agent at its existing position (same key,
+   `agent_id ?? url`, updated fields) and appends only agents
+   that are genuinely new, instead of filtering matches out and
+   appending everything. `agents[0]` — and the sidebar order —
+   is then stable across a re-pair, which is what makes the
+   "first agent that was connected" name hold. `removeAgent` and
+   the `loadAgents`/`saveAgents` behaviour are untouched.
+9. `modules/dots-web/src/store.test.ts` (new) — merge-order
+   tests with a minimal `localStorage` stub (a `Map`-backed fake
+   installed on `globalThis` before calling the store; the module
+   touches `localStorage` only inside its functions): a re-pair
+   of the first agent keeps it at position 0 with updated fields;
+   a genuinely new agent appends at the end; removing the first
+   agent promotes the next one.
 
 ## What does not change (out of scope, on purpose)
 
@@ -197,8 +265,10 @@ Kind: bug (installed PWA is named Hermes)
   `appName` returns the first agent's name and the manifest href
   carries the encoded `?name=` (at base there is no `appName`
   export and no `?name=` in the href); `node --test
-  server.test.mjs` — the `?name=Friday` manifest test fails at
-  base (the server ignores the query and serves the static
+  src/store.test.ts` — a re-pair of the first agent keeps it at
+  position 0 (at base `mergeAgents` moves it to the end);
+  `node --test server.test.mjs` — the `?name=Friday` manifest test
+  fails at base (the server ignores the query and serves the static
   "Hermes") and passes at HEAD. The implementation phase supersedes
   the recorded repro with these two commands (`loop.py repro
   --supersede`) before the tests gate.
@@ -225,8 +295,9 @@ Kind: bug (installed PWA is named Hermes)
 
 1. One PR in friday, branch `fix/issue-212-dots-web-pwa-name`: the
    `server.mjs` substitution, the `appIcon.ts` helper + href, the
-   `ChatApp.tsx` / `PairingScreen.tsx` / `main.tsx` wiring, the two
-   test files — then the RED control green at HEAD, the existing
+   `ChatApp.tsx` / `PairingScreen.tsx` wiring, the `tsconfig.json`
+   exclude, the `mergeAgents` in-place replace, and the three test
+   files — then the RED control green at HEAD, the existing
    dots-web gates, and a code-review round. The old
    `tests/test_issue_212.py` repro is deleted as part of the
    supersede (it asserts the superseded static rename).
