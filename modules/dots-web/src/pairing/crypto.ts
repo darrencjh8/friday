@@ -1,4 +1,4 @@
-import type { AccessoryId, PaletteId, PairingPayload, SpeciesId, WebAgent } from "../types";
+import type { AccessoryId, LauncherIconId, PaletteId, PairingPayload, SpeciesId, WebAgent } from "../types";
 
 /**
  * Côté navigateur de l'appairage par QR code (docs/appairage-web.md, sections 1 et 3).
@@ -101,6 +101,7 @@ export async function decryptDeposit(deposit: unknown, privateKey: CryptoKey, id
 const SPECIES: SpeciesId[] = ["galet", "nuage", "pave", "nova"];
 const PALETTES: PaletteId[] = ["tangerine", "bubblegum", "sky", "lime", "sun", "grape"];
 const ACCESSORIES: AccessoryId[] = ["winged_cap", "none"];
+const LAUNCHER_ICONS: LauncherIconId[] = ["default", "blue", "lavender", "teal", "pink", "peach", "white", "office"];
 const MAX_AGENTS = 32;
 const MAX_NAME = 24;
 
@@ -150,6 +151,7 @@ function validAgent(a: unknown): WebAgent {
     species: pick(o.species, SPECIES, "galet"),
     palette: pick(o.palette, PALETTES, "tangerine"),
     accessory: pick(o.accessory, ACCESSORIES, "winged_cap"),
+    launcher_icon: pick(o.launcher_icon, LAUNCHER_ICONS, "default"),
   };
 }
 
