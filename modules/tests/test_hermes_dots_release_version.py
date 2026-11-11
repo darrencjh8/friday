@@ -26,11 +26,12 @@ def version_step_script():
     raise AssertionError("Version step not found in hermes-dots-release.yml")
 
 
-def run_version_step(list_output):
+def run_version_step(list_output, list_exit=0):
     """Run the Version step with `gh release list` printing list_output.
 
-    The stub `gh` prints list_output for `release list` and exits 1 for
-    `release view` (the computed tag does not exist yet). Returns
+    The stub `gh` prints list_output for `release list` (JSON, as real
+    `gh --json tagName` prints) and exits 1 for `release view` (the
+    computed tag does not exist yet). Returns
     (returncode, env lines, output lines).
     """
     with tempfile.TemporaryDirectory() as tmp:
@@ -40,7 +41,8 @@ def run_version_step(list_output):
         gh.write_text(
             "#!/bin/sh\n"
             'if [ "$2" = "view" ]; then exit 1; fi\n'
-            "printf '%s' \"$GH_STUB_LIST\"\n"
+            f"printf '%s' \"$GH_STUB_LIST\"\n"
+            f"exit {list_exit}\n"
         )
         gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
         env = dict(os.environ)
@@ -67,10 +69,9 @@ def run_version_step(list_output):
 
 
 def check_last_tag():
-    """Run the check job's `last=$(...)` lookup with a stubbed `gh` that
-    emulates real `gh`: `release list` returns tags in creation order,
-    so `--limit 1` yields the latest-created tag, not the max one.
-    Returns the tag the lookup produces.
+    """Run the check job's tag lookup with a stubbed `gh` that returns
+    releases in creation order (oldest first), so the max tag is not
+    the last line of raw output. Returns the tag the lookup produces.
     """
     workflow = yaml.safe_load(WORKFLOW.read_text())
     check_script = next(
@@ -78,18 +79,23 @@ def check_last_tag():
         for step in workflow["jobs"]["check"]["steps"]
         if step.get("id") == "check"
     )
-    lookup = next(
-        line.strip()
-        for line in check_script.splitlines()
+    lines = check_script.splitlines()
+    start = next(
+        i for i, line in enumerate(lines)
+        if line.strip().startswith("tags_json=$(")
+    )
+    end = next(
+        i for i, line in enumerate(lines)
         if line.strip().startswith("last=$(")
     )
+    lookup = "\n".join(lines[start:end + 1])
     with tempfile.TemporaryDirectory() as tmp:
         stub = Path(tmp) / "bin"
         stub.mkdir()
         gh = stub / "gh"
         gh.write_text(
             "#!/bin/sh\n"
-            'case "$*" in *" --limit 1 "*) printf "v0.2.0.5\\n";; *) printf "v0.2.0.5\\nv0.2.0.34\\n";; esac\n'
+            'printf \'[{"tagName":"v0.2.0.5"},{"tagName":"v0.2.0.34"}]\'\n'
         )
         gh.chmod(gh.stat().st_mode | stat.S_IXUSR)
         env = dict(os.environ)
@@ -122,7 +128,7 @@ class TestVersionStep(unittest.TestCase):
 
     def test_out_of_order_releases_use_max_version(self):
         code, env_lines, output_lines, stderr = run_version_step(
-            "v0.2.0.34\nv0.2.0.5\n"
+            '[{"tagName":"v0.2.0.34"},{"tagName":"v0.2.0.5"}]'
         )
         self.assertEqual(code, 0, stderr)
         self.assertIn("VERSION_NAME=0.2.0.35", env_lines)
@@ -133,9 +139,20 @@ class TestVersionStep(unittest.TestCase):
         self.assertEqual(check_last_tag(), "v0.2.0.34")
 
     def test_new_series_code_below_max_published_fails(self):
-        code, _, _, stderr = run_version_step("v0.2.1.0\nv0.2.0.34\n")
+        code, _, _, stderr = run_version_step(
+            '[{"tagName":"v0.2.1.0"},{"tagName":"v0.2.0.34"}]'
+        )
         self.assertNotEqual(code, 0, stderr)
         self.assertIn("not above max published", stderr)
+
+    def test_gh_failure_fails_closed(self):
+        code, env_lines, output_lines, stderr = run_version_step(
+            "", list_exit=1,
+        )
+        self.assertNotEqual(code, 0, stderr)
+        self.assertIn("gh release list failed", stderr)
+        self.assertNotIn("VERSION_NAME=0.2.0.0", env_lines)
+        self.assertNotIn("name=0.2.0.0", output_lines)
 
 
 if __name__ == "__main__":
