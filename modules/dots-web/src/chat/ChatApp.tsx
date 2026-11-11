@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import { ClayDot } from "../dot/ClayDot";
 import { paletteStyle } from "../dot/palettes";
-import { setAppIcon } from "../appIcon";
+import { appName, setAppIcon } from "../appIcon";
 import type { GatewayClient } from "../gateway/GatewayClient";
 import { getClient, syncClients, useGateway } from "../gateway/registry";
 import { PairingScreen } from "../pairing/PairingScreen";
@@ -71,7 +71,7 @@ export function ChatApp({ agents }: { agents: WebAgent[] }) {
 
   useEffect(() => {
     if (active) writeActive(active.session_id);
-    if (active) setAppIcon(active.species, active.launcher_icon);
+    if (active) setAppIcon(active.species, active.launcher_icon, appName(agents));
     for (const agent of agents) getClient(agent)?.setActive(agent.session_id === active?.session_id);
   }, [active, agents]);
 
@@ -99,7 +99,7 @@ export function ChatApp({ agents }: { agents: WebAgent[] }) {
       </main>
       {pairing && (
         <div class="pairing-overlay" role="dialog" aria-modal="true">
-          <PairingScreen onCancel={() => setPairing(false)} />
+          <PairingScreen onCancel={() => setPairing(false)} appName={appName(agents)} />
         </div>
       )}
     </div>
@@ -190,11 +190,11 @@ function AgentItem({
   );
 }
 
-/** « (3) Hermes » dans l'onglet quand des messages attendent. */
+/** « (3) <nom> » dans l'onglet quand des messages attendent. */
 function useUnreadTitle(agents: WebAgent[]) {
   useEffect(() => {
     const clients = agents.map(getClient).filter((c): c is GatewayClient => !!c);
-    const base = "Hermes";
+    const base = appName(agents);
     const update = () => {
       const total = clients.reduce((sum, c) => sum + c.getSnapshot().unread, 0);
       document.title = total > 0 ? `(${total}) ${base}` : base;

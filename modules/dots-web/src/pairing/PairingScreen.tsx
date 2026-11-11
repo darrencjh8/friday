@@ -26,9 +26,9 @@ const RING_C = 2 * Math.PI * RING_R;
 
 const t = strings({
   en: {
-    title: "Hermes in your browser",
+    title: (name: string) => `${name} in your browser`,
     subtitle: "Pair this browser with your phone to chat with your agents from here.",
-    step1: "Open Hermes on your phone",
+    step1: (name: string) => `Open ${name} on your phone`,
     step2: "Menu → Connect a browser",
     step3: "Scan this code",
     qrLabel: "QR code to scan with the Hermes app",
@@ -44,9 +44,9 @@ const t = strings({
     footer: "Your conversations go directly from this browser to your gateway; nothing goes through this site.",
   },
   fr: {
-    title: "Hermes dans ton navigateur",
+    title: (name: string) => `${name} dans ton navigateur`,
     subtitle: "Appaire ce navigateur avec ton téléphone pour discuter avec tes agents d’ici.",
-    step1: "Ouvre Hermes sur ton téléphone",
+    step1: (name: string) => `Ouvre ${name} sur ton téléphone`,
     step2: "Menu → Connecter un navigateur",
     step3: "Scanne ce code",
     qrLabel: "QR code à scanner avec l’app Hermes",
@@ -65,7 +65,7 @@ const t = strings({
 
 type Status = "waiting" | "receiving" | "bad" | "network" | "success";
 
-export function PairingScreen({ onCancel }: { onCancel?: () => void }) {
+export function PairingScreen({ onCancel, appName = "Hermes" }: { onCancel?: () => void; appName?: string }) {
   const [keys, setKeys] = useState<PairingKeys | null>(null);
   const [status, setStatus] = useState<Status>("waiting");
   const [remaining, setRemaining] = useState(ROTATE_MS / 1000);
@@ -197,10 +197,10 @@ export function PairingScreen({ onCancel }: { onCancel?: () => void }) {
             <ClayDot class="pair-hero-center" species="nuage" palette="sky" mood={mood} size={168} />
             <ClayDot class="pair-hero-side" species="pave" palette="grape" mood={mood} size={104} />
           </div>
-          <h1 class="pair-title">{t.title}</h1>
+          <h1 class="pair-title">{t.title(appName)}</h1>
           <p class="pair-subtitle t-body-lg t-secondary">{t.subtitle}</p>
           <ol class="pair-steps">
-            <li><span class="pair-step-n">1</span>{t.step1}</li>
+            <li><span class="pair-step-n">1</span>{t.step1(appName)}</li>
             <li><span class="pair-step-n">2</span>{t.step2}</li>
             <li><span class="pair-step-n">3</span>{t.step3}</li>
           </ol>

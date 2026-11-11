@@ -16,7 +16,10 @@ before(async () => {
     const dist = mkdtempSync(join(tmpdir(), "dots-web-"));
     writeFileSync(join(dist, "index.html"), "<title>Hermes</title>");
     writeFileSync(join(dist, "app.js"), "export {}");
-    writeFileSync(join(dist, "manifest-nova.webmanifest"), "{}");
+    writeFileSync(
+        join(dist, "manifest-nova.webmanifest"),
+        JSON.stringify({ id: "/", name: "Hermes", short_name: "Hermes", start_url: "/", scope: "/", display: "standalone" }),
+    );
     server = spawn(process.execPath, [fileURLToPath(new URL("./server.mjs", import.meta.url))], {
         env: { ...process.env, PORT: String(PORT), DOTS_WEB_DIST: dist },
         stdio: "inherit",
@@ -51,6 +54,39 @@ test("serves files with their type and falls back to the app for routes", async 
 test("serves the PWA manifest with its type", async () => {
     const res = await fetch(`${base}/manifest-nova.webmanifest`);
     assert.match(res.headers.get("content-type"), /manifest\+json/);
+});
+
+test("manifest ?name= substitutes the first agent's name", async () => {
+    const res = await fetch(`${base}/manifest-nova.webmanifest?name=Friday`);
+    assert.match(res.headers.get("content-type"), /manifest\+json/);
+    assert.equal(res.headers.get("cache-control"), "no-store");
+    assert.deepEqual(await res.json(), {
+        id: "/",
+        name: "Friday",
+        short_name: "Friday",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+    });
+});
+
+test("manifest without ?name= serves the static fallback", async () => {
+    const res = await fetch(`${base}/manifest-nova.webmanifest`);
+    assert.deepEqual(await res.json(), {
+        id: "/",
+        name: "Hermes",
+        short_name: "Hermes",
+        start_url: "/",
+        scope: "/",
+        display: "standalone",
+    });
+});
+
+test("manifest ?name= caps a hostile over-long name at 24 code points", async () => {
+    const res = await fetch(`${base}/manifest-nova.webmanifest?name=${"x".repeat(40)}`);
+    const manifest = await res.json();
+    assert.equal(manifest.name, "x".repeat(24));
+    assert.equal(manifest.short_name, "x".repeat(24));
 });
 
 test("never serves anything outside the build directory", async () => {
