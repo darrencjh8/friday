@@ -1,0 +1,224 @@
+# Builds the hermes-dots Android app here in friday (public repo) and publishes
+# the release in darrencjh8/hermes-dots, never in friday.
+#
+# Stored values (Settings -> Secrets and variables -> Actions, in friday):
+#   GOOGLE_SERVICES_JSON     content of app/google-services.json, base64-encoded
+#   SIGNING_KEYSTORE_BASE64  release keystore (.jks), base64-encoded
+#   SIGNING_STORE_PASSWORD   keystore password
+#   SIGNING_KEY_ALIAS        key alias
+#   SIGNING_KEY_PASSWORD     key password
+# Without the signing values the build runs unsigned and no release is published,
+# exactly as in the hermes-dots workflow this copies.
+# Variable: DEFAULT_GATEWAY_URL (pre-filled address on the pairing screen).
+#
+# Dispatch-only at first. The daily 06:00 SGT schedule is added only after the
+# schedule is removed from the hermes-dots workflow, so the two can never both
+# be live at once. A manual dispatch with `force: true` publishes even with no
+# new commits since the last release.
+name: Hermes-Dots Android release
+
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Release even with no new commits since the last release'
+        required: false
+        default: 'false'
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-dots-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.check.outputs.release }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          token: ${{ secrets.SUBMODULE_PAT }}
+          fetch-depth: 0
+
+      - name: Check for new commits since last release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "Forced run: releasing even with no new commits."
+            exit 0
+          fi
+          # Highest release tag, same definition as the Version step: the
+          # latest-created release may carry an older tag.
+          last=$(gh release list --repo darrencjh8/hermes-dots --limit 100 --json tagName --jq -r '.[].tagName' | sort -V | tail -n 1)
+          if [ -z "$last" ] || [ "$last" = "null" ]; then
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "No previous release found: releasing."
+            exit 0
+          fi
+          tag_commit=$(git rev-list -n 1 "$last")
+          head_commit=$(git rev-parse HEAD)
+          if [ "$tag_commit" = "$head_commit" ]; then
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "No new commits since $last ($tag_commit): skipping."
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "New commits since $last: releasing."
+          fi
+
+  release:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: hermes-dots
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: hermes-dots
+
+      - name: Head commit
+        id: head
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # Explicit packages: the default list contains "tools", absent from recent
+      # cmdline-tools (sdkmanager then fails before the build). Platform and
+      # build-tools come from Gradle.
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Hardening checks
+        run: ./scripts/check-hardening.sh
+
+      - name: Version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          # Derive the next version from the highest hermes-dots release tag,
+          # never from this workflow's run number: a new workflow in friday
+          # starts its run number at 1, so 100 + run_number would publish a
+          # versionCode below the last published one. Take the max tag, not
+          # the latest-created release, which may carry an older tag.
+          last=$(gh release list --repo darrencjh8/hermes-dots --limit 100 --json tagName --jq -r '.[].tagName' | sort -V | tail -n 1)
+          if [ -z "$last" ] || [ "$last" = "null" ]; then
+            # No previous release: seed the first one.
+            echo "VERSION_NAME=0.2.0.0" >> "$GITHUB_ENV"
+            echo "VERSION_CODE=100" >> "$GITHUB_ENV"
+            echo "name=0.2.0.0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! echo "$last" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Cannot parse latest release tag: $last" >&2
+            exit 1
+          fi
+          tag=${last#v}
+          base=${tag%.*}
+          n=${tag##*.}
+          next=$((n + 1))
+          version="${base}.${next}"
+          code=$((100 + next))
+          if gh release view "v${version}" --repo darrencjh8/hermes-dots >/dev/null 2>&1; then
+            echo "Release v${version} already exists" >&2
+            exit 1
+          fi
+          # The new code must beat every published code, not just the max
+          # tag's: a new series (e.g. v0.2.1.0) starts its last component
+          # at 0, so its first code would otherwise fall below the code
+          # already published for the old series.
+          max_code=0
+          for t in $(gh release list --repo darrencjh8/hermes-dots --limit 100 --json tagName --jq -r '.[].tagName'); do
+            case "$t" in
+              v[0-9]*.[0-9]*.[0-9]*.[0-9]*)
+                c=$((100 + ${t##*.}))
+                [ "$c" -gt "$max_code" ] && max_code=$c
+                ;;
+            esac
+          done
+          if [ "$code" -le "$max_code" ]; then
+            echo "New versionCode $code is not above max published $max_code" >&2
+            exit 1
+          fi
+          echo "VERSION_NAME=${version}" >> "$GITHUB_ENV"
+          echo "VERSION_CODE=${code}" >> "$GITHUB_ENV"
+          echo "name=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Firebase (push notifications, optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            echo "$GOOGLE_SERVICES_JSON" | base64 -d > app/google-services.json
+            echo "PUSH_STATUS=enabled (Firebase)" >> "$GITHUB_ENV"
+          else
+            echo "PUSH_STATUS=disabled (no GOOGLE_SERVICES_JSON secret)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Signing key (optional)
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "$SIGNING_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "SIGNING_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "SIGNING_STATUS=release key" >> "$GITHUB_ENV"
+          else
+            echo "SIGNING_STATUS=debug key (no release published)" >> "$GITHUB_ENV"
+          fi
+
+      - name: Tests and release build
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          DEFAULT_GATEWAY_URL: ${{ vars.DEFAULT_GATEWAY_URL }}
+          UPDATE_REPO: darrencjh8/hermes-dots
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+
+      - name: Name the APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/friday-${VERSION_NAME}.apk"
+          (cd dist && sha256sum "friday-${VERSION_NAME}.apk" > "friday-${VERSION_NAME}.apk.sha256")
+
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        if: env.SIGNING_STATUS == 'release key'
+        with:
+          repository: darrencjh8/hermes-dots
+          token: ${{ secrets.SUBMODULE_PAT }}
+          tag_name: v${{ steps.version.outputs.name }}
+          name: Friday ${{ steps.version.outputs.name }}
+          target_commitish: ${{ steps.head.outputs.sha }}
+          generate_release_notes: true
+          files: |
+            hermes-dots/dist/*.apk
+            hermes-dots/dist/*.sha256
+          body: |
+            Android APK built from `${{ steps.head.outputs.sha }}`.
+
+            - Push notifications: ${{ env.PUSH_STATUS }}
+            - Signature: ${{ env.SIGNING_STATUS }}
+
+            Install it on your phone, then pair it with your gateway (see the README).

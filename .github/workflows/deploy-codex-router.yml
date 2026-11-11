@@ -1,0 +1,149 @@
+# Ships only the codex-router component, on manual dispatch. No test job,
+# no unit tests: codex-router is not tested here. Copied from the ship job of
+# deploy.yml, with the component fixed to codex-router.
+name: Deploy Codex Router
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA (default: main)"
+        type: string
+        default: "main"
+      environment:
+        description: "Deployment environment"
+        type: environment
+        default: "darren-prod"
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+      actions: write
+    environment:
+      name: ${{ github.event.inputs.environment || 'darren-prod' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.ref || '' }}
+          fetch-depth: 0
+          clean: false
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - uses: actions/checkout@v4
+        with:
+          repository: darrencjh8/codex-router
+          ref: main
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: modules/codex-router
+
+      - name: Build images
+        run: |
+          mkdir -p /home/runner/data/{expense-tracker/data,expense-tracker/state,portfolio-tracker/data,hermes/{data,workspace},codex-router}
+          bash ./modules/build.sh --component codex-router
+
+      - name: Deploy services
+        env:
+          GITHUB_ACTIONS: true
+          HERMES_WORKSPACE: /home/darren/workspace/hermes
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_APP_TOKEN: ${{ secrets.SLACK_APP_TOKEN }}
+          HERMES_WEBHOOK_SECRET: ${{ secrets.HERMES_WEBHOOK_SECRET }}
+          HERMES_DASHBOARD_BASIC_AUTH_USERNAME: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_USERNAME }}
+          HERMES_DASHBOARD_BASIC_AUTH_PASSWORD: ${{ secrets.HERMES_DASHBOARD_BASIC_AUTH_PASSWORD }}
+          WEBAPP_PUBLIC_URL: ${{ vars.WEBAPP_PUBLIC_URL }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          ACTUAL_BUDGET_PASSWORD: ${{ secrets.ACTUAL_BUDGET_PASSWORD }}
+          IMAP_USERNAME: ${{ secrets.IMAP_USERNAME }}
+          IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+          ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
+          IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GTASKS_CLIENT_ID: ${{ secrets.GTASKS_CLIENT_ID }}
+          GTASKS_CLIENT_SECRET: ${{ secrets.GTASKS_CLIENT_SECRET }}
+          REMINDERS_EDIT_TOKEN: ${{ secrets.REMINDERS_EDIT_TOKEN }}
+          BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
+          CODEX_ROUTER_AUTH_PASSWORD: ${{ secrets.CODEX_ROUTER_AUTH_PASSWORD }}
+          MODEL_API_KEY: ${{ secrets.MUSE_API_KEY }}
+          OPENCODE_GO_API_KEY: ${{ secrets.OPENCODE_GO_API_KEY }}
+          OPENCODE_ZEN_API_KEY: ${{ secrets.OPENCODE_ZEN_API_KEY }}
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          CLINE_API_KEY: ${{ secrets.CLINE_API_KEY }}
+          CODEX_ROUTER_OPENCODE_ZEN_MODELS: ${{ vars.CODEX_ROUTER_OPENCODE_ZEN_MODELS || 'space-bunny-free' }}
+          CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS: ${{ vars.CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS || '300' }}
+          LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'litellm' }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'http://codex-router:4100/v1' }}
+          LLM_MODEL: ${{ vars.LLM_MODEL || 'auto-thinking' }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_REASONING_EFFORT: ${{ vars.LLM_REASONING_EFFORT || 'low' }}
+          LLM_FALLBACK_MODEL: ${{ vars.LLM_FALLBACK_MODEL || '' }}
+          LLM_FINAL_FALLBACK_PROVIDER: ${{ vars.LLM_FINAL_FALLBACK_PROVIDER || 'deepseek' }}
+          LLM_FINAL_FALLBACK_MODEL: ${{ vars.LLM_FINAL_FALLBACK_MODEL || 'deepseek-flash' }}
+          FIRECRAWL_API_KEY: ${{ secrets.FIRECRAWL_API_KEY }}
+          DOTS_TOKEN: ${{ secrets.DOTS_TOKEN }}
+          DOTS_WEB_ORIGINS: ${{ secrets.DOTS_WEB_ORIGINS }}
+          DOTS_FCM_SERVICE_ACCOUNT: ${{ secrets.DOTS_FCM_SERVICE_ACCOUNT }}
+          NOTION_API_KEY: ${{ secrets.NOTION_API_TOKEN }}
+          OPENCODE_SERVER_PASSWORD: ${{ secrets.OPENCODE_SERVER_PASSWORD }}
+          BWS_ACCESS_TOKEN: ${{ secrets.BWS_ACCESS_TOKEN }}
+          BWS_PROJECT: ${{ vars.BWS_PROJECT }}
+          EMAIL_INTAKE_MODE: ${{ vars.EMAIL_INTAKE_MODE }}
+          POLLINATIONS_API_KEY: ${{ secrets.POLLINATIONS_API_KEY }}
+          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
+          TELEGRAM_ALLOWED_USERS: ${{ vars.TELEGRAM_ALLOWED_USERS }}
+          TELEGRAM_HOME_CHANNEL: ${{ vars.TELEGRAM_HOME_CHANNEL }}
+          SLACK_ALLOWED_USERS: ${{ vars.SLACK_ALLOWED_USERS }}
+          SLACK_HOME_CHANNEL: ${{ vars.SLACK_HOME_CHANNEL }}
+          SLACK_HOME_CHANNEL_NAME: ${{ vars.SLACK_HOME_CHANNEL_NAME }}
+          MEMORY_REPO_URL: ${{ vars.MEMORY_REPO_URL }}
+          GH_APP_ID: ${{ vars.GH_APP_ID }}
+          GH_APP_INSTALLATION_ID: ${{ vars.GH_APP_INSTALLATION_ID }}
+          IDENTITY_NAME: ${{ vars.IDENTITY_NAME }}
+          IDENTITY_EMOJI: ${{ vars.IDENTITY_EMOJI }}
+          IDENTITY_VIBE: ${{ vars.IDENTITY_VIBE }}
+          SOUL_VOICE_TONE: ${{ vars.SOUL_VOICE_TONE }}
+          SOUL_VOICE_STYLE: ${{ vars.SOUL_VOICE_STYLE }}
+          SOUL_VOICE_RULES: ${{ vars.SOUL_VOICE_RULES }}
+          SOUL_DELEGATION: ${{ vars.SOUL_DELEGATION }}
+          ACTUAL_BUDGET_URL: ${{ vars.ACTUAL_BUDGET_URL }}
+          ACTUAL_PRIMARY_BUDGET_FILE: ${{ vars.ACTUAL_PRIMARY_BUDGET_FILE }}
+          ACTUAL_SECONDARY_BUDGET_FILE: ${{ vars.ACTUAL_SECONDARY_BUDGET_FILE }}
+          ACTUAL_PRIMARY_CURRENCY: ${{ vars.ACTUAL_PRIMARY_CURRENCY }}
+          ACTUAL_SECONDARY_CURRENCY: ${{ vars.ACTUAL_SECONDARY_CURRENCY }}
+          NOTIFY_URL: ${{ vars.NOTIFY_URL }}
+          IMAP_HOST: ${{ vars.IMAP_HOST }}
+          IBKR_FLEX_QUERY_ID: ${{ vars.IBKR_FLEX_QUERY_ID }}
+          IBKR_PP_SGD_ACCOUNT: ${{ vars.IBKR_PP_SGD_ACCOUNT }}
+          IBKR_PP_USD_ACCOUNT: ${{ vars.IBKR_PP_USD_ACCOUNT }}
+          GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
+          TAXONOMY_SHEET_MAPPING: ${{ vars.TAXONOMY_SHEET_MAPPING }}
+          TAXONOMY_NAMES: ${{ vars.TAXONOMY_NAMES }}
+          PP_OFFSET_MAP: ${{ vars.PP_OFFSET_MAP }}
+          SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
+          FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
+          DEPLOY_COMPONENTS: codex-router
+          FORCE_ALL: ${{ inputs.force_all || 'false' }}
+          DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
+        run: |
+          bash ./modules/deploy.sh --component codex-router --non-interactive --skip-build
+
+      - name: Record deployed Codex Router revision
+        if: success()
+        run: |
+          mkdir -p /tmp/router-sha
+          git -C modules/codex-router rev-parse HEAD > /tmp/router-sha/codex-router-sha.txt
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: codex-router-sha
+          path: /tmp/router-sha/codex-router-sha.txt
+          if-no-files-found: error
