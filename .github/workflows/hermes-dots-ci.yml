@@ -1,0 +1,125 @@
+# Runs the hermes-dots Android tests here in friday (public repo, free
+# minutes) instead of hermes-dots (private repo, paid minutes).
+#
+# Two uses:
+# - On demand: manual dispatch with `ref` (branch, tag, or commit SHA,
+#   default `main`) and optional `smoke` for the emulator smoke test, so
+#   an agent can run CI for any specific commit from friday.
+# - Pre-release gate: hermes-dots-release.yml calls this workflow with
+#   the hermes-dots HEAD SHA before building the release.
+#
+# All jobs run on GitHub-hosted cloud runners (ubuntu-latest), never on
+# the self-hosted runner. Steps are copied from the deleted hermes-dots
+# workflows android-test.yml (unit) and android-emulator.yml (smoke).
+name: Hermes-Dots CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to test (default: main)"
+        type: string
+        default: "main"
+      smoke:
+        description: "Also run the emulator smoke test"
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      ref:
+        description: "Branch, tag, or commit SHA to test"
+        type: string
+        default: "main"
+      smoke:
+        description: "Also run the emulator smoke test"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a3 # v4
+
+      - name: Check private-build safeguards
+        run: ./scripts/check-hardening.sh
+
+      - name: Run Android unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon testDebugUnitTest
+
+  smoke:
+    if: ${{ inputs.smoke }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a3 # v4
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug
+
+      - name: Download the two latest releases
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          mkdir -p release
+          tags=$(gh release list -R darrencjh8/hermes-dots --limit 2 --json tagName | jq -r '.[].tagName')
+          set -- $tags
+          gh release download "$1" -R darrencjh8/hermes-dots -p '*.apk' -O release/latest.apk
+          [ -n "${2:-}" ] && gh release download "$2" -R darrencjh8/hermes-dots -p '*.apk' -O release/previous.apk || true
+
+      - name: Free disk for the emulator
+        # The emulator's data partition needs ~7.4 GB; the runner ships toolchains this job never uses.
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /usr/local/share/boost /opt/hostedtoolcache/CodeQL && df -h /
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install, switch icons, update, relaunch
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          script: ./scripts/emulator-smoke.sh
