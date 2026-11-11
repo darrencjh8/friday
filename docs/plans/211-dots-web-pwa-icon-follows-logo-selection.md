@@ -151,3 +151,34 @@ and as today the same file serves both `any` and `maskable`.
    pinned on both sides before either merges.
 3. Darren verifies on his phone (fresh install shows the selected logo;
    re-pair after changing the selection follows it) and merges.
+
+## Addendum: Default becomes the white silhouette (2026-11-12)
+
+Authority: Darren's direction on friday #211, comment 6804146153
+(2026-11-12) — the PWA Default icon should be the same app icon as the
+notification avatar Default: the white graphical version of a lady image,
+black and white. That is the lady-profile silhouette from hermes-dots
+`app/src/main/res/drawable/ic_stat_hermes.xml` (pure-white vector, used as
+the notification small icon).
+
+This supersedes two lines above, for `"default"` only:
+
+- The QUESTIONS answer "What is the icon before any choice is made?" —
+  `"default"` no longer resolves to the Nova half-body photo. Unknown and
+  missing values still do.
+- "The change" item 3 / step 5 — Default no longer "keeps today's
+  `nova-192/512.png` and `manifest-nova.webmanifest`; no new files for it".
+  It gains `icons/nova-default-192.png` / `icons/nova-default-512.png` and
+  `manifest-nova-default.webmanifest`, following the existing per-logo
+  naming. The icons are the white silhouette on black, rounded-square with
+  22% corner radius like the other #211 icons, the silhouette filling the
+  tile the way the other logos fill theirs. The old `nova-192/512.png` are
+  no longer used for Default; `index.html` defaults are untouched.
+
+Unchanged: the other 7 logos, galet/nuage/pave icons, the pairing/crypto/
+store surface, and the unknown/missing fallback to the half-body photo
+(which matches the phone, where an unknown or missing choice also falls
+back to the portrait photo). The Default test case in `appIcon.test.ts`
+now expects the `nova-default` files; a preview PNG of the new Default
+icon goes to Darren before any push. PR #214 is already open; the new
+head re-runs CI after push.

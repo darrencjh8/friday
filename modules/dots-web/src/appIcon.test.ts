@@ -41,8 +41,13 @@ test("appIcon.launcherIcon.blue", () => {
 test("appIcon.launcherIcon.default", () => {
   installDocument();
   setAppIcon("nova", "default");
-  assert.equal(seen.get("icon"), "/icons/nova-192.png");
-  assert.equal(seen.get("manifest"), "/manifest-nova.webmanifest");
+  assert.equal(
+    seen.get("icon"),
+    "/icons/nova-default-192.png",
+    "appIcon.launcherIcon.default failed: icon href stayed on the half-body Nova icon",
+  );
+  assert.equal(seen.get("apple-touch-icon"), "/icons/nova-default-192.png");
+  assert.equal(seen.get("manifest"), "/manifest-nova-default.webmanifest");
 });
 
 test("appIcon.launcherIcon.unknown", () => {

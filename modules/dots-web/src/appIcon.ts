@@ -1,6 +1,6 @@
 import type { SpeciesId } from "./types";
 
-/** Logos explicites : les 7 portraits de Friday ; "default" garde l'icône de la mascotte. */
+/** Logos explicites : les 7 portraits de Friday ; "default" prend la silhouette blanche de l'icône de l'appli. */
 const LOGOS = ["blue", "lavender", "teal", "pink", "peach", "white", "office"];
 
 /**
@@ -11,7 +11,7 @@ const LOGOS = ["blue", "lavender", "teal", "pink", "peach", "white", "office"];
 export function setAppIcon(species: SpeciesId, launcherIcon?: string): void {
   const set = (rel: string, href: string) => document.querySelector<HTMLLinkElement>(`link[rel="${rel}"]`)?.setAttribute("href", href);
   const logo = species === "nova" && launcherIcon !== undefined && LOGOS.includes(launcherIcon) ? launcherIcon : null;
-  const icon = logo === null ? species : `nova-${logo}`;
+  const icon = logo !== null ? `nova-${logo}` : species === "nova" && launcherIcon === "default" ? "nova-default" : species;
   set("icon", `/icons/${icon}-192.png`);
   set("apple-touch-icon", `/icons/${icon}-192.png`);
   set("manifest", `/manifest-${icon}.webmanifest`);
