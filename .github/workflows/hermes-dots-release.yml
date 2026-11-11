@@ -11,13 +11,17 @@
 # exactly as in the hermes-dots workflow this copies.
 # Variable: DEFAULT_GATEWAY_URL (pre-filled address on the pairing screen).
 #
-# Dispatch-only at first. The daily 06:00 SGT schedule is added only after the
-# schedule is removed from the hermes-dots workflow, so the two can never both
-# be live at once. A manual dispatch with `force: true` publishes even with no
-# new commits since the last release.
+# Runs daily at 06:00 SGT, plus manual dispatch. The schedule was added
+# only after it was removed from the hermes-dots workflow (hermes-dots
+# #104), so the two can never both be live at once. A manual dispatch
+# with `force: true` publishes even with no new commits since the last
+# release.
 name: Hermes-Dots Android release
 
 on:
+  schedule:
+    # Daily 06:00 SGT (22:00 UTC)
+    - cron: '0 22 * * *'
   workflow_dispatch:
     inputs:
       force:
