@@ -31,7 +31,8 @@ export function saveAgents(agents: WebAgent[]): void {
 /** Ajoute ou remplace (même gateway) les agents reçus d'un appairage. */
 export function mergeAgents(incoming: WebAgent[]): WebAgent[] {
   const key = (a: WebAgent) => a.agent_id ?? a.url;
-  const next = [...loadAgents().filter((a) => !incoming.some((b) => key(b) === key(a))), ...incoming];
+  const next = loadAgents().map((a) => incoming.find((b) => key(b) === key(a)) ?? a);
+  next.push(...incoming.filter((b) => !next.some((a) => key(a) === key(b))));
   saveAgents(next);
   return next;
 }

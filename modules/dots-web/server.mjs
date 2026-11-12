@@ -62,7 +62,7 @@ async function relay(req, res, url) {
 }
 
 // The pathname stays percent-encoded and URL has already resolved "..", so it cannot leave dist.
-async function serveFile(req, res, pathname) {
+async function serveFile(req, res, pathname, name) {
     if (req.method !== "GET" && req.method !== "HEAD") {
         res.writeHead(405, { ...securityHeaders, Allow: "GET, HEAD" });
         res.end();
@@ -76,8 +76,24 @@ async function serveFile(req, res, pathname) {
         file = join(dist, "index.html");
         body = await readFile(file);
     }
+    if (name !== null && extname(file) === ".webmanifest") {
+        const clean = cleanName(name);
+        if (clean) {
+            const manifest = JSON.parse(body.toString("utf8"));
+            manifest.name = clean;
+            manifest.short_name = clean;
+            res.writeHead(200, { ...securityHeaders, "Content-Type": types[".webmanifest"], "Cache-Control": "no-store" });
+            res.end(Buffer.from(JSON.stringify(manifest)));
+            return;
+        }
+    }
     res.writeHead(200, { ...securityHeaders, "Content-Type": types[extname(file)] ?? "application/octet-stream" });
     res.end(body);
+}
+
+/** Nom d'app validé pour ?name= : trim, sans caractères de contrôle, 24 points de code max. */
+function cleanName(name) {
+    return [...name.trim().replace(/[\u0000-\u001f\u007f]/g, "")].slice(0, 24).join("");
 }
 
 createServer(async (req, res) => {
@@ -87,7 +103,7 @@ createServer(async (req, res) => {
         else if (url.pathname.startsWith("/api/")) {
             res.writeHead(404, securityHeaders);
             res.end();
-        } else await serveFile(req, res, url.pathname);
+        } else await serveFile(req, res, url.pathname, url.searchParams.get("name"));
     } catch (e) {
         console.error("dots-web:", e);
         if (!res.headersSent) res.writeHead(500, securityHeaders);
