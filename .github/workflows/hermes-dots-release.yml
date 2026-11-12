@@ -235,7 +235,7 @@ jobs:
           tag_name: v${{ steps.version.outputs.name }}
           name: Friday ${{ steps.version.outputs.name }}
           target_commitish: ${{ steps.head.outputs.sha }}
-          generate_release_notes: true
+          generate_release_notes: false # SUBMODULE_PAT lacks pull-requests read (friday #216)
           files: |
             hermes-dots/dist/*.apk
             hermes-dots/dist/*.sha256
