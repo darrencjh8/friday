@@ -71,7 +71,7 @@ export function ChatApp({ agents }: { agents: WebAgent[] }) {
 
   useEffect(() => {
     if (active) writeActive(active.session_id);
-    if (active) setAppIcon(active.species);
+    if (active) setAppIcon(active.species, active.launcher_icon);
     for (const agent of agents) getClient(agent)?.setActive(agent.session_id === active?.session_id);
   }, [active, agents]);
 

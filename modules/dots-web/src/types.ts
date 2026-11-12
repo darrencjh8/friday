@@ -8,6 +8,8 @@
 export type SpeciesId = "galet" | "nuage" | "pave" | "nova";
 export type PaletteId = "tangerine" | "bubblegum" | "sky" | "lime" | "sun" | "grape";
 export type AccessoryId = "winged_cap" | "none";
+/** Choix du logo du lanceur sur le téléphone (friday #211) : "default" ou un portrait de Friday. */
+export type LauncherIconId = "default" | "blue" | "lavender" | "teal" | "pink" | "peach" | "white" | "office";
 
 export interface WebAgent {
   /** Adresse WebSocket du gateway, `wss://…/dots/ws`. */
@@ -22,6 +24,8 @@ export interface WebAgent {
   species: SpeciesId;
   palette: PaletteId;
   accessory: AccessoryId;
+  /** Logo choisi sur le téléphone ; absent pour les agents appairés avant #211 : `default`. */
+  launcher_icon?: LauncherIconId;
 }
 
 /** Contenu déchiffré d'un dépôt d'appairage (voir docs/appairage-web.md). */
