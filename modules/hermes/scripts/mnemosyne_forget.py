@@ -63,9 +63,11 @@ PROPOSAL_SOURCE = "sleep_model_refresh_proposal"
 CORRECTION = re.compile(r"\b(shouldn'?t|should not|not the|actually|correction|wrong|instead|no longer|update all)\b", re.I)
 # "due" alone is not a one-off: bills are due every month.
 ONE_OFF = re.compile(r"\b(remind(er)?|deadline|one[- ]off|appointment)\b", re.I)
-RECURRING = re.compile(r"\b(every|each|monthly|weekly|yearly|annual(ly)?|recurring|per (month|week|year))\b|/month", re.I)
+RECURRING = re.compile(r"\b(every|each|daily|nightly|monthly|weekly|yearly|annual(ly)?|recurring|always|usually"
+                       r"|per (day|month|week|year)|(mon|tues|wednes|thurs|fri|satur|sun|week)days|weekends|mornings|evenings)\b"
+                       r"|/month", re.I)
 # Only a message that is itself a probe, not one that talks about probes.
-NOISE = re.compile(r"^(\[USER\]\s*)?(read-only )?memory probe\b", re.I)
+NOISE = re.compile(r"^\s*(\[USER\]\s*)?(read-only )?memory probe\b", re.I)
 STOP = frozenset("""the and for that this with from are was were has have had but not you your
     yes our its it's should shouldn actually wrong correction instead longer update all reflect
     user replying please can will just also about into than then them they what when which""".split())
@@ -353,10 +355,9 @@ def cmd_apply(args):
             print(json.dumps(report))
             return 0
 
-        # Archive and audit first, so a crash before the commit leaves a duplicate
-        # record rather than a deletion nobody can trace.
+        # Archive first, so a crash before the commit leaves a duplicate copy
+        # rather than a loss. The archive entry also records reason and evidence.
         append_jsonl(ARCHIVE, archive)
-        append_jsonl(AUDIT, audit)
         ids = list(chosen)
         marks = ",".join("?" * len(ids))
         for memory_id, (row, _reason, _evidence) in chosen.items():
@@ -372,7 +373,13 @@ def cmd_apply(args):
             # FTS rows go with the base row through Mnemosyne's delete triggers.
             conn.execute(f"DELETE FROM {table} WHERE id IN ({marks})", ids)
         conn.commit()
-        mark_reviewed()
+        # The rows are gone now; a bookkeeping failure must not read as a failed
+        # apply, or a retry would be refused for rows that no longer exist.
+        for step in (lambda: append_jsonl(AUDIT, audit), mark_reviewed):
+            try:
+                step()
+            except Exception as error:
+                report.setdefault("warnings", []).append(f"{type(error).__name__}: {error}")
         print(json.dumps(report))
         return 0
     finally:

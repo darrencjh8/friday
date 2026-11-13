@@ -208,10 +208,11 @@ class DurableFactTest(ForgetTest):
     def test_owner_fact_is_not_expired_or_noise_by_wording(self):
         self.add_wm("rent", "[USER] my rent is due on the 1st", 40, event_date=day(30))
         self.add_wm("pref", "[USER] stop running the memory probe at night", 30)
+        self.add_wm("dentist", "[USER] my dentist appointment is on Tuesdays", 40, event_date=day(30))
         self.assertEqual(self.candidates(), {})
         for entry in ({"id": "rent", "reason": "expired"}, {"id": "pref", "reason": "noise"}):
             self.assertNotEqual(self.apply(entry, ok=False).returncode, 0, entry)
-        self.assertEqual(self.ids("working_memory"), {"rent", "pref"})
+        self.assertEqual(self.ids("working_memory"), {"rent", "pref", "dentist"})
 
     def test_unrelated_correction_sharing_common_words_is_not_evidence(self):
         self.add_wm("gym", "[USER] my monthly gym fee is S$90", 30)
