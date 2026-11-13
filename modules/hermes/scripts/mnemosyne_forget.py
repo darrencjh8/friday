@@ -34,7 +34,9 @@ content goes to $HERMES_HOME/logs/mnemosyne-forget-audit.jsonl.
 """
 
 import argparse
+import contextlib
 import datetime
+import fcntl
 import glob
 import hashlib
 import json
@@ -49,6 +51,9 @@ DB = os.path.join(DATA_DIR, "mnemosyne.db")
 CANDIDATES = os.path.join(HOME, "tmp", "mnemosyne-forget-candidates.json")
 ARCHIVE = os.path.join(HOME, "mnemosyne", "archive", "forgotten.jsonl")
 AUDIT = os.path.join(HOME, "logs", "mnemosyne-forget-audit.jsonl")
+# Digest of the candidates left after the last successful apply; the gate stays
+# quiet while the candidate set matches it, and wakes again after a failed run.
+REVIEWED = os.path.join(HOME, "cron", "mnemosyne-forget-reviewed.json")
 ARCHIVE_DAYS = int(os.environ.get("MNEMOSYNE_FORGET_ARCHIVE_DAYS", "30"))
 AUDIT_DAYS = int(os.environ.get("MNEMOSYNE_FORGET_AUDIT_DAYS", "365"))
 
@@ -56,15 +61,20 @@ REASONS = ("superseded", "expired", "noise", "rejected_proposal")
 OWNER = "[USER]"
 PROPOSAL_SOURCE = "sleep_model_refresh_proposal"
 CORRECTION = re.compile(r"\b(shouldn'?t|should not|not the|actually|correction|wrong|instead|no longer|update all)\b", re.I)
-ONE_OFF = re.compile(r"\b(remind(er)?|deadline|one[- ]off|appointment|due|by the)\b", re.I)
+# "due" alone is not a one-off: bills are due every month.
+ONE_OFF = re.compile(r"\b(remind(er)?|deadline|one[- ]off|appointment)\b", re.I)
 RECURRING = re.compile(r"\b(every|each|monthly|weekly|yearly|annual(ly)?|recurring|per (month|week|year))\b|/month", re.I)
-NOISE = re.compile(r"\bmemory probe\b", re.I)
+# Only a message that is itself a probe, not one that talks about probes.
+NOISE = re.compile(r"^(\[USER\]\s*)?(read-only )?memory probe\b", re.I)
 STOP = frozenset("""the and for that this with from are was were has have had but not you your
     yes our its it's should shouldn actually wrong correction instead longer update all reflect
     user replying please can will just also about into than then them they what when which""".split())
 # Tables that hold rows derived from a memory, keyed by the memory id.
 DERIVED = (("annotations", "memory_id"), ("gists", "memory_id"), ("memory_embeddings", "memory_id"),
-           ("memory_events", "memory_id"), ("memory_validations", "memory_id"), ("facts", "source_msg_id"))
+           ("memory_events", "memory_id"), ("memory_validations", "memory_id"), ("facts", "source_msg_id"),
+           ("memoria_facts", "source_memory_id"), ("memoria_timelines", "source_memory_id"),
+           ("memoria_instructions", "source_memory_id"), ("memoria_preferences", "source_memory_id"),
+           ("memoria_kg", "source_memory_id"), ("memoria_persona", "source_memory_id"))
 VECTORS = {"working_memory": "vec_working", "episodic_memory": "vec_episodes"}
 
 
@@ -111,6 +121,10 @@ def tables(conn):
     return {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type IN ('table', 'view')")}
 
 
+def has_column(conn, table, column):
+    return any(r[1] == column for r in conn.execute(f"PRAGMA table_info({table})"))
+
+
 def load_rows(conn):
     rows = {}
     for table in ("working_memory", "episodic_memory"):
@@ -128,12 +142,13 @@ def corrections(rows):
 
 def supersedes(fix, row):
     """True when fix is a newer owner correction about the same subject as row."""
-    if fix["id"] == row["id"] or not is_owner(fix) or not CORRECTION.search(fix["content"]):
+    if (fix["id"] == row["id"] or fix["_table"] != "working_memory" or not is_owner(fix)
+            or not CORRECTION.search(fix["content"])):
         return False
     fixed, written = parse_time(fix["timestamp"]), parse_time(row["timestamp"])
     if not fixed or not written or fixed <= written:
         return False
-    return len(tokens(fix["content"]) & tokens(row["content"])) >= 2
+    return len(tokens(fix["content"]) & tokens(row["content"])) >= 3
 
 
 def check(row, reason, evidence, today):
@@ -182,6 +197,10 @@ def find_candidates(conn):
     return found
 
 
+def digest(found):
+    return hashlib.sha256(json.dumps([[c["id"], c["hint"]] for c in found]).encode()).hexdigest()
+
+
 def write_candidates(found):
     os.makedirs(os.path.dirname(CANDIDATES), exist_ok=True)
     tmp = CANDIDATES + ".tmp"
@@ -194,7 +213,7 @@ def cmd_candidates(_args):
     if not os.path.exists(DB):
         found = []
     else:
-        with connect(readonly=True) as conn:
+        with contextlib.closing(connect(readonly=True)) as conn:
             found = find_candidates(conn)
     write_candidates(found)
     print(json.dumps({"candidates": len(found), "file": CANDIDATES}))
@@ -216,18 +235,39 @@ def reexec_in_plugin_env():
     """Run again under the Mnemosyne plugin's Python, which ships sqlite-vec."""
     if os.environ.get("MNEMOSYNE_FORGET_REEXEC"):
         return
-    for python in sorted(glob.glob(os.path.join(HOME, "installs", "*", "environments", "*", "venv", "bin", "python"))):
+    # The most recently installed environment that ships sqlite-vec.
+    pattern = os.path.join(HOME, "installs", "*", "environments", "*", "venv")
+    venvs = [v for v in glob.glob(pattern) if glob.glob(os.path.join(v, "lib", "python3*", "site-packages", "sqlite_vec"))]
+    if venvs:
+        python = os.path.join(max(venvs, key=os.path.getmtime), "bin", "python")
         os.environ["MNEMOSYNE_FORGET_REEXEC"] = "1"
         os.execv(python, [python, os.path.abspath(__file__), *sys.argv[1:]])
 
 
-def append_jsonl(path, entries):
+@contextlib.contextmanager
+def locked(path):
+    """Serialise apply's appends and prune's rewrite of the same file."""
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "a", encoding="utf-8") as handle:
+    with open(path + ".lock", "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        yield
+
+
+def append_jsonl(path, entries):
+    with locked(path), open(path, "a", encoding="utf-8") as handle:
         for entry in entries:
             handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
         handle.flush()
         os.fsync(handle.fileno())
+
+
+def mark_reviewed():
+    """Record the candidates left after a successful apply as reviewed."""
+    with contextlib.closing(connect(readonly=True)) as conn:
+        found = find_candidates(conn)
+    os.makedirs(os.path.dirname(REVIEWED), exist_ok=True)
+    with open(REVIEWED, "w", encoding="utf-8") as handle:
+        json.dump({"digest": digest(found)}, handle)
 
 
 def fail(message):
@@ -291,15 +331,32 @@ def cmd_apply(args):
             audit.append({"forgotten_at": stamp, "id": memory_id, "table": row["_table"], "reason": reason,
                           "evidence_id": evidence_id,
                           "content_sha256": hashlib.sha256(row["content"].encode("utf-8")).hexdigest()})
+        # A consolidated fact goes when all its sources go; one that also
+        # rests on a kept row stays and is reported, like a mixed summary.
+        cf_drop, cf_kept = [], []
+        if "consolidated_facts" in present:
+            for fact_id, sources_json in conn.execute("SELECT id, sources_json FROM consolidated_facts").fetchall():
+                try:
+                    fact_sources = set(json.loads(sources_json or "[]"))
+                except (TypeError, ValueError):
+                    continue
+                if not fact_sources & chosen.keys():
+                    continue
+                (cf_drop if fact_sources <= chosen.keys() else cf_kept).append(fact_id)
         report = {"dry_run": args.dry_run, "forgotten": [{k: a[k] for k in ("id", "table", "reason", "evidence_id")}
-                                                        for a in audit], "kept_summaries": sorted(kept)}
+                                                        for a in audit], "kept_summaries": sorted(kept),
+                  "kept_consolidated_facts": sorted(cf_kept)}
         if args.dry_run or not chosen:
             conn.rollback()
+            if not args.dry_run:
+                mark_reviewed()
             print(json.dumps(report))
             return 0
 
-        # Archive first, so a crash between the two leaves a copy rather than a loss.
+        # Archive and audit first, so a crash before the commit leaves a duplicate
+        # record rather than a deletion nobody can trace.
         append_jsonl(ARCHIVE, archive)
+        append_jsonl(AUDIT, audit)
         ids = list(chosen)
         marks = ",".join("?" * len(ids))
         for memory_id, (row, _reason, _evidence) in chosen.items():
@@ -307,21 +364,15 @@ def cmd_apply(args):
             if vec in present:
                 conn.execute(f"DELETE FROM {vec} WHERE rowid = ?", (row["_rowid"],))
         for table, column in DERIVED:
-            if table in present:
+            if table in present and has_column(conn, table, column):
                 conn.execute(f"DELETE FROM {table} WHERE {column} IN ({marks})", ids)
-        if "consolidated_facts" in present:
-            for fact_id, sources_json in conn.execute("SELECT id, sources_json FROM consolidated_facts").fetchall():
-                try:
-                    fact_sources = json.loads(sources_json or "[]")
-                except ValueError:
-                    continue
-                if fact_sources and set(fact_sources) <= chosen.keys():
-                    conn.execute("DELETE FROM consolidated_facts WHERE id = ?", (fact_id,))
+        for fact_id in cf_drop:
+            conn.execute("DELETE FROM consolidated_facts WHERE id = ?", (fact_id,))
         for table in VECTORS:
             # FTS rows go with the base row through Mnemosyne's delete triggers.
             conn.execute(f"DELETE FROM {table} WHERE id IN ({marks})", ids)
         conn.commit()
-        append_jsonl(AUDIT, audit)
+        mark_reviewed()
         print(json.dumps(report))
         return 0
     finally:
@@ -331,13 +382,21 @@ def cmd_apply(args):
 def prune_file(path, days):
     if not os.path.exists(path):
         return 0
+    with locked(path):
+        return prune_locked(path, days)
+
+
+def prune_locked(path, days):
     cutoff = now() - datetime.timedelta(days=days)
     kept, dropped = [], 0
     with open(path, encoding="utf-8") as handle:
         for line in handle:
             if not line.strip():
                 continue
-            stamp = parse_time(json.loads(line).get("forgotten_at", ""))
+            try:
+                stamp = parse_time(json.loads(line).get("forgotten_at", ""))
+            except (ValueError, AttributeError):
+                stamp = None  # a torn line is kept for a person to look at
             if stamp and stamp < cutoff:
                 dropped += 1
             else:

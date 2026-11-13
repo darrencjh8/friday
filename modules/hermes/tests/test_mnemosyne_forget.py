@@ -42,6 +42,7 @@ CREATE TABLE gists (id TEXT, memory_id TEXT, text TEXT);
 CREATE TABLE memory_embeddings (memory_id TEXT, embedding_json TEXT);
 CREATE TABLE facts (fact_id TEXT, source_msg_id TEXT, subject TEXT);
 CREATE TABLE consolidated_facts (id TEXT, subject TEXT, sources_json TEXT);
+CREATE TABLE memoria_timelines (id INTEGER PRIMARY KEY, event TEXT, source_memory_id TEXT);
 """
 
 
@@ -73,7 +74,8 @@ class ForgetTest(unittest.TestCase):
                      " VALUES (?, ?, ?, ?, 's1', 'session', ?, ?)",
                      (id, content, source, ts(days_ago), json.dumps(metadata or {}), event_date))
         for table, column in (("annotations", "memory_id"), ("gists", "memory_id"),
-                              ("memory_embeddings", "memory_id"), ("facts", "source_msg_id")):
+                              ("memory_embeddings", "memory_id"), ("facts", "source_msg_id"),
+                              ("memoria_timelines", "source_memory_id")):
             conn.execute(f"INSERT INTO {table} ({column}) VALUES (?)", (id,))
         conn.execute("INSERT INTO consolidated_facts (id, sources_json) VALUES (?, ?)", ("cf_" + id, json.dumps([id])))
         conn.commit()
@@ -103,6 +105,7 @@ class ForgetTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM gists WHERE memory_id = ?",
                 "SELECT COUNT(*) FROM memory_embeddings WHERE memory_id = ?",
                 "SELECT COUNT(*) FROM facts WHERE source_msg_id = ?",
+                "SELECT COUNT(*) FROM memoria_timelines WHERE source_memory_id = ?",
                 "SELECT COUNT(*) FROM consolidated_facts WHERE id = 'cf_' || ?",
             ))
         finally:
@@ -149,7 +152,7 @@ class StaleDateTest(ForgetTest):
         self.assertEqual(self.ids("episodic_memory"), set())
         for memory_id in ("fact1", "prop1", "ep1"):
             self.assertEqual(self.refs(memory_id), 0, memory_id)
-        self.assertEqual(self.refs("fix1"), 5)
+        self.assertEqual(self.refs("fix1"), 6)
 
         archive = {e["row"]["id"]: e for e in self.jsonl("mnemosyne/archive/forgotten.jsonl")}
         self.assertEqual(set(archive), {"fact1", "prop1", "ep1"})
@@ -201,6 +204,31 @@ class DurableFactTest(ForgetTest):
             self.assertNotEqual(result.returncode, 0, entry)
         self.assertEqual(self.ids("working_memory"), {"gym", "older", "agent"})
         self.assertEqual(self.jsonl("logs/mnemosyne-forget-audit.jsonl"), [])
+
+    def test_owner_fact_is_not_expired_or_noise_by_wording(self):
+        self.add_wm("rent", "[USER] my rent is due on the 1st", 40, event_date=day(30))
+        self.add_wm("pref", "[USER] stop running the memory probe at night", 30)
+        self.assertEqual(self.candidates(), {})
+        for entry in ({"id": "rent", "reason": "expired"}, {"id": "pref", "reason": "noise"}):
+            self.assertNotEqual(self.apply(entry, ok=False).returncode, 0, entry)
+        self.assertEqual(self.ids("working_memory"), {"rent", "pref"})
+
+    def test_unrelated_correction_sharing_common_words_is_not_evidence(self):
+        self.add_wm("gym", "[USER] my monthly gym fee is S$90", 30)
+        self.add_wm("fix", "[USER] actually the monthly gym class moved to Monday", 5)
+        self.assertNotIn("gym", self.candidates())
+        self.apply({"id": "gym", "reason": "superseded", "evidence_id": "fix"}, ok=False)
+        self.assertEqual(self.ids("working_memory"), {"gym", "fix"})
+
+    def test_mixed_consolidated_fact_is_kept_and_reported(self):
+        self.stale_date_fixture()
+        conn = sqlite3.connect(self.db)
+        conn.execute("INSERT INTO consolidated_facts (id, sources_json) VALUES ('cf_mixed', ?)", (json.dumps(["fact1", "fix1"]),))
+        conn.commit()
+        conn.close()
+        result = self.apply({"id": "fact1", "reason": "superseded", "evidence_id": "fix1"})
+        self.assertIn("cf_mixed", json.loads(result.stdout)["kept_consolidated_facts"])
+        self.assertIn("cf_mixed", self.ids("consolidated_facts"))
 
     def test_one_bad_entry_refuses_the_whole_plan(self):
         self.stale_date_fixture()
@@ -258,6 +286,13 @@ class PruneTest(ForgetTest):
         self.assertEqual([e["row"]["id"] for e in self.jsonl("mnemosyne/archive/forgotten.jsonl")], ["new"])
         self.assertEqual([e["id"] for e in self.jsonl("logs/mnemosyne-forget-audit.jsonl")], ["new"])
 
+    def test_prune_keeps_a_corrupt_line(self):
+        self.write_jsonl("mnemosyne/archive/forgotten.jsonl", [{"forgotten_at": ts(31), "row": {"id": "old"}}])
+        with open(self.home / "mnemosyne/archive/forgotten.jsonl", "a") as handle:
+            handle.write('{"forgotten_at": "torn\n')
+        self.assertEqual(json.loads(self.run_script("prune").stdout)["archive_pruned"], 1)
+        self.assertIn("torn", (self.home / "mnemosyne/archive/forgotten.jsonl").read_text())
+
     def test_prune_without_files_is_a_no_op(self):
         self.assertEqual(json.loads(self.run_script("prune").stdout), {"archive_pruned": 0, "audit_pruned": 0})
 
@@ -268,12 +303,19 @@ class GateTest(ForgetTest):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.strip()
 
-    def test_wakes_once_per_new_candidate_set(self):
+    def test_wakes_until_the_candidates_are_reviewed(self):
         self.add_wm("gym", "[USER] my monthly gym fee is S$90", 30)
         self.assertEqual(self.gate(), "")
         self.add_wm("probe", "[USER] memory probe, ignore", 9)
-        self.assertIn("1 candidate", self.gate())
+        self.add_wm("probe2", "[USER] memory probe, ignore", 8)
+        self.assertIn("2 candidate", self.gate())
+        # A run that failed before applying is retried next time.
+        self.assertIn("2 candidate", self.gate())
+        # The agent kept probe2 and forgot probe: the rest is not re-judged.
+        self.apply({"id": "probe", "reason": "noise"})
         self.assertEqual(self.gate(), "")
+        self.add_wm("probe3", "[USER] memory probe, ignore", 1)
+        self.assertIn("2 candidate", self.gate())
 
     def test_absent_db_is_silent(self):
         self.db.unlink()

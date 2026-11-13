@@ -96,7 +96,8 @@ Sleep only compresses, so a corrected date or a passed one-off kept
 resurfacing. `memory-mnemosyne-forget` runs Sundays `30 2 * * 0`, before the
 vacuum, delivering to Dots. Its gate `scripts/mnemosyne-forget-gate.py` writes
 `/opt/data/tmp/mnemosyne-forget-candidates.json` and wakes the agent only when
-the candidate set changed. The agent writes a plan and runs
+the candidates differ from those left after the last successful apply, so a
+failed run is retried next week. The agent writes a plan and runs
 `scripts/mnemosyne_forget.py apply --plan FILE [--dry-run]`, which re-checks
 each entry in code and refuses the whole plan on one bad entry:
 
@@ -106,9 +107,10 @@ each entry in code and refuses the whole plan on one bad entry:
 - `noise`: memory probes. `rejected_proposal`: rejected sleep model-refresh proposals.
 
 Apply copies each full row to `mnemosyne/archive/forgotten.jsonl`, then
-deletes it with its vectors, embeddings, annotations, gists, facts and any
-episodic summary of that row alone. A summary that also covers kept rows stays
-and is listed as `kept_summaries`. Audit lines (id, reason, evidence id, content
+deletes it with its vectors, embeddings, annotations, gists, facts, `memoria_*`
+extractions and any episodic summary or consolidated fact resting on it alone.
+A summary or consolidated fact that also covers kept rows stays and is listed
+as `kept_summaries` / `kept_consolidated_facts`. Audit lines (id, reason, evidence id, content
 hash, no content) go to `logs/mnemosyne-forget-audit.jsonl`. It needs
 sqlite-vec, so it re-runs itself under the plugin venv Python, and refuses
 when vector tables exist but sqlite-vec cannot load. No restore command: to

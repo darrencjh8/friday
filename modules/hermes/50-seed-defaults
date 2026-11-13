@@ -910,7 +910,7 @@ STEPS
    - noise: forget test or probe messages.
    - rejected_proposal: forget; the owner already rejected it.
    Never forget an owner preference, standing rule or durable fact without a correction that replaces it.
-4. If nothing should be forgotten, reply exactly [SILENT].
+4. If nothing should be forgotten, write {"forget": []} to /opt/data/tmp/mnemosyne-forget-plan.json, run step 7 so the review is recorded (otherwise the same candidates come back next week), and reply exactly [SILENT].
 5. Write /opt/data/tmp/mnemosyne-forget-plan.json:
    {"forget": [{"id": "...", "reason": "superseded", "evidence_id": "..."}, {"id": "...", "reason": "expired"}]}
 6. Validate: python3 /opt/data/scripts/mnemosyne_forget.py apply --plan /opt/data/tmp/mnemosyne-forget-plan.json --dry-run
