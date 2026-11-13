@@ -272,6 +272,15 @@ def mark_reviewed():
         json.dump({"digest": digest(found)}, handle)
 
 
+def bookkeep(report, *steps):
+    """Run steps that only record what happened; a failure becomes a warning."""
+    for step in steps:
+        try:
+            step()
+        except Exception as error:
+            report.setdefault("warnings", []).append(f"{type(error).__name__}: {error}")
+
+
 def fail(message):
     print(json.dumps({"error": message}))
     return 1
@@ -351,7 +360,7 @@ def cmd_apply(args):
         if args.dry_run or not chosen:
             conn.rollback()
             if not args.dry_run:
-                mark_reviewed()
+                bookkeep(report, mark_reviewed)
             print(json.dumps(report))
             return 0
 
@@ -375,11 +384,7 @@ def cmd_apply(args):
         conn.commit()
         # The rows are gone now; a bookkeeping failure must not read as a failed
         # apply, or a retry would be refused for rows that no longer exist.
-        for step in (lambda: append_jsonl(AUDIT, audit), mark_reviewed):
-            try:
-                step()
-            except Exception as error:
-                report.setdefault("warnings", []).append(f"{type(error).__name__}: {error}")
+        bookkeep(report, lambda: append_jsonl(AUDIT, audit), mark_reviewed)
         print(json.dumps(report))
         return 0
     finally:

@@ -250,6 +250,16 @@ class DurableFactTest(ForgetTest):
         self.assertIn("mixed", json.loads(result.stdout)["kept_summaries"])
 
 
+class WarningTest(ForgetTest):
+    def test_bookkeeping_failure_is_a_warning(self):
+        self.add_wm("probe", "[USER] memory probe, ignore", 9)
+        (self.home / "cron").write_text("not a directory")  # the review record cannot be written
+        for plan in ([], [{"id": "probe", "reason": "noise"}]):
+            report = json.loads(self.apply(*plan).stdout)
+            self.assertTrue(report["warnings"], plan)
+        self.assertEqual(self.ids("working_memory"), set())
+
+
 class NoiseTest(ForgetTest):
     def test_probe_is_noise(self):
         self.add_wm("probe", "[USER] Read-only memory probe from the nightly job, do not write any memory", 9)
