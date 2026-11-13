@@ -360,6 +360,7 @@ graph TB
 | ops-github-token-refresh | every 15m | `github-auth.sh` — App-first `gh` auth (no_agent, zero tokens) |
 | memory-backup | every 360m | Backup Hermes memories to private repo |
 | persona-sync | every 360m | Pull the shared persona repo and refresh the persona block in SOUL.md |
+| persona-reflection | `40 21 * * *` (daily 21:40) | Reflect on the day and publish at most one persona change to the shared persona repo |
 | memory-mnemosyne-forget | `30 2 * * 0` (Sun 02:30) | Forget superseded, expired and noise Mnemosyne rows (archived 30 days) |
 | memory-mnemosyne-vacuum | `0 3 * * 0` | Mnemosyne VACUUM report (no_agent) |
 | ops-log-issues | `30 18 * * *` (daily 18:30) | Daily log issue triage; artifact-only workdir |

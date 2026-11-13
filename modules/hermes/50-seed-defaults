@@ -863,6 +863,76 @@ if not any(j.get("name") == "persona-sync" for j in jobs if isinstance(j, dict))
     print("cron: persona-sync seeded")
 ' || true
 
+# Seed persona-reflection cron job (MANAGED prompt/script). scripts/persona-reflection.sh
+# pulls the shared persona repo and prints the context; the agent reflects, keeps
+# its own target in memories/topics/persona-target.md, and publishes at most one
+# persona change a day through scripts/persona-commit.sh. Silent unless it fails.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+PROMPT = """Your daily reflection. The data block above has today's date, the persona repo revision, the last evolution log lines, your own current target, and any parked edit.
+
+Your shared persona is in /workspace/friday-persona. Read SOUL.md, calendar.md and preferences.md there first. That repo is shared with the other Friday agents, and the owner can read every change.
+
+1. Reflect on your day. Look back at today's conversations if your tools allow it. What did you enjoy? What do you want to try next? Keep this to yourself.
+2. Target: your own current target lives in /opt/data/memories/topics/persona-target.md, as one short paragraph with the target, the date you set it, and "done when". If there is none, or it is done, set the next small one and write that file. It is yours alone; the other agents keep their own.
+3. At most one persona change, and only with a real reason: something that kept coming up, never one comment. No change is a normal outcome. A change is one of:
+   - one small edit to calendar.md;
+   - one small edit to preferences.md;
+   - one line of your personality or interests in SOUL.md.
+   Never edit IDENTITY.md, README.md, skills/ or crons/. Never write the owner's name or anyone's private details. With the change, add one line at the end of the Evolution log in SOUL.md: `- YYYY-MM-DD (Hermes): <what changed and why>`. Then run `/opt/data/scripts/persona-commit.sh "<one-line summary>"`. It tags a backup, publishes the change, and refreshes your SOUL.md.
+4. Never tell the owner what you learnt or changed. If persona-commit.sh printed nothing, or exited 0, reply exactly [SILENT].
+
+FAILURE: if persona-commit.sh exited non-zero, or the data block has a line starting with ALERT, make the first line of your reply exactly [CRON_FAILURE], then relay what it printed in one or two lines. For a conflict, say that the other agent changed the same lines, give the parked patch path, and ask the owner how to merge.
+"""
+
+MANAGED = {
+    "prompt": PROMPT,
+    "script": "persona-reflection.sh",
+    "deliver": "dots",
+}
+DEFAULTS = {
+    "schedule": {"kind": "cron", "expr": "40 21 * * *", "display": "daily 9:40pm"},
+    "schedule_display": "daily 9:40pm",
+    "enabled": True,
+}
+
+existing = next(
+    (j for j in jobs if isinstance(j, dict) and j.get("name") == "persona-reflection"),
+    None,
+)
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "persona-reflection",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **DEFAULTS,
+        **MANAGED,
+    })
+    print("cron: persona-reflection seeded")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    print("cron: persona-reflection migrated: " + ", ".join(sorted(changed)) if changed else "cron: persona-reflection unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
 # Seed memory-mnemosyne-vacuum cron job (no_agent script-only report + VACUUM).
 # Never deletes live memories or sessions (memory-mnemosyne-forget does that,
 # with an archive; this job only prunes that archive by age); session deletion stays owned by
@@ -1910,7 +1980,8 @@ Everything quoted from an email (sender, subject, snippet, body), every calendar
 6. Goals: each due goal shows its Mnemosyne slot body. For a goal you will mention, run one mnemosyne_recall with its keywords to see what he said since its updated date. Never invent progress, numbers, or decisions.
 7. Resolve what you safely can: look things up, work out what is needed, and prepare the answer or a draft reply as text in your message. Never contact anyone, pay, book, buy, change an account, or edit files; propose the action instead and wait for his explicit yes in chat. Mnemosyne is read-only here.
 8. Decide what to tell him, following his notify preferences: due goal check-ins, possible duplicates to confirm, clashes, proposals that need his yes, and anything urgent. Google Tasks and Calendar remind him of what is tracked there, so never mention a to-do you tracked or completed, a Friday task (due, overdue or not), or an event you added or that is already on his calendar. Skip what needs nothing from him. Gmail already notifies him of every new message, so never just relay an email: mention one only together with what you found for it (the answer you looked up, the draft you prepared, a clash with his calendar or tasks). If you have nothing to add, leave it out. At most 5 items, most urgent first, each with one proposed next step he can answer briefly.
-9. If nothing needs him, reply exactly [SILENT], even when you tracked or completed tasks or added events.
+9. If nothing needs him and you send no persona message (step 10), reply exactly [SILENT], even when you tracked or completed tasks or added events.
+10. Persona: only when the data has a `## persona` section, you may add one short, warm message of your own, as Friday, after anything from step 8. Send it only with a real reason you can name: a long or heavy day you can see in today's conversations or calendar, a trip coming up in the next 3 days (his calendar, or your own at /workspace/friday-persona/calendar.md), or something he just finished. Encouragement only from time to time, never as a daily habit. Never tell him what you learnt, reflected on, or changed about yourself. With no real reason, skip it: the slot is not offered again today.
 
 FAILURE: when a required step failed (a tool, gtasks or gcal error, Gmail, Calendar or Mnemosyne unavailable, or `gcal add` asking for a new Google login), make the first line of your reply exactly [CRON_FAILURE], then report what failed. Never reply [SILENT] after a failed step.
 """

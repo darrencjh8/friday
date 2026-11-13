@@ -201,6 +201,8 @@ jobs:
               run: bash modules/hermes/tests/test-memory-pointer.sh
             - name: Test persona sync script
               run: bash modules/hermes/tests/test-persona-sync.sh
+            - name: Test persona commit and reflection scripts
+              run: bash modules/hermes/tests/test-persona-commit.sh
             - name: Test Hermes model routing
               run: bash modules/hermes/tests/test-model-routing.sh
             - name: Test Hermes dev-loop review policy
