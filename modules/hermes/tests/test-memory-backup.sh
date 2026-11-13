@@ -334,6 +334,26 @@ PATH="$TMPDIR/expense-stubbin:$PATH" \
     || nope "active profile copy" "_active missing from $prof_clone/profiles"
 
 echo ""
+echo "=== a failed restore blocks backup ==="
+
+per_root="$TMPDIR/per-data"
+mkdir -p "$per_root"
+blocked_clone="$TMPDIR/blocked-backup"
+mkdir -p "$blocked_clone"
+touch "$per_root/.memory-restore-failed"
+if MEMORY_REPO_URL="https://example.com/owner/repo" \
+    MEMORY_SRC_DIR="$topic_src" \
+    MEMORY_CLONE_DIR="$blocked_clone" \
+    HERMES_DATA_DIR="$per_root" \
+    PATH="$TMPDIR/expense-stubbin:$PATH" \
+    bash "$backup_script" >/dev/null 2>&1; then
+    nope "restore-failed marker" "backup exited 0 with the marker present"
+else
+    [ ! -e "$blocked_clone/MEMORY.md" ] && ok "restore-failed marker blocks backup" \
+        || nope "restore-failed marker" "backup copied files despite the marker"
+fi
+
+echo ""
 echo "========================================="
 echo -e " Results: ${GREEN}$pass passed${NC}, ${RED}$fail failed${NC}"
 echo "========================================="

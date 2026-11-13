@@ -172,7 +172,6 @@ PYCONFIG
 else
     cp /opt/hermes-defaults/config.yaml /opt/data/config.yaml
 fi
-[ ! -f /opt/data/SOUL.md ] && cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md
 mkdir -p /opt/data/skills
 cp -r /opt/hermes-defaults/skills/* /opt/data/skills/
 chown -R hermes:hermes /opt/data/skills 2>/dev/null || true
@@ -538,6 +537,17 @@ else
 fi
 unset PAT
 
+# Restore a fresh volume from friday-memory, the source of truth for the persona,
+# before the env-var SOUL template is considered. It runs as hermes with the HOME
+# github-auth.sh configured gh under; root created memories/ and profiles/ above,
+# and the blanket chown only runs at the end of this script. On an existing volume
+# the restore is a no-op. The template seeds SOUL.md only when friday-memory had none.
+chown hermes:hermes /opt/data 2>/dev/null || true
+chown -R hermes:hermes /opt/data/memories /opt/data/profiles 2>/dev/null || true
+su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/memory-restore.sh' \
+    || echo "WARNING: friday-memory restore failed; memory-backup stays blocked until a boot restores it" >&2
+[ ! -f /opt/data/SOUL.md ] && cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md
+
 # Rename seeded cron jobs to names that say what they do (no schedule in the
 # name, so a schedule change never makes a name wrong). Runs before every seed
 # block below, which match by the new name. The rename is in place: id,
@@ -873,15 +883,6 @@ with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=Fa
     temp_path = handle.name
 os.replace(temp_path, jobs_path)
 PYEOF
-
-# Restore memories from friday-memory repo on first boot
-if [ -n "${MEMORY_REPO_URL}" ] && [ ! -f "/opt/data/memories/MEMORY.md" ]; then
-    rm -rf /tmp/friday-memory-clone
-    git clone "${MEMORY_REPO_URL}" /tmp/friday-memory-clone 2>/dev/null && \
-    cp -r /tmp/friday-memory-clone/. /opt/data/memories/ && \
-    chown -R hermes:hermes /opt/data/memories/ && \
-    rm -rf /tmp/friday-memory-clone || true
-fi
 
 # The always-on core must point at the topic directory or tier 2 is write-only:
 # a fresh session that has not loaded the troubleshooting skill has no other cue

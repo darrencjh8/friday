@@ -2182,6 +2182,33 @@ PY
     || nope "proactive-tick calendar step" "$proactive"
 
 echo ""
+echo "=== friday-memory restore runs before the SOUL template seed ==="
+
+order=$(python3 - "$SEED_SCRIPT" <<'PY'
+import sys
+s = open(sys.argv[1]).read()
+auth = s.find("/opt/hermes-defaults/scripts/github-auth.sh")
+chown = s.find("chown -R hermes:hermes /opt/data/memories /opt/data/profiles")
+restore = s.find("/opt/hermes-defaults/scripts/memory-restore.sh")
+seed = s.find("cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md")
+subst = s.find('paths = ["/opt/data/config.yaml", "/opt/data/SOUL.md"]')
+checks = {
+    "restore_called": restore != -1,
+    "after_auth": auth != -1 and auth < restore,
+    "chown_first": chown != -1 and chown < restore,
+    "seed_after_restore": restore < seed,
+    "single_seed": s.count("SOUL.md.template /opt/data/SOUL.md") == 1,
+    "seed_before_subst": seed < subst,
+    "inline_clone_gone": "friday-memory-clone" not in s,
+}
+bad = [k for k, v in checks.items() if not v]
+print("pass" if not bad else "fail " + repr(bad))
+PY
+)
+[ "$order" = "pass" ] && ok "restore as hermes after auth and before the template seed; inline clone gone" \
+    || nope "friday-memory restore order" "$order"
+
+echo ""
 echo "========================================="
 echo -e " Results: ${GREEN}$pass passed${NC}, ${RED}$fail failed${NC}"
 echo "========================================="
