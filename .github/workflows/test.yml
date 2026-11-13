@@ -199,6 +199,8 @@ jobs:
               run: bash modules/hermes/tests/test-memory-restore.sh
             - name: Test seed memory pointer
               run: bash modules/hermes/tests/test-memory-pointer.sh
+            - name: Test persona sync script
+              run: bash modules/hermes/tests/test-persona-sync.sh
             - name: Test Hermes model routing
               run: bash modules/hermes/tests/test-model-routing.sh
             - name: Test Hermes dev-loop review policy

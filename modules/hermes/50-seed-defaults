@@ -172,7 +172,6 @@ PYCONFIG
 else
     cp /opt/hermes-defaults/config.yaml /opt/data/config.yaml
 fi
-[ ! -f /opt/data/SOUL.md ] && cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md
 mkdir -p /opt/data/skills
 cp -r /opt/hermes-defaults/skills/* /opt/data/skills/
 chown -R hermes:hermes /opt/data/skills 2>/dev/null || true
@@ -538,6 +537,17 @@ else
 fi
 unset PAT
 
+# Restore a fresh volume from friday-memory, the source of truth for the persona,
+# before the env-var SOUL template is considered. It runs as hermes with the HOME
+# github-auth.sh configured gh under; root created memories/ and profiles/ above,
+# and the blanket chown only runs at the end of this script. On an existing volume
+# the restore is a no-op. The template seeds SOUL.md only when friday-memory had none.
+chown hermes:hermes /opt/data 2>/dev/null || true
+chown -R hermes:hermes /opt/data/memories /opt/data/profiles 2>/dev/null || true
+su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/memory-restore.sh' \
+    || echo "WARNING: friday-memory restore failed; memory-backup stays blocked until a boot restores it" >&2
+[ ! -f /opt/data/SOUL.md ] && cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md
+
 # Rename seeded cron jobs to names that say what they do (no schedule in the
 # name, so a schedule change never makes a name wrong). Runs before every seed
 # block below, which match by the new name. The rename is in place: id,
@@ -668,6 +678,12 @@ else
     su -m -s /bin/sh hermes -c '/opt/hermes-defaults/scripts/refresh-codex-router-checkout.sh' >>"$refresh_log" 2>&1 \
         || echo "WARNING: could not advance the codex-router checkout in /workspace" >&2
 fi
+
+# Pull the shared persona repo into /workspace/friday-persona and copy its SOUL.md
+# into the live SOUL.md between the friday-persona markers (persona-sync.sh). Runs
+# after the restore and the template seed, so it edits the SOUL.md that will load.
+su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/persona-sync.sh' \
+    || echo "WARNING: persona sync failed; SOUL.md keeps its last persona block" >&2
 
 python3 -c '
 import os, re, glob
@@ -813,6 +829,39 @@ if not any(j.get("name") == "memory-backup" for j in jobs if isinstance(j, dict)
     print("cron: memory-backup seeded")
 ' || true
 fi
+
+# Seed persona-sync cron job (no_agent, idempotent — skips if already present).
+python3 -c '
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+if not any(j.get("name") == "persona-sync" for j in jobs if isinstance(j, dict)):
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "persona-sync",
+        "schedule": {"kind": "interval", "minutes": 360, "display": "every 360m"},
+        "schedule_display": "every 360m",
+        "prompt": "Run /opt/data/scripts/persona-sync.sh to pull the shared persona repo",
+        "script": "persona-sync.sh",
+        "no_agent": True,
+        "enabled": True,
+        "deliver": "local",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    })
+    with open(jobs_path + ".tmp", "w") as f:
+        json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+    os.replace(jobs_path + ".tmp", jobs_path)
+    print("cron: persona-sync seeded")
+' || true
 
 # Seed memory-mnemosyne-vacuum cron job (no_agent script-only report + VACUUM).
 # Never deletes live memories or sessions (memory-mnemosyne-forget does that,
@@ -975,15 +1024,6 @@ with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=Fa
     temp_path = handle.name
 os.replace(temp_path, jobs_path)
 PYEOF
-
-# Restore memories from friday-memory repo on first boot
-if [ -n "${MEMORY_REPO_URL}" ] && [ ! -f "/opt/data/memories/MEMORY.md" ]; then
-    rm -rf /tmp/friday-memory-clone
-    git clone "${MEMORY_REPO_URL}" /tmp/friday-memory-clone 2>/dev/null && \
-    cp -r /tmp/friday-memory-clone/. /opt/data/memories/ && \
-    chown -R hermes:hermes /opt/data/memories/ && \
-    rm -rf /tmp/friday-memory-clone || true
-fi
 
 # The always-on core must point at the topic directory or tier 2 is write-only:
 # a fresh session that has not loaded the troubleshooting skill has no other cue
