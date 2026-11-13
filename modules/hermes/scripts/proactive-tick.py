@@ -27,6 +27,8 @@ Sources:
   once a day the agenda for the next 24 hours, read through gcal.py.
 - tasks: open items on Friday's own Google Tasks list that are due today or
   earlier, at most once a day each.
+- persona: once a day from PERSONA_HOUR, a slot for one self-initiated message
+  of Friday's own (#220 Phase 4); the agent uses it only with a real reason.
 When any source has something, the open Friday tasks and the user's notify
 preferences are added as context so the agent can match mail to what it
 already tracks, along with the next 24 hours of calendar.
@@ -238,8 +240,23 @@ def tasks_source(today, seen, cursors):
     return items
 
 
+PERSONA_HOUR = 18
+
+
+def persona_source(today, seen, cursors):
+    """Offer Friday one self-initiated message slot a day, from the evening on.
+
+    The slot is recorded as seen once offered, so she can send at most one
+    self-initiated non-urgent message a day; the prompt decides whether there is
+    a real reason to use it."""
+    key = "persona:slot"
+    if seen.get(key) == today.isoformat() or datetime.datetime.now(SGT).hour < PERSONA_HOUR:
+        return []
+    return [(key, "slot: you may send one short message of your own today (step 10)")]
+
+
 SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "calendar": calendar_source,
-           "tasks": tasks_source}
+           "tasks": tasks_source, "persona": persona_source}
 
 
 def save_state(today, seen, cursors):
