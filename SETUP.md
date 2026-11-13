@@ -153,6 +153,7 @@ Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--
 |-----|----------|---------|
 | `ops-github-token-refresh` | every 15m | Refresh GitHub App installation token |
 | `memory-backup` | every 360m | Backup memories to private git repo |
+| `persona-sync` | every 360m | Pull the shared persona repo and refresh the persona block in SOUL.md |
 | `finance-portfolio-sync` | `0 12 * * *` (daily noon) | Zero-token `POST /tools/pp-sync-all` portfolio sync |
 | `wiki-due-reminders` | `15 8 * * *` (daily 08:15) | Wiki due-date reminders |
 | `memory-approve-queue` | `0 8 * * *` (daily 08:00) | Drain the memory write-approval queue |
