@@ -32,23 +32,23 @@ One writer: the live volume. friday-memory is its copy.
 
 1. `modules/hermes/scripts/memory-restore.sh`
    - Exit 0 early unless `$SRC_DIR/MEMORY.md` is missing or `$DATA_DIR/.memory-restore-failed` exists. The whole script becomes the first-boot restore, so the inner `$FIRST_BOOT` guard on `MEMORY.md`/`USER.md` goes away.
-   - No auth token, or clone failure: `touch` the marker, log, exit 0 (boot never blocks).
-   - Use `x-access-token:` for `ghs_` tokens, the same two lines as `memory-backup.sh`.
+   - Fail closed. On entry to the fresh-or-retry path, `touch` the marker before anything else, and `rm -f` it only as the very last line. Any failure (no token, clone failure, or a `set -e` exit from a later `cp`/`mkdir`) leaves the marker set. No auth token or clone failure: log and exit 0, so boot never blocks. Remember whether the marker existed before the `touch`; that is what tells a retry apart from a first boot for the keep-copy below.
+   - Always build the URL as `https://x-access-token:${AUTH_TOKEN}@...`. GitHub accepts any username with a PAT, so one line covers both App (`ghs_`) and PAT tokens.
    - Retry only (marker present at start): before copying, copy each live path that exists into `$DATA_DIR/pre-restore-<UTC timestamp>/`, keeping its relative path: `memories/MEMORY.md`, `memories/USER.md`, `SOUL.md`, `memories/topics/`, `persona/`. Log the directory.
    - Restore `persona/` to `$DATA_DIR/persona/` and `topics/` to `$SRC_DIR/topics/`.
-   - On success, `rm -f` the marker as the last step.
 2. `modules/hermes/scripts/memory-backup.sh`
    - At the top, after the `MEMORY_REPO_URL` check: if `$DATA_DIR/.memory-restore-failed` exists, print the reason to stderr and `exit 1`. The cron then reports a failure.
    - Copy `$DATA_DIR/persona/.` into the clone's `persona/`, mirroring the `topics/` block. Deletions are not mirrored, the same as `topics/` today.
 3. `modules/hermes/50-seed-defaults`
    - Remove the early `[ ! -f /opt/data/SOUL.md ] && cp ... SOUL.md.template` line.
    - Directly after the `github-auth.sh` block, add:
+     - `chown hermes:hermes /opt/data` and `chown -R hermes:hermes /opt/data/memories /opt/data/profiles 2>/dev/null || true`. Root created these earlier in the script (`mkdir -p /opt/data/memories/topics`, profile seeding), and the existing blanket `chown -R hermes:hermes /opt/data` only runs at the very end. Without this, the hermes-run restore hits EACCES;
      - a call `su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/memory-restore.sh' || echo "WARNING: ..." >&2`. This runs as `hermes` with the `HOME` `github-auth.sh` configured `gh` under;
      - then the template seed line, unchanged.
    - Both run before the existing `${VAR}` substitution step, so the fallback template is still rendered.
    - Delete the inline first-boot clone block near the end. The pointer step after it stays, and its "runs after the first-boot restore" comment stays true.
 4. Side fixes
-   - `modules/hermes/skills/expense-tracker/SKILL.md`: drop "~" from "warm, feminine, ~". The template bans the tilde for TTS.
+   - `modules/hermes/skills/expense-tracker/SKILL.md`: drop "~" from "warm, feminine, ~", and from the example line `3 tx updated~`. The template bans the tilde for TTS.
    - `modules/hermes/skills/image-gen/SKILL.md`: remove the bullet that loads the non-existent `selfie` skill (selfies are a later phase).
 
 ## Tests (CI runs them; `test.yml` already runs both scripts' tests)
@@ -58,6 +58,7 @@ New cases are added to the existing shell test files:
   - fresh volume restores `SOUL.md`, `persona/` and `topics/`;
   - existing volume is a no-op (a live `SOUL.md` is untouched);
   - clone failure writes the marker and exits 0;
+  - a failure after the clone (an unwritable target directory) leaves the marker set;
   - a retry with a marker keeps the live `MEMORY.md` under `pre-restore-*/memories/MEMORY.md`, then restores and clears the marker;
   - a `ghs_` token clones through an `x-access-token:` URL.
 - `modules/hermes/tests/test-memory-backup.sh`
@@ -67,7 +68,7 @@ New cases are added to the existing shell test files:
   - the restore call precedes the template seed line;
   - the inline clone block is gone.
 
-RED: the new cases fail on the base commit and pass at HEAD.
+RED control for the tests gate: `bash modules/hermes/tests/test-memory-restore.sh`. Its new case `fresh volume restores persona/` fails at base (the base script does not restore `persona/`) and passes at HEAD. Each shell test file prints `FAIL <label>` and exits non-zero on any failing case. The other two files' new cases are also RED at base, and CI runs all three through `test.yml`.
 
 ## Out of scope
 
