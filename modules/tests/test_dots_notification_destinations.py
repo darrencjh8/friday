@@ -41,6 +41,7 @@ def run_tick_seed(jobs):
 DOTS_CRON_JOBS = (
     "wiki-finance-refresh",
     "memory-compact",
+    "memory-mnemosyne-forget",
     "wiki-due-reminders",
     "wiki-repo-docs",
     "gtasks-clear-completed",

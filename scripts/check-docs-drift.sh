@@ -297,7 +297,7 @@ for name in sorted(found):
 PYEOF
 )
 n_jobs=$(printf '%s\n' "$jobs" | grep -c .)
-[ "$n_jobs" -eq 15 ] || fail "check 5: seed defines $n_jobs cron jobs, expected 15"
+[ "$n_jobs" -eq 16 ] || fail "check 5: seed defines $n_jobs cron jobs, expected 16"
 for doc in design.md SETUP.md; do
     case "$doc" in
         design.md) table=$(awk '/^### 6.4 Cron Jobs/,/^### 6.5/' "$doc") ;;

@@ -815,7 +815,8 @@ if not any(j.get("name") == "memory-backup" for j in jobs if isinstance(j, dict)
 fi
 
 # Seed memory-mnemosyne-vacuum cron job (no_agent script-only report + VACUUM).
-# Never deletes memories or sessions; session deletion stays owned by
+# Never deletes live memories or sessions (memory-mnemosyne-forget does that,
+# with an archive; this job only prunes that archive by age); session deletion stays owned by
 # sessions.auto_prune/retention_days. Scheduling fields are minted once and
 # left alone afterwards, so a dashboard change is not reverted on reboot.
 python3 <<'PYEOF' || true
@@ -864,6 +865,107 @@ else:
     for key in changed:
         existing[key] = MANAGED[key]
     print("cron: memory-mnemosyne-vacuum migrated: " + ", ".join(sorted(changed)) if changed else "cron: memory-mnemosyne-vacuum unchanged")
+
+directory = os.path.dirname(jobs_path)
+with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=False) as handle:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, handle, indent=2)
+    handle.flush()
+    os.fsync(handle.fileno())
+    temp_path = handle.name
+os.replace(temp_path, jobs_path)
+PYEOF
+
+# Seed memory-mnemosyne-forget cron job (weekly, before the vacuum). Mnemosyne's
+# sleep only compresses, so a corrected date or a passed reminder keeps coming
+# back. The gate lists stale candidates and skips the model when there are none
+# or nothing changed; the agent judges them and `mnemosyne_forget.py apply`
+# re-checks every entry in code, archives the full row, then deletes it.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime, tempfile
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path, encoding="utf-8") as handle:
+        data = json.load(handle)
+except FileNotFoundError:
+    data = {"jobs": []}
+except json.JSONDecodeError as error:
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+if not isinstance(data, dict) or not isinstance(data.get("jobs", []), list):
+    raise SystemExit("refusing to replace malformed cron jobs file")
+jobs = data.setdefault("jobs", [])
+
+PROMPT = """Forget stale Mnemosyne memories on this machine (HERMES_HOME=/opt/data).
+
+CONTEXT: Mnemosyne sleep only compresses, so a fact the owner corrected, a one-off reminder whose date has passed, or test noise keeps surfacing in recall. The pre-run gate wrote the stale-looking rows to /opt/data/tmp/mnemosyne-forget-candidates.json. Each candidate has id, table, hint (superseded, expired, noise or rejected_proposal), content, event_date, and for superseded the evidence: newer owner messages that read as corrections.
+
+SAFETY: never write to the Mnemosyne database yourself; all changes go through `mnemosyne_forget.py apply`, which re-checks every entry and refuses the whole plan if one is wrong. It copies each row in full to /opt/data/mnemosyne/archive/forgotten.jsonl (kept 30 days) before deleting it, and logs to /opt/data/logs/mnemosyne-forget-audit.jsonl. When in doubt, keep the row: a stale row costs less than a lost fact.
+
+STEPS
+1. Start clean: rm -f /opt/data/tmp/mnemosyne-forget-plan.json
+2. Read /opt/data/tmp/mnemosyne-forget-candidates.json. If it has no candidates, reply exactly [SILENT] so no message is sent.
+3. Judge each candidate on its content:
+   - superseded: forget only when an evidence message clearly corrects this row's fact (a different date, amount or status for the same thing). Use that message's id as evidence_id. Keep the row if the correction is about something else, or only partly overlaps.
+   - expired: forget only a one-off (a reminder, deadline or appointment) whose date has passed. Keep anything recurring or still useful.
+   - noise: forget test or probe messages.
+   - rejected_proposal: forget; the owner already rejected it.
+   Never forget an owner preference, standing rule or durable fact without a correction that replaces it.
+4. If nothing should be forgotten, reply exactly [SILENT].
+5. Write /opt/data/tmp/mnemosyne-forget-plan.json:
+   {"forget": [{"id": "...", "reason": "superseded", "evidence_id": "..."}, {"id": "...", "reason": "expired"}]}
+6. Validate: python3 /opt/data/scripts/mnemosyne_forget.py apply --plan /opt/data/tmp/mnemosyne-forget-plan.json --dry-run
+   If it is refused, drop or fix the refused entries; never argue past the check.
+7. Apply: python3 /opt/data/scripts/mnemosyne_forget.py apply --plan /opt/data/tmp/mnemosyne-forget-plan.json
+   Read the report: forgotten (id, table, reason, evidence_id) and kept_summaries (summaries that also cover kept facts, left in place).
+8. Reply for Dots as Markdown. No code blocks, no raw JSON:
+
+🧠 *Mnemosyne forget · <YYYY-MM-DD>*
+
+| Reason | Forgotten |
+|---|---|
+| <reason> | <n> |
+
+- <one short line per forgotten memory: what it said and why it went>
+
+Kept summaries: <n> (still mention a forgotten fact; listed for review)
+Archive: /opt/data/mnemosyne/archive/forgotten.jsonl (30 days)
+
+FAILURE: when a required step failed (a tool or script error, a refused plan you could not fix, a failed, partial or blocked stage), make the first line of your reply exactly [CRON_FAILURE], then report what failed; any other line these instructions ask for comes after it. Never reply [SILENT] after a failed step."""
+
+MANAGED = {
+    "prompt": PROMPT,
+    "script": "mnemosyne-forget-gate.py",
+    "skills": [],
+    "skill": None,
+    "attach_to_session": True,
+}
+DEFAULTS = {
+    "schedule": {"kind": "cron", "expr": "30 2 * * 0", "display": "30 2 * * 0"},
+    "schedule_display": "30 2 * * 0",
+    "enabled": True,
+    "deliver": "dots",
+    "next_run_at": None,
+}
+
+existing = next(
+    (j for j in jobs if isinstance(j, dict) and j.get("name") == "memory-mnemosyne-forget"),
+    None,
+)
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "memory-mnemosyne-forget",
+        "context_from": ["self"],
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **DEFAULTS,
+        **MANAGED,
+    })
+    print("cron: memory-mnemosyne-forget seeded (weekly)")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    print("cron: memory-mnemosyne-forget migrated: " + ", ".join(sorted(changed)) if changed else "cron: memory-mnemosyne-forget unchanged")
 
 directory = os.path.dirname(jobs_path)
 with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=directory, delete=False) as handle:

@@ -47,6 +47,19 @@ class MemoryCronNotifyTest(unittest.TestCase):
         self.assertNotIn("fullest", prompt)
         self.assertIn("compact-plan-user.json", prompt)
 
+    def test_forget_runs_gated_before_the_weekly_vacuum(self):
+        job = seed("memory-mnemosyne-forget", [])
+        vacuum = seed("memory-mnemosyne-vacuum", [])
+        self.assertEqual((job["schedule"]["expr"], vacuum["schedule"]["expr"]), ("30 2 * * 0", "0 3 * * 0"))
+        self.assertEqual(job["script"], "mnemosyne-forget-gate.py")
+        self.assertIn("--dry-run", job["prompt"])
+
+    def test_forget_migration_keeps_schedule_and_enabled(self):
+        job = seed("memory-mnemosyne-forget", [{"id": "x", "name": "memory-mnemosyne-forget", "prompt": "old",
+                                                "enabled": False, "schedule": {"kind": "cron", "expr": "0 1 * * 0"}}])
+        self.assertEqual((job["enabled"], job["schedule"]["expr"]), (False, "0 1 * * 0"))
+        self.assertTrue(job["prompt"].startswith("Forget stale Mnemosyne memories"))
+
 
 if __name__ == "__main__":
     unittest.main()

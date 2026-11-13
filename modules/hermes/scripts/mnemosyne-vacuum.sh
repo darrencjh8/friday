@@ -6,8 +6,11 @@
 #    of every session. Auto-sleep only consolidates a session holding more than
 #    sleep_threshold rows, so short sessions are never consolidated otherwise.
 # 3. SQLite VACUUM of the Mnemosyne DB and the Hermes session DBs.
+# 4. `mnemosyne_forget.py prune`: hard-deletes forget-archive entries older than
+#    30 days and forget-audit entries older than a year.
 #
-# Never deletes memories or sessions; session deletion stays owned by
+# Never deletes live memories or sessions (the memory-mnemosyne-forget job runs
+# before this one and archives what it forgets); session deletion stays owned by
 # sessions.auto_prune/retention_days, and sessions older than 30 days are only
 # counted. The image ships no sqlite3 CLI, so all DB work goes through Python's
 # sqlite3 module. A VACUUM that cannot get the lock within the busy timeout is a
@@ -27,6 +30,9 @@ if [ -f "$MNEMOSYNE_DIR/mnemosyne.db" ]; then
     SLEEP_JSON=$("$HERMES_BIN" mnemosyne sleep --all-sessions 2>/dev/null)
     SLEEP_RC=$?
 fi
+
+export PRUNE_JSON PRUNE_RC=0
+PRUNE_JSON=$(python3 "$(dirname "$0")/mnemosyne_forget.py" prune 2>&1) || PRUNE_RC=$?
 
 exec python3 - <<'PY'
 import glob, json, os, sqlite3, sys, time
@@ -106,6 +112,16 @@ for db in [os.path.join(home, "state.db")] + sorted(glob.glob(os.path.join(home,
         old = "?"
     rows.append((f"{name} sessions >{max_age}d", f"{old} (report only)"))
     rows.append((name, vacuum(db)))
+
+try:
+    pruned = json.loads(os.environ.get("PRUNE_JSON") or "")
+except ValueError:
+    pruned = None
+if os.environ.get("PRUNE_RC") != "0" or not isinstance(pruned, dict):
+    rows.append(("forget archive prune", "failed"))
+    failed = True
+else:
+    rows.append(("forget archive prune", f"{pruned['archive_pruned']} archive, {pruned['audit_pruned']} audit entries"))
 
 print("🧹 Mnemosyne weekly maintenance")
 print()

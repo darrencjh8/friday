@@ -359,6 +359,7 @@ graph TB
 | finance-portfolio-sync | `0 12 * * *` (daily noon, container time) | `portfolio-sync.sh` — REST `POST /tools/pp-sync-all` (no_agent, zero tokens) |
 | ops-github-token-refresh | every 15m | `github-auth.sh` — App-first `gh` auth (no_agent, zero tokens) |
 | memory-backup | every 360m | Backup Hermes memories to private repo |
+| memory-mnemosyne-forget | `30 2 * * 0` (Sun 02:30) | Forget superseded, expired and noise Mnemosyne rows (archived 30 days) |
 | memory-mnemosyne-vacuum | `0 3 * * 0` | Mnemosyne VACUUM report (no_agent) |
 | ops-log-issues | `30 18 * * *` (daily 18:30) | Daily log issue triage; artifact-only workdir |
 | memory-approve-queue | `0 8 * * *` (daily 08:00) | Drain the memory write-approval queue |

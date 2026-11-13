@@ -90,13 +90,41 @@ failed host call falls back to `aaak` encoding, never a model download.
 `memory.mnemosyne.ignore_patterns` keeps push alerts and cron reply echoes
 out of working memory. `dream_active` is not read by 3.15.1.
 
-## Vacuum (weekly, never deletes)
+## Forget (weekly, archived)
+
+Sleep only compresses, so a corrected date or a passed one-off kept
+resurfacing. `memory-mnemosyne-forget` runs Sundays `30 2 * * 0`, before the
+vacuum, delivering to Dots. Its gate `scripts/mnemosyne-forget-gate.py` writes
+`/opt/data/tmp/mnemosyne-forget-candidates.json` and wakes the agent only when
+the candidate set changed. The agent writes a plan and runs
+`scripts/mnemosyne_forget.py apply --plan FILE [--dry-run]`, which re-checks
+each entry in code and refuses the whole plan on one bad entry:
+
+- `superseded`: needs `evidence_id` of a newer `[USER]` message that reads as a
+  correction and shares the subject. Without one, an owner fact is never dropped.
+- `expired`: a one-off (reminder, deadline) with a past `event_date`, not recurring.
+- `noise`: memory probes. `rejected_proposal`: rejected sleep model-refresh proposals.
+
+Apply copies each full row to `mnemosyne/archive/forgotten.jsonl`, then
+deletes it with its vectors, embeddings, annotations, gists, facts and any
+episodic summary of that row alone. A summary that also covers kept rows stays
+and is listed as `kept_summaries`. Audit lines (id, reason, evidence id, content
+hash, no content) go to `logs/mnemosyne-forget-audit.jsonl`. It needs
+sqlite-vec, so it re-runs itself under the plugin venv Python, and refuses
+when vector tables exist but sqlite-vec cannot load. No restore command: to
+bring a row back within 30 days, read it from the archive and re-add it from a
+chat session.
+
+## Vacuum (weekly, never deletes live memories)
 
 `memory-mnemosyne-vacuum` cron runs Sundays `0 3 * * 0`, `no_agent`, `deliver: local`:
 `scripts/mnemosyne-vacuum.sh` prints integrity, working/episodic counts,
 size before/after plus `VACUUM`, then per `state.db` (main plus profiles)
-counts sessions older than 30 days (`SESSION_MAX_AGE_DAYS`) plus `VACUUM`.
-Report only. Session deletion stays owned by
+counts sessions older than 30 days (`SESSION_MAX_AGE_DAYS`) plus `VACUUM`,
+then `mnemosyne_forget.py prune` hard-deletes forget-archive entries older
+than 30 days (`MNEMOSYNE_FORGET_ARCHIVE_DAYS`) and audit entries older than a
+year (`MNEMOSYNE_FORGET_AUDIT_DAYS`).
+Report only otherwise. Session deletion stays owned by
 `sessions.auto_prune`/`retention_days` (currently 60); tighten to 30 only by
 explicit config change once the 30-day counts show a need.
 
