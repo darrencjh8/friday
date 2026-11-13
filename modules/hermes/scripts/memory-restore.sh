@@ -3,7 +3,8 @@
 # The live volume is the only writer: on an existing volume (memories/MEMORY.md
 # present) this does nothing, so it can never overwrite an edit the 6-hourly
 # memory-backup has not pushed yet. A failed restore leaves a marker that blocks
-# memory-backup and makes the next boot retry.
+# memory-backup and makes the next boot retry. expense-tracker data is not
+# restored: hermes sees it on a read-only mount owned by that service.
 set -e
 
 # ponytail: same single-root trick as memory-backup.sh — tests point the whole
@@ -22,12 +23,11 @@ log() { echo "[memory-restore] $*" >&2; }
 
 # Fail closed: set before anything else, cleared only on the last line, so any
 # exit in between (set -e included) leaves it.
-mkdir -p "$DATA_DIR"
 touch "$MARKER"
 
 # Auth: the stored gh App credential only. The long-lived PAT is not delivered
 # to this script (it is scoped to the codex-router checkout refresh), so there is
-# no PAT fallback here; with no usable credential the restore is skipped.
+# no PAT fallback here; with no usable credential the restore fails and retries.
 if AUTH_TOKEN=$(gh auth token 2>/dev/null); then
     :
 elif [ -n "${GITHUB_TOKEN:-}" ]; then
@@ -96,18 +96,6 @@ if [ -f "$TMP_DIR/mnemosyne/mnemosyne.db" ]; then
     mkdir -p "$MNEMOSYNE_DIR"
     cp "$TMP_DIR/mnemosyne/mnemosyne.db" "$MNEMOSYNE_DIR/" 2>/dev/null || true
     log "restored mnemosyne.db"
-fi
-
-# Restore expense tracker data
-EXPENSE_DIR="${EXPENSE_TRACKER_DATA:-}"
-if [ -n "$EXPENSE_DIR" ]; then
-    mkdir -p "$EXPENSE_DIR"
-    for f in MEMORY.md mappings.json; do
-        if [ -f "$TMP_DIR/expense-tracker/$f" ]; then
-            cp "$TMP_DIR/expense-tracker/$f" "$EXPENSE_DIR/"
-            log "restored expense-tracker/$f"
-        fi
-    done
 fi
 
 # Restore kanban
