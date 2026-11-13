@@ -162,6 +162,7 @@ Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--
 | `wiki-repo-docs` | `30 3 * * 1` (Mondays 03:30) | Wiki repo docs refresh |
 | `wiki-finance-refresh` | `0 4 * * 1` (Mondays 04:00) | Wiki finance refresh |
 | `memory-compact` | `30 7 * * *` (daily 07:30) | Daily merge of duplicate MEMORY.md / USER.md entries under their caps |
+| `memory-mnemosyne-forget` | `30 2 * * 0` (Sun 02:30) | Forget superseded, expired and noise Mnemosyne rows (archived 30 days) |
 | `memory-mnemosyne-vacuum` | `0 3 * * 0` | Mnemosyne VACUUM report (no_agent) |
 | `skills-merge-proposals` | `15 4 * * 0` (every sunday 4:15am) | Skill merge proposals (no_agent) |
 | `gtasks-clear-completed` | `0 7 1 * *` (1st of the month 07:00) | Clear completed Google Tasks (no_agent) |

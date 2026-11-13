@@ -69,6 +69,21 @@ grep -qx "mnemosyne sleep --all-sessions" "$TMPDIR/home/calls" && ok "consolidat
     || nope "sleep call" "$(cat "$TMPDIR/home/calls" 2>/dev/null)"
 echo "$out" | grep -qiE "delete|drop table" && nope "never deletes" "destructive word" || ok "never deletes"
 
+echo "=== forget archive prune ==="
+make_home "$TMPDIR/prune"
+mkdir -p "$TMPDIR/prune/mnemosyne/archive"
+python3 - "$TMPDIR/prune/mnemosyne/archive/forgotten.jsonl" <<'PY'
+import datetime, json, sys
+now = datetime.datetime.now()
+with open(sys.argv[1], "w") as handle:
+    for days in (31, 0):
+        handle.write(json.dumps({"forgotten_at": (now - datetime.timedelta(days=days)).isoformat()}) + "\n")
+PY
+out=$(run "$TMPDIR/prune") && ok "prune exit 0" || nope "prune exit" "$out"
+echo "$out" | grep -qE '^\| forget archive prune +\| 1 archive, 0 audit' && ok "old archive entry pruned" || nope "prune row" "$out"
+[ "$(wc -l < "$TMPDIR/prune/mnemosyne/archive/forgotten.jsonl")" -eq 1 ] && ok "recent archive entry kept" \
+    || nope "archive kept" "$(cat "$TMPDIR/prune/mnemosyne/archive/forgotten.jsonl")"
+
 echo "=== sleep failure ==="
 make_home "$TMPDIR/sleepfail"
 if out=$(run "$TMPDIR/sleepfail" HERMES_SLEEP_FAIL=1); then nope "sleep failure exits non-zero" "exit 0"; else ok "sleep failure exits non-zero"; fi

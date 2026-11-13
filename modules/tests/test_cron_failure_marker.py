@@ -14,6 +14,7 @@ SEED = Path(__file__).parents[1] / "hermes" / "50-seed-defaults"
 AGENT_PROMPTS = {
     "ops-log-issues": 'LOG_ISSUE_TRIAGE_PROMPT = """Review sanitized log evidence',
     "memory-compact": 'PROMPT = """Compact the always-loaded Hermes memory',
+    "memory-mnemosyne-forget": 'PROMPT = """Forget stale Mnemosyne memories',
     "memory-approve-queue": 'PROMPT = """Triage the Hermes memory write-approval queue',
     "wiki-finance-refresh": 'PROMPT = """Maintain the private wiki using its SCHEMA.md',
     "wiki-repo-docs": 'PROMPT = """Refresh the repository side of the private wiki',
