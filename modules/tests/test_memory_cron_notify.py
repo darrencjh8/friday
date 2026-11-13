@@ -54,6 +54,11 @@ class MemoryCronNotifyTest(unittest.TestCase):
         self.assertEqual(job["script"], "mnemosyne-forget-gate.py")
         self.assertIn("--dry-run", job["prompt"])
 
+    def test_forget_reports_apply_warnings(self):
+        prompt = seed("memory-mnemosyne-forget", [])["prompt"]
+        self.assertIn("warnings", prompt)
+        self.assertIn("Warnings:", prompt)
+
     def test_forget_migration_keeps_schedule_and_enabled(self):
         job = seed("memory-mnemosyne-forget", [{"id": "x", "name": "memory-mnemosyne-forget", "prompt": "old",
                                                 "enabled": False, "schedule": {"kind": "cron", "expr": "0 1 * * 0"}}])
