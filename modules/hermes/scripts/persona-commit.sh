@@ -38,7 +38,7 @@ AUTH_TOKEN=$(gh auth token 2>/dev/null) || AUTH_TOKEN=${GITHUB_TOKEN:-}
 export AUTH_TOKEN
 # shellcheck disable=SC2016  # git expands $AUTH_TOKEN when it runs the helper
 HELPER='!f() { printf "username=x-access-token\npassword=%s\n" "$AUTH_TOKEN"; }; f'
-g() { timeout 120 git -c "credential.helper=$HELPER" -c user.name="Friday (Hermes)" -c user.email="friday-hermes@users.noreply.github.com" "$@"; }
+g() { timeout 120 git -c "credential.helper=$HELPER" -c user.name="Friday (Hermes)" -c user.email="friday-hermes@localhost" "$@"; }
 
 stamp=$(date -u +%Y%m%d-%H%M%S)
 base=$(git rev-parse HEAD)
