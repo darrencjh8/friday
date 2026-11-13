@@ -679,6 +679,12 @@ else
         || echo "WARNING: could not advance the codex-router checkout in /workspace" >&2
 fi
 
+# Pull the shared persona repo into /workspace/friday-persona and copy its SOUL.md
+# into the live SOUL.md between the friday-persona markers (persona-sync.sh). Runs
+# after the restore and the template seed, so it edits the SOUL.md that will load.
+su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/persona-sync.sh' \
+    || echo "WARNING: persona sync failed; SOUL.md keeps its last persona block" >&2
+
 python3 -c '
 import os, re, glob
 paths = ["/opt/data/config.yaml", "/opt/data/SOUL.md"]
@@ -823,6 +829,39 @@ if not any(j.get("name") == "memory-backup" for j in jobs if isinstance(j, dict)
     print("cron: memory-backup seeded")
 ' || true
 fi
+
+# Seed persona-sync cron job (no_agent, idempotent — skips if already present).
+python3 -c '
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+if not any(j.get("name") == "persona-sync" for j in jobs if isinstance(j, dict)):
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "persona-sync",
+        "schedule": {"kind": "interval", "minutes": 360, "display": "every 360m"},
+        "schedule_display": "every 360m",
+        "prompt": "Run /opt/data/scripts/persona-sync.sh to pull the shared persona repo",
+        "script": "persona-sync.sh",
+        "no_agent": True,
+        "enabled": True,
+        "deliver": "local",
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+    })
+    with open(jobs_path + ".tmp", "w") as f:
+        json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+    os.replace(jobs_path + ".tmp", jobs_path)
+    print("cron: persona-sync seeded")
+' || true
 
 # Seed memory-mnemosyne-vacuum cron job (no_agent script-only report + VACUUM).
 # Never deletes memories or sessions; session deletion stays owned by
