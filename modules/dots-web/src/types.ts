@@ -8,8 +8,8 @@
 export type SpeciesId = "galet" | "nuage" | "pave" | "nova";
 export type PaletteId = "tangerine" | "bubblegum" | "sky" | "lime" | "sun" | "grape";
 export type AccessoryId = "winged_cap" | "none";
-/** Choix du logo du lanceur sur le téléphone (friday #211) : "default" ou un portrait de Friday. */
-export type LauncherIconId = "default" | "blue" | "lavender" | "teal" | "pink" | "peach" | "white" | "office";
+/** Choix du logo du lanceur sur le téléphone (hermes-dots #136, friday #231) : "default", "night" ou "day". */
+export type LauncherIconId = "default" | "night" | "day";
 
 export interface WebAgent {
   /** Adresse WebSocket du gateway, `wss://…/dots/ws`. */

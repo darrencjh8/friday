@@ -101,7 +101,7 @@ export async function decryptDeposit(deposit: unknown, privateKey: CryptoKey, id
 const SPECIES: SpeciesId[] = ["galet", "nuage", "pave", "nova"];
 const PALETTES: PaletteId[] = ["tangerine", "bubblegum", "sky", "lime", "sun", "grape"];
 const ACCESSORIES: AccessoryId[] = ["winged_cap", "none"];
-const LAUNCHER_ICONS: LauncherIconId[] = ["default", "blue", "lavender", "teal", "pink", "peach", "white", "office"];
+const LAUNCHER_ICONS: LauncherIconId[] = ["default", "night", "day"];
 const MAX_AGENTS = 32;
 const MAX_NAME = 24;
 
