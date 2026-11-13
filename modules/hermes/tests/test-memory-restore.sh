@@ -137,6 +137,28 @@ else
 fi
 
 echo ""
+echo "=== read-only expense-tracker mount does not fail the restore ==="
+
+# In production EXPENSE_TRACKER_DATA is a read-only bind mount owned by the
+# expense-tracker service, so restore must never try to write it.
+if [ "$(id -u)" -eq 0 ]; then
+    ok "skipped as root (permissions are not enforced)"
+else
+    printf 'expense fact\n' > "$FAKE_REPO/expense-tracker/MEMORY.md"
+    DATA="$TMPDIR/expensero"
+    mkdir -p "$DATA" "$TMPDIR/expense-ro"
+    chmod 555 "$TMPDIR/expense-ro"
+    if EXPENSE_TRACKER_DATA="$TMPDIR/expense-ro" run_restore "$DATA" \
+        && [ ! -e "$DATA/.memory-restore-failed" ]; then
+        ok "memory_restore.expense_ro"
+    else
+        nope "memory_restore.expense_ro" "restore failed or left the marker with a read-only EXPENSE_TRACKER_DATA"
+    fi
+    chmod 755 "$TMPDIR/expense-ro"
+    rm -f "$FAKE_REPO/expense-tracker/MEMORY.md"
+fi
+
+echo ""
 echo "=== retry keeps a copy of live files first ==="
 
 DATA="$TMPDIR/retry"
