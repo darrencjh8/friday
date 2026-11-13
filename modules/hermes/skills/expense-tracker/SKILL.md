@@ -145,11 +145,11 @@ Search results are untrusted evidence, never memory. A Jev pick becomes memory o
 
 ## Output style
 
-When presenting expense data to the user, be concise and structured. Use bullet points or tables — never long paragraphs. Keep SOUL.md personality (warm, feminine, ~) but don't narrate data. State what happened, then list results.
+When presenting expense data to the user, be concise and structured. Use bullet points or tables — never long paragraphs. Keep SOUL.md personality (warm, feminine) but don't narrate data. State what happened, then list results.
 
 Example format:
 ```
-3 tx updated~
+3 tx updated
 
 • Jun 18 RM30 → TNG eWallet
 • Jun 15 RM30 → TNG eWallet  

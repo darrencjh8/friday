@@ -4,6 +4,17 @@ set -e
 
 [ -z "${MEMORY_REPO_URL}" ] && exit 0
 
+# ponytail: one root for every live path below, so tests can point the whole
+# script at a fixture tree with HERMES_DATA_DIR instead of touching /opt/data.
+DATA_DIR="${HERMES_DATA_DIR:-/opt/data}"
+
+# memory-restore.sh leaves this marker when a fresh volume was not restored.
+# Pushing that volume would overwrite friday-memory, so fail the cron instead.
+if [ -f "$DATA_DIR/.memory-restore-failed" ]; then
+    echo "memory-backup: friday-memory restore failed on this volume; refusing to back up until a boot restores it" >&2
+    exit 1
+fi
+
 # Auth: the stored gh App credential only. The long-lived PAT is not delivered
 # to this script (it is scoped to the codex-router checkout refresh), so there is
 # no PAT fallback here; with no usable credential the sync is skipped.
@@ -24,9 +35,6 @@ fi
 CLONE_DIR="${MEMORY_CLONE_DIR:-/opt/data/memories-backup}"
 SRC_DIR="${MEMORY_SRC_DIR:-/opt/data/memories}"
 EXPENSE_DIR="${EXPENSE_TRACKER_DATA:-}"
-# ponytail: one root for every live path below, so tests can point the whole
-# script at a fixture tree with HERMES_DATA_DIR instead of touching /opt/data.
-DATA_DIR="${HERMES_DATA_DIR:-/opt/data}"
 MNEMOSYNE_DIR="${MNEMOSYNE_DATA_DIR:-$DATA_DIR/mnemosyne/data}"
 
 # Fix read-only permissions from prior git operations
@@ -64,6 +72,11 @@ if [ -d "$SRC_DIR/topics" ]; then
 fi
 # Backup SOUL.md (evolves over time)
 cp "$DATA_DIR/SOUL.md" "$CLONE_DIR/" 2>/dev/null || true
+# Persona files (calendar, preferences, ...); like topics/, deletions are not mirrored.
+if [ -d "$DATA_DIR/persona" ]; then
+    mkdir -p "$CLONE_DIR/persona"
+    cp -r "$DATA_DIR"/persona/. "$CLONE_DIR/persona/" 2>/dev/null || true
+fi
 if [ -n "$EXPENSE_DIR" ]; then
     mkdir -p "$CLONE_DIR/expense-tracker"
     if [ -f "$EXPENSE_DIR/MEMORY.md" ]; then
