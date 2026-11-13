@@ -72,11 +72,6 @@ if [ -d "$SRC_DIR/topics" ]; then
 fi
 # Backup SOUL.md (evolves over time)
 cp "$DATA_DIR/SOUL.md" "$CLONE_DIR/" 2>/dev/null || true
-# Persona files (calendar, preferences, ...); like topics/, deletions are not mirrored.
-if [ -d "$DATA_DIR/persona" ]; then
-    mkdir -p "$CLONE_DIR/persona"
-    cp -r "$DATA_DIR"/persona/. "$CLONE_DIR/persona/" 2>/dev/null || true
-fi
 if [ -n "$EXPENSE_DIR" ]; then
     mkdir -p "$CLONE_DIR/expense-tracker"
     if [ -f "$EXPENSE_DIR/MEMORY.md" ]; then

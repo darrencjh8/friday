@@ -30,8 +30,7 @@ printf 'arch soul\n' > "$FAKE_REPO/profiles/architect/SOUL.md"
 printf 'api_key: test\n' > "$FAKE_REPO/profiles/architect/config.yaml"
 printf 'desc\n' > "$FAKE_REPO/profiles/architect/profile.yaml"
 printf 'default\n' > "$FAKE_REPO/profiles/_active"
-mkdir -p "$FAKE_REPO/persona" "$FAKE_REPO/topics"
-printf 'calendar entry\n' > "$FAKE_REPO/persona/calendar.md"
+mkdir -p "$FAKE_REPO/topics"
 printf 'topic fact\n' > "$FAKE_REPO/topics/accounts.md"
 
 # Stubs: gh prints $GH_STUB_TOKEN; git clone logs its URL and copies the fake
@@ -77,8 +76,6 @@ grep -q "core fact" "$DATA/memories/MEMORY.md" 2>/dev/null && ok "MEMORY.md rest
     || nope "fresh volume restores MEMORY.md" "missing"
 grep -q "soul" "$DATA/SOUL.md" 2>/dev/null && ok "SOUL.md restored to the live path" \
     || nope "fresh volume restores SOUL.md" "missing from $DATA/SOUL.md"
-grep -q "calendar entry" "$DATA/persona/calendar.md" 2>/dev/null && ok "fresh volume restores persona/" \
-    || nope "fresh volume restores persona/" "persona/calendar.md missing"
 grep -q "topic fact" "$DATA/memories/topics/accounts.md" 2>/dev/null && ok "fresh volume restores topics/" \
     || nope "fresh volume restores topics/" "memories/topics/accounts.md missing"
 [ -f "$DATA/home/wiki/entities/accounts/banks-cards.md" ] && ok "wiki restored" \
@@ -108,8 +105,8 @@ run_restore "$DATA" && ok "existing-volume restore exits 0" || nope "existing ex
 grep -q "live core" "$DATA/memories/MEMORY.md" && grep -q "live soul" "$DATA/SOUL.md" \
     && ok "existing volume keeps live MEMORY.md and SOUL.md" \
     || nope "existing volume no-op" "live file overwritten"
-[ ! -e "$TMPDIR/clone-url" ] && [ ! -e "$DATA/persona" ] && ok "existing volume does not clone" \
-    || nope "existing volume no-op" "restore cloned or wrote persona/"
+[ ! -e "$TMPDIR/clone-url" ] && ok "existing volume does not clone" \
+    || nope "existing volume no-op" "restore cloned"
 
 echo ""
 echo "=== clone failure leaves the marker ==="

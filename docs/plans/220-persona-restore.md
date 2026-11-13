@@ -1,11 +1,11 @@
 QUESTIONS
 q: Where does the persona live, friday-memory or env vars? | a: friday-memory is the source of truth; the env-var SOUL.md.template is only the fresh-volume fallback (owner decision D1 on #220).
-q: Where do her calendar and preferences live? | a: friday-memory under persona/ (persona/calendar.md, persona/preferences.md), separate from the owner's own calendar, tasks and notify preferences (owner decision D2 on #220).
+q: Where do her calendar and preferences live? | a: Not in friday-memory. friday-memory holds sensitive data, so the owner moved the shared persona files (calendar, preferences) to a separate private persona repo that every Friday agent reads; syncing it into Hermes is a separate issue. This change does not touch persona/ (owner decision on #220, revising D2).
 q: Separate IDENTITY.md or fold identity into SOUL.md? | a: Fold into SOUL.md. Hermes only loads $HERMES_HOME/SOUL.md (agent/context_file_sources.py), never IDENTITY.md (owner decision on #220).
 q: How are conflicts between the live volume and friday-memory resolved? | a: Single writer, live volume wins. Restore runs only on a fresh volume or as a retry after a failed restore; a retry first keeps a pre-restore copy. Rollback-to-old-snapshot and a direct or second writer are accepted risks, recoverable from friday-memory git history (owner decision on #220).
 q: Who writes the persona text? | a: Not this change. The Muse-side agent drafts it, the owner approves, and it is written to the live volume through Hermes after this ships. No persona text in this public repo.
 
-# Plan: restore persona files from friday-memory on a fresh volume (#220 Phase 1-2, code side)
+# Plan: restore SOUL.md and memory from friday-memory on a fresh volume (#220 Phase 1-2, code side)
 
 Phase 0 audit: #219.
 
@@ -19,7 +19,6 @@ Phase 0 audit: #219.
 - `SOUL.md.template` is seeded early in `50-seed-defaults`, before any restore. On a fresh volume the live `SOUL.md` is always the env template, and the next `memory-backup` pushes that template over the real `SOUL.md` in friday-memory.
 - `memory-restore.sh` builds `https://<token>@...` for every token. A GitHub App token (`ghs_`) needs `x-access-token:<token>@`, as `memory-backup.sh` already does.
 - `memory-backup.sh` backs up `memories/topics/` but restore never restores it.
-- Persona files beyond `SOUL.md` (calendar, preferences, later an evolution log) have no home in backup or restore.
 
 ## Design
 
@@ -34,11 +33,10 @@ One writer: the live volume. friday-memory is its copy.
    - Exit 0 early unless `$SRC_DIR/MEMORY.md` is missing or `$DATA_DIR/.memory-restore-failed` exists. The whole script becomes the first-boot restore, so the inner `$FIRST_BOOT` guard on `MEMORY.md`/`USER.md` goes away.
    - Fail closed. On entry to the fresh-or-retry path, `touch` the marker before anything else, and `rm -f` it only as the very last line. Any failure (no token, clone failure, or a `set -e` exit from a later `cp`/`mkdir`) leaves the marker set. No auth token or clone failure: log and exit 0, so boot never blocks. Remember whether the marker existed before the `touch`; that is what tells a retry apart from a first boot for the keep-copy below.
    - Always build the URL as `https://x-access-token:${AUTH_TOKEN}@...`. GitHub accepts any username with a PAT, so one line covers both App (`ghs_`) and PAT tokens.
-   - Retry only (marker present at start): before copying, copy each live path that exists into `$DATA_DIR/pre-restore-<UTC timestamp>/`, keeping its relative path: `memories/MEMORY.md`, `memories/USER.md`, `SOUL.md`, `memories/topics/`, `persona/`. Log the directory.
-   - Restore `persona/` to `$DATA_DIR/persona/` and `topics/` to `$SRC_DIR/topics/`.
+   - Retry only (marker present at start): before copying, copy each live path that exists into `$DATA_DIR/pre-restore-<UTC timestamp>/`, keeping its relative path: `memories/MEMORY.md`, `memories/USER.md`, `SOUL.md`, `memories/topics/`. Log the directory.
+   - Restore `topics/` to `$SRC_DIR/topics/`.
 2. `modules/hermes/scripts/memory-backup.sh`
    - At the top, after the `MEMORY_REPO_URL` check: if `$DATA_DIR/.memory-restore-failed` exists, print the reason to stderr and `exit 1`. The cron then reports a failure.
-   - Copy `$DATA_DIR/persona/.` into the clone's `persona/`, mirroring the `topics/` block. Deletions are not mirrored, the same as `topics/` today.
 3. `modules/hermes/50-seed-defaults`
    - Remove the early `[ ! -f /opt/data/SOUL.md ] && cp ... SOUL.md.template` line.
    - Directly after the `github-auth.sh` block, add:
@@ -55,24 +53,23 @@ One writer: the live volume. friday-memory is its copy.
 
 New cases are added to the existing shell test files:
 - `modules/hermes/tests/test-memory-restore.sh`
-  - fresh volume restores `SOUL.md`, `persona/` and `topics/`;
+  - fresh volume restores `SOUL.md` and `topics/`;
   - existing volume is a no-op (a live `SOUL.md` is untouched);
   - clone failure writes the marker and exits 0;
   - a failure after the clone (an unwritable target directory) leaves the marker set;
   - a retry with a marker keeps the live `MEMORY.md` under `pre-restore-*/memories/MEMORY.md`, then restores and clears the marker;
   - a `ghs_` token clones through an `x-access-token:` URL.
 - `modules/hermes/tests/test-memory-backup.sh`
-  - `persona/` is backed up;
   - the marker makes the script exit non-zero without committing.
 - `modules/hermes/tests/test-50-seed-defaults.sh`
   - the restore call precedes the template seed line;
   - the inline clone block is gone.
 
-RED control for the tests gate: `bash modules/hermes/tests/test-memory-restore.sh`. Its new case `fresh volume restores persona/` fails at base (the base script does not restore `persona/`) and passes at HEAD. Each shell test file prints `FAIL <label>` and exits non-zero on any failing case. The other two files' new cases are also RED at base, and CI runs all three through `test.yml`.
+RED control for the tests gate: `bash modules/hermes/tests/test-memory-restore.sh`. Its new case `fresh volume restores topics/` fails at base (the base script does not restore `topics/`) and passes at HEAD. Each shell test file prints `FAIL <label>` and exits non-zero on any failing case. The other two files' new cases are also RED at base, and CI runs all three through `test.yml`.
 
 ## Out of scope
 
-- A `persona` skill: `SOUL.md` will say where her files are, and the existing file tools read them.
+- Persona files (calendar, preferences): they live in the separate persona repo, and syncing it into Hermes is its own issue.
 - `cron/jobs.json` restore, a drift check against the Muse-side backup, and any persona text.
 
 ## Risks

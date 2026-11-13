@@ -48,7 +48,7 @@ git clone -q "$REPO_URL" "$TMP_DIR" 2>/dev/null || { log "clone failed — will 
 # A retry overwrites whatever she built on the unrestored volume, so keep it.
 if $RETRY; then
     KEEP_DIR="$DATA_DIR/pre-restore-$(date -u +%Y%m%dT%H%M%SZ)"
-    for p in memories/MEMORY.md memories/USER.md SOUL.md memories/topics persona; do
+    for p in memories/MEMORY.md memories/USER.md SOUL.md memories/topics; do
         [ -e "$DATA_DIR/$p" ] || continue
         mkdir -p "$KEEP_DIR/$(dirname "$p")"
         cp -r "$DATA_DIR/$p" "$KEEP_DIR/$p"
@@ -69,13 +69,6 @@ if [ -d "$TMP_DIR/topics" ]; then
     mkdir -p "$SRC_DIR/topics"
     cp -r "$TMP_DIR"/topics/. "$SRC_DIR/topics/"
     log "restored topics"
-fi
-
-# Persona files (calendar, preferences, ...) beyond SOUL.md
-if [ -d "$TMP_DIR/persona" ]; then
-    mkdir -p "$DATA_DIR/persona"
-    cp -r "$TMP_DIR"/persona/. "$DATA_DIR/persona/"
-    log "restored persona"
 fi
 
 # Restore SOUL.md if backed up
