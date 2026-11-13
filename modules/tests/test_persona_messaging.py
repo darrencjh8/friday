@@ -33,6 +33,15 @@ def at_hour(hour):
 class TestPersonaSlot(unittest.TestCase):
     today = datetime.date(2026, 11, 14)
 
+    def setUp(self):
+        patcher = mock.patch.object(tick, "PERSONA_SOUL", __file__)  # any existing file
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_no_slot_without_the_persona_clone(self):
+        with at_hour(21), mock.patch.object(tick, "PERSONA_SOUL", "/nonexistent/SOUL.md"):
+            self.assertEqual(tick.persona_source(self.today, {}, {}), [])
+
     def test_no_slot_before_the_evening(self):
         with at_hour(tick.PERSONA_HOUR - 1):
             self.assertEqual(tick.persona_source(self.today, {}, {}), [])

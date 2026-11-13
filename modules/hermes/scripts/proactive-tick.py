@@ -241,6 +241,7 @@ def tasks_source(today, seen, cursors):
 
 
 PERSONA_HOUR = 18
+PERSONA_SOUL = os.path.join(os.environ.get("PERSONA_DIR", "/workspace/friday-persona"), "SOUL.md")
 
 
 def persona_source(today, seen, cursors):
@@ -248,9 +249,10 @@ def persona_source(today, seen, cursors):
 
     The slot is recorded as seen once offered, so she can send at most one
     self-initiated non-urgent message a day; the prompt decides whether there is
-    a real reason to use it."""
+    a real reason to use it. No persona repo clone, no slot."""
     key = "persona:slot"
-    if seen.get(key) == today.isoformat() or datetime.datetime.now(SGT).hour < PERSONA_HOUR:
+    if (seen.get(key) == today.isoformat() or datetime.datetime.now(SGT).hour < PERSONA_HOUR
+            or not os.path.exists(PERSONA_SOUL)):
         return []
     return [(key, "slot: you may send one short message of your own today (step 10)")]
 
