@@ -109,6 +109,14 @@ def test_allowlist_exact_occurrence():
     assert "neighbour@example.com" in body(sent[0])
 
 
+def test_shipped_restore_test_app_token_url_is_allowlisted():
+    # Synthetic stub token in the memory-restore test, as in test-memory-backup.sh.
+    hit = finding(detector="URI", name=None, raw="https://x-access-token:ghs_apptoken@example.com",
+                  commit="3a5efa8f202ccd3fb7baf0001e0829981eb6149c",
+                  file="modules/hermes/tests/test-memory-restore.sh", line=164)
+    assert alert.collect([hit], None, alert.load_allowlist(SHIPPED)) == {}
+
+
 def test_each_field_must_match():
     for change in ({"detector": "Other"}, {"name": "Other"}, {"raw": "other@example.com"},
                    {"commit": "b" * 40}, {"file": "other.txt"}):
