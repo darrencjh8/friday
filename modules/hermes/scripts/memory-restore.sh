@@ -114,12 +114,19 @@ if [ -d "$TMP_DIR/skills" ]; then
     log "restored skills"
 fi
 
-# Restore profiles
+# Restore profiles. Retired profiles (#221) are never restored: a fresh-volume
+# restore must not resurrect them. Keep this list in sync with the
+# retired-profile loop in modules/hermes/50-seed-defaults; the seed tests pin
+# the two lists equal.
+retired_profiles="static-analyst qa-engineer quality-assurance architect project-manager spec-auditor"
 if [ -d "$TMP_DIR/profiles" ]; then
     for profile_dir in "$TMP_DIR/profiles/"*/; do
         [ -d "$profile_dir" ] || continue
         name=$(basename "$profile_dir")
         [ "$name" = "_active" ] && continue
+        case " $retired_profiles " in
+            *" $name "*) continue ;;
+        esac
         mkdir -p "$DATA_DIR/profiles/$name/memories"
         if [ -f "$profile_dir/profile.yaml" ]; then
             cp "$profile_dir/profile.yaml" "$DATA_DIR/profiles/$name/"
@@ -137,9 +144,13 @@ if [ -d "$TMP_DIR/profiles" ]; then
             cp "$profile_dir/USER.md" "$DATA_DIR/profiles/$name/memories/"
         fi
     done
-    # Restore active profile pointer
+    # Restore active profile pointer — but never to a retired profile (#221).
     if [ -f "$TMP_DIR/profiles/_active" ]; then
-        cp "$TMP_DIR/profiles/_active" "$DATA_DIR/active_profile"
+        active_name=$(cat "$TMP_DIR/profiles/_active")
+        case " $retired_profiles " in
+            *" $active_name "*) log "not restoring active profile pointer to retired profile $active_name" ;;
+            *) cp "$TMP_DIR/profiles/_active" "$DATA_DIR/active_profile" ;;
+        esac
     fi
     log "restored profiles"
 fi

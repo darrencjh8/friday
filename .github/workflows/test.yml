@@ -197,6 +197,8 @@ jobs:
               run: bash modules/hermes/tests/test-memory-backup.sh
             - name: Test memory restore script
               run: bash modules/hermes/tests/test-memory-restore.sh
+            - name: Test memory restore skips retired profiles
+              run: python -m unittest modules/hermes/tests/test_memory_restore_retired.py
             - name: Test seed memory pointer
               run: bash modules/hermes/tests/test-memory-pointer.sh
             - name: Test persona sync script

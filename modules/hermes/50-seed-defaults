@@ -334,6 +334,10 @@ else:
 PYEOF
 
 # Migrate only routing fields for managed profiles while preserving user-owned settings.
+# Runs twice on boot (#221): once here, and again after the friday-memory restore,
+# so a restored code-reviewer/config.yaml is re-migrated instead of keeping its
+# backed-up (older) routing.
+migrate_managed_routing() {
 python3 - <<'PY'
 from pathlib import Path
 
@@ -408,6 +412,8 @@ for name in managed_routing_profiles:
             mcp_servers.pop(server, None)
     target_path.write_text(yaml.safe_dump(target, sort_keys=False))
 PY
+}
+migrate_managed_routing
 
 # Ensure cron-run directories are owned by hermes (gateway runs as hermes)
 mkdir -p /opt/data/memories-backup
@@ -546,6 +552,10 @@ chown hermes:hermes /opt/data 2>/dev/null || true
 chown -R hermes:hermes /opt/data/memories /opt/data/profiles 2>/dev/null || true
 su -m -s /bin/sh hermes -c 'HOME=/opt/data/home /opt/hermes-defaults/scripts/memory-restore.sh' \
     || echo "WARNING: friday-memory restore failed; memory-backup stays blocked until a boot restores it" >&2
+# The restore overwrites code-reviewer/config.yaml with the backed-up copy, so
+# re-run the routing migration (#221) — it only writes routing fields and
+# preserves operator-owned keys.
+migrate_managed_routing
 [ ! -f /opt/data/SOUL.md ] && cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md
 
 # Rename seeded cron jobs to names that say what they do (no schedule in the
