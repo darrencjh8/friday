@@ -5,7 +5,8 @@ adjudication step — the only suppression path is another allowlist entry.
 
 The fix feeds the scan's final results to JEV: a finding is emailed only
 when JEV does not confidently call it a false positive. Credential-shape
-findings never go to JEV and are always emailed; when JEV is unavailable
+findings never go to JEV and are always emailed, except URI findings,
+which go with the password redacted to its shape; when JEV is unavailable
 or the key is absent, findings are emailed as today (fail open).
 
 No flagged value is written in this file: the fixture value is read out
@@ -337,6 +338,41 @@ class TestIssue205(unittest.TestCase):
             sys.exit(1)
         print("tests.test_issue_205.TestIssue205."
               "test_same_value_in_fixture_and_real_file_judged_on_all_locations: PASS")
+
+
+    def _uri_finding(self):
+        # A synthetic stub URL from a shell test, read out of the allowlist.
+        value = _allowlist_value("URI")
+        line = _finding(value, "URI", None, FIXTURE_COMMIT,
+                        "modules/hermes/tests/test-memory-restore.sh", 164)
+        return value, line
+
+    def test_uri_finding_sent_to_jev_with_secret_redacted(self):
+        value, line = self._uri_finding()
+        secret = alert.urllib.parse.urlsplit(value).password
+        code, _, sent = _run([line])
+        self.assertEqual(code, 0)
+        self.assertEqual(sent, [], "stub URL JEV calls false_positive was emailed")
+        self.assertEqual(len(FakeJev.calls), 1, "URI finding was not sent to JEV")
+        state = json.loads(FakeJev.calls[0].data)["state"]
+        self.assertNotIn(secret, state, "the URL secret reached JEV")
+        self.assertIn("example.com", state)
+        self.assertIn("test-memory-restore.sh", state)
+
+    def test_uri_finding_judged_real_still_emailed(self):
+        value, line = self._uri_finding()
+        code, _, sent = _run([line], verdict="real")
+        self.assertEqual(code, 0)
+        self.assertEqual(len(sent), 1)
+        self.assertIn(value, _body(sent[0]))
+
+    def test_uri_without_password_never_sent_to_jev(self):
+        line = _finding("https://example.com/path", "URI", None,
+                        FIXTURE_COMMIT, SELF_FILE, 1)
+        code, _, sent = _run([line])
+        self.assertEqual(code, 0)
+        self.assertEqual(FakeJev.calls, [])
+        self.assertEqual(len(sent), 1)
 
 
 if __name__ == "__main__":
