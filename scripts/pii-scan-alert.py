@@ -21,6 +21,7 @@ import smtplib
 import ssl
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from email.message import EmailMessage
 
@@ -34,7 +35,8 @@ HEX40 = re.compile(r"[0-9a-f]{40}")
 
 # JEV adjudication (issue #205): same SystemOne contract as
 # scripts/jev_drift_audit.py, with its calibrated gates. Only the names in
-# ADJUDICABLE_NAMES are ever sent; everything else is always emailed.
+# ADJUDICABLE_NAMES are ever sent, plus URI findings with the secret redacted
+# (see redact_uri); everything else is always emailed.
 JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-latest"
 JEV_TIMEOUT = 30
@@ -64,6 +66,26 @@ VERDICT_QUESTION = {
         "criteria": {
             "false_positive": "synthetic fixture, example, placeholder, or product name — not a real person's data",
             "real": "is or could be a real person's data or a real secret",
+            "uncertain": "not enough evidence",
+        },
+    }
+}
+# Credential URLs get their own question so the calibrated PII one is unchanged.
+CREDENTIAL_QUESTION = {
+    "verdict": {
+        "type": "choice",
+        "instructions": (
+            "You judge one secret-scan finding: a URL with embedded credentials "
+            "in a git repository. The secret itself is withheld; you see its "
+            "shape. Answer false_positive when it is clearly a stub in test or "
+            "example code, such as a short readable placeholder on a reserved "
+            "example host like example.com or localhost. Answer real when it is "
+            "or could be a working credential. If the evidence does not decide "
+            "it, answer uncertain."
+        ),
+        "criteria": {
+            "false_positive": "stub or placeholder credential in test or example code",
+            "real": "is or could be a working credential",
             "uncertain": "not enough evidence",
         },
     }
@@ -141,6 +163,30 @@ def render(found: dict[tuple[str, str], list[str]]) -> str:
     return "\n\n".join(entries) + "\n"
 
 
+def redact_uri(value: str) -> str | None:
+    """Describe a credential URL with its password replaced by its shape.
+
+    JEV never sees the secret: only its length, a short token-type prefix such
+    as ghs_, and which character classes it uses. None when there is no
+    password to withhold, so the finding is reported instead.
+    """
+    try:
+        url = urllib.parse.urlsplit(value)
+        secret, host, port = url.password, url.hostname, url.port
+    except ValueError:
+        return None
+    if not secret or not host:
+        return None
+    prefix = re.match(r"[A-Za-z]{2,4}_", secret)
+    classes = [label for label, pattern in (("lowercase", "[a-z]"), ("uppercase", "[A-Z]"),
+               ("digits", "[0-9]"), ("symbols", "[^A-Za-z0-9]")) if re.search(pattern, secret)]
+    shape = f"{len(secret)} chars, {'+'.join(classes)}"
+    if prefix:
+        shape += f", prefix {prefix.group(0)}"
+    port = f":{port}" if port else ""
+    return f"{url.scheme}://{url.username or ''}:<secret: {shape}>@{host}{port}{url.path}"
+
+
 def _jev_is_false_positive(name: str, value: str, locations: list[str], key: str) -> bool:
     """Ask JEV whether one surviving finding is a false positive.
 
@@ -149,14 +195,20 @@ def _jev_is_false_positive(name: str, value: str, locations: list[str], key: str
     False, so the finding is reported. Never raises. The state carries only
     this finding's own fields: detector, name, value, and all its locations.
     """
+    if name == "URI":
+        detector, question, value = "URI", CREDENTIAL_QUESTION, redact_uri(value)
+        if value is None:
+            return False
+    else:
+        detector, question = DETECTOR_FOR_NAME[name], VERDICT_QUESTION
     state = "\n".join([
-        f"Detector: {DETECTOR_FOR_NAME[name]}",
+        f"Detector: {detector}",
         f"Finding: {name}",
         f"Value: {value}",
         "Locations:",
         *(f"  {location}" for location in locations),
     ])
-    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": VERDICT_QUESTION}).encode()
+    body = json.dumps({"model": JEV_MODEL, "state": state, "questions": question}).encode()
     request = urllib.request.Request(
         JEV_ENDPOINT, data=body,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
@@ -185,7 +237,7 @@ def adjudicate(found: dict[tuple[str, str], list[str]], key: str) -> tuple[dict[
     reported: dict[tuple[str, str], list[str]] = {}
     suppressed = 0
     for (name, value), locations in found.items():
-        if name in ADJUDICABLE_NAMES and _jev_is_false_positive(name, value, locations, key):
+        if (name in ADJUDICABLE_NAMES or name == "URI") and _jev_is_false_positive(name, value, locations, key):
             suppressed += 1
         else:
             reported[(name, value)] = locations
