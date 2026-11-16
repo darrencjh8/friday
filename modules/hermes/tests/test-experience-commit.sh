@@ -47,7 +47,7 @@ printf '# SOUL\nnew\n' >"$PERSONA_DIR/SOUL.md"; refused "test_outside_experience
 printf 'rewritten\n' >"$PERSONA_DIR/experience/raw/tools/2026-11-16-tools.md"; refused "test_raw_edit" 2
 rm "$PERSONA_DIR/experience/raw/tools/2026-11-16-tools.md"; refused "test_raw_delete" 2
 printf '# Log\n' >"$PERSONA_DIR/$W/log.md"; refused "test_log_not_append" 2
-printf 'Prefer gh. Mail owner.name@gmail.com\n' >"$PERSONA_DIR/$W/tooling/gh.md"; refused "test_gate_pattern" 2
+printf 'Prefer gh. Mail friend@corp.test\n' >"$PERSONA_DIR/$W/tooling/gh.md"; refused "test_gate_pattern" 2
 jev personal; printf 'Prefer gh CLI.\n' >"$PERSONA_DIR/$W/tooling/gh.md"; refused "test_gate_jev" 2
 jev clean
 
