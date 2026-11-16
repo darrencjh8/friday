@@ -59,10 +59,10 @@ gate_refused() { # $1 test name; the edit in the clone must be refused, parked, 
     [ "$rc" = 2 ] && clean && grep -q 'personal information' "$TMPDIR/out" && [ -z "$(git -C "$ORIGIN" tag -l 'backup-*')" ] \
         && ok "$1" || nope "$1" "rc=$rc $(cat "$TMPDIR/out")"
 }
-printf 'Mon: lunch with owner.name@gmail.com\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_email"
-grep -q 'gmail' "$TMPDIR/out" && nope "test_gate_no_quote" "the match was quoted" || ok "the matched text is not quoted"
+printf 'Mon: lunch with friend@corp.test\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_email"
+grep -q "corp.test" "$TMPDIR/out" && nope "test_gate_no_quote" "the match was quoted" || ok "the matched text is not quoted"
 printf 'Mon: call 9123 4567\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_phone"
-printf 'host 192.168.1.20\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_private_ip"
+printf 'host 10.1.2.3\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_private_ip"
 printf 'see /home/someone/notes\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_home_path"
 printf 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_token"
 jev personal 0.9; printf 'Tue 3pm: owner dentist\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_jev_personal"
