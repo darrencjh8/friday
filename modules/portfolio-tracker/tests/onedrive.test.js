@@ -3,12 +3,13 @@
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-const { mockExistsSync, mockReadFileSync, mockWriteFileSync, mockMkdirSync } =
+const { mockExistsSync, mockReadFileSync, mockWriteFileSync, mockMkdirSync, mockRenameSync } =
     vi.hoisted(() => ({
         mockExistsSync: vi.fn(),
         mockReadFileSync: vi.fn(),
         mockWriteFileSync: vi.fn(),
         mockMkdirSync: vi.fn(),
+        mockRenameSync: vi.fn(),
     }));
 
 vi.mock("fs", () => ({
@@ -16,6 +17,7 @@ vi.mock("fs", () => ({
     readFileSync: mockReadFileSync,
     writeFileSync: mockWriteFileSync,
     mkdirSync: mockMkdirSync,
+    renameSync: mockRenameSync,
 }));
 
 vi.mock("path", () => ({
@@ -347,6 +349,66 @@ describe("onedrive", () => {
     });
 
     describe("credentials handling", () => {
+        it("saves the rotated refresh token Microsoft returns", async () => {
+            global.fetch
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: async () => ({
+                        access_token: "test-access-token",
+                        refresh_token: "rotated-refresh-token",
+                    }),
+                })
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+
+            const result = await pullFromOneDrive();
+            expect(result.success).toBe(true);
+            expect(mockWriteFileSync).toHaveBeenCalledWith(
+                `${REFRESH_TOKEN_PATH}.tmp`,
+                "rotated-refresh-token",
+                { mode: 0o600 },
+            );
+            expect(mockRenameSync).toHaveBeenCalledWith(
+                `${REFRESH_TOKEN_PATH}.tmp`,
+                REFRESH_TOKEN_PATH,
+            );
+        });
+
+        it("leaves the token file alone when no new refresh token comes back", async () => {
+            global.fetch
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+
+            await pullFromOneDrive();
+            expect(mockRenameSync).not.toHaveBeenCalled();
+        });
+
+        it("reports the OAuth error code, never the description", async () => {
+            vi.useFakeTimers();
+            global.fetch.mockResolvedValue({
+                ok: false,
+                status: 400,
+                json: async () => ({
+                    error: "invalid_grant",
+                    error_description:
+                        "AADSTS70000: The user could not be authenticated. Trace ID: abc",
+                }),
+            });
+
+            const promise = pullFromOneDrive();
+            await vi.advanceTimersByTimeAsync(10000);
+            const result = await promise;
+
+            expect(result.error).toContain("Token HTTP 400: invalid_grant AADSTS70000");
+            expect(result.error).not.toContain("Trace ID");
+            vi.useRealTimers();
+        });
+
         it("returns error when refresh token file is missing", async () => {
             mockExistsSync.mockReturnValue(false);
 
