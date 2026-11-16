@@ -3,7 +3,7 @@
  * Ported 1:1 from src/onedrive_download.py and src/onedrive_upload.py
  */
 
-import { readFileSync, writeFileSync, existsSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, renameSync } from "fs";
 
 const TOKEN_URL = "https://login.microsoftonline.com/common/oauth2/v2.0/token";
 const REDIRECT_URI =
@@ -43,8 +43,24 @@ async function getAccessToken() {
                 body: body.toString(),
                 signal: AbortSignal.timeout(15000),
             });
-            if (!resp.ok) throw new Error(`Token HTTP ${resp.status}`);
+            if (!resp.ok) {
+                // The OAuth error and its AADSTS code say why (expired, revoked,
+                // consent removed); the free-text description is left out.
+                const err = await resp.json().catch(() => ({}));
+                const code = (err.error_description || "").match(/AADSTS\d+/);
+                throw new Error(
+                    `Token HTTP ${resp.status}${err.error ? `: ${err.error}` : ""}${code ? ` ${code[0]}` : ""}`,
+                );
+            }
             const data = await resp.json();
+            // Microsoft rotates refresh tokens: keep the newest one, written
+            // atomically so a crash mid-write cannot leave a broken grant.
+            if (data.refresh_token && data.refresh_token !== refreshToken) {
+                writeFileSync(`${refreshTokenPath}.tmp`, data.refresh_token, {
+                    mode: 0o600,
+                });
+                renameSync(`${refreshTokenPath}.tmp`, refreshTokenPath);
+            }
             return data.access_token;
         } catch (e) {
             if (attempt < 2) await sleep(2000 * (attempt + 1));
