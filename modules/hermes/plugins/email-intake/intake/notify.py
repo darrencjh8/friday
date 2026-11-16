@@ -119,13 +119,20 @@ class WebhookSender:
         self._secret = secret
         self._post = post
 
-    def __call__(self, text):
-        """SENT; REJECTED when the webhook refuses this message for good; RETRY otherwise."""
+    def __call__(self, text, request_id=None):
+        """SENT; REJECTED when the webhook refuses this message for good; RETRY otherwise.
+
+        A retry can follow a post that did arrive (a timeout after delivery), so the
+        message's journal key goes out as X-Request-ID: the gateway drops a repeat of
+        the same id within its idempotency window (one hour, in memory)."""
         data = json.dumps({"message": text}).encode()
         # The gateway recomputes the HMAC over the raw body (see notify_user in expense-tracker).
         signature = hmac.new(self._secret.encode(), data, hashlib.sha256).hexdigest()
+        headers = {"X-Webhook-Signature": signature}
+        if request_id is not None:
+            headers["X-Request-ID"] = f"email-intake:{request_id}"
         try:
-            self._post(self._url, data, {"X-Webhook-Signature": signature})
+            self._post(self._url, data, headers)
         except urllib.error.HTTPError as error:
             if error.code in (400, 413):
                 return REJECTED
@@ -156,8 +163,10 @@ class Outbox:
         """An outage keeps every message for later, in order; a rejected message is dropped and logged."""
         sent = 0
         for key, text, _attempts in self._journal.unsent_notifications():
-            send = self._send if self._dots is None or COMMAND.search(text) else self._dots
-            outcome = send(text)
+            if self._dots is None or COMMAND.search(text):
+                outcome = self._send(text)
+            else:
+                outcome = self._dots(text, request_id=key)
             if outcome == SENT:
                 self._journal.mark_notification_sent(key)
                 sent += 1
