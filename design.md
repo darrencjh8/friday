@@ -374,6 +374,7 @@ graph TB
 | notion-monthly-bills-reset | `0 0 1 * *` (1st of the month 00:00) | Reset monthly bills in Notion |
 | actual-backup | `0 0 1 * *` (1st of the month 00:00) | Back up Actual Budget data |
 | proactive-tick | `0 8-21 * * *` (hourly 08:00–21:00) | Proactive check-in tick |
+| proactive-tick-volume | `0 9 * * 0` (Sunday 09:00) | Weekly proactive message vs silence count (no_agent) |
 
 Jobs are seeded by `modules/hermes/50-seed-defaults`. Schedules are container time (`Asia/Singapore`).
 

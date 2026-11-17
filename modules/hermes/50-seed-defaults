@@ -2032,6 +2032,48 @@ with open(jobs_path + ".tmp", "w") as f:
 os.replace(jobs_path + ".tmp", jobs_path)
 PYEOF
 
+# Seed proactive-tick-volume (#247): once a week, count proactive-tick
+# messages vs silence over the last 7 days and print one line only when more
+# than 21 messages were delivered. Silent on a quiet week; a failure is alerted.
+python3 <<'PYEOF' || true
+import os, json, uuid, datetime
+jobs_path = "/opt/data/cron/jobs.json"
+os.makedirs(os.path.dirname(jobs_path), exist_ok=True)
+try:
+    with open(jobs_path) as f:
+        data = json.load(f)
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+except FileNotFoundError:
+    jobs = []
+except json.JSONDecodeError as error:
+    # Never treat an unreadable file as empty: rewriting it wipes every cron job.
+    raise SystemExit(f"refusing to replace corrupt cron jobs file: {error}")
+
+MANAGED = {"script": "proactive-tick-volume.py", "no_agent": True, "deliver": "dots"}
+existing = next((j for j in jobs if isinstance(j, dict) and j.get("name") == "proactive-tick-volume"), None)
+if existing is None:
+    jobs.append({
+        "id": uuid.uuid4().hex[:12],
+        "name": "proactive-tick-volume",
+        "schedule": {"kind": "cron", "expr": "0 9 * * 0", "display": "Sunday 9am"},
+        "schedule_display": "Sunday 9am",
+        "enabled": True,
+        "next_run_at": None,
+        "created_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        **MANAGED,
+    })
+    print("cron: proactive-tick-volume seeded (no_agent)")
+else:
+    changed = [key for key, value in MANAGED.items() if existing.get(key) != value]
+    for key in changed:
+        existing[key] = MANAGED[key]
+    print("cron: proactive-tick-volume migrated: " + ", ".join(sorted(changed)) if changed else "cron: proactive-tick-volume unchanged")
+
+with open(jobs_path + ".tmp", "w") as f:
+    json.dump({"jobs": jobs, "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()}, f, indent=2)
+os.replace(jobs_path + ".tmp", jobs_path)
+PYEOF
+
 # Seed skills-merge-proposals cron job (no_agent). The built-in curator still
 # prunes by age on its own schedule with consolidation off; this weekly dry run
 # only asks its LLM pass for merge proposals and messages the user when there are

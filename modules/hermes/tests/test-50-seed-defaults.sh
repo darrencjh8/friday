@@ -2181,6 +2181,32 @@ PY
 [ "$proactive" = "pass" ] && ok "proactive-tick adds dated mail to the calendar with gcal add, no invites, no edits; skips marketing; never bare-relays mail" \
     || nope "proactive-tick calendar step" "$proactive"
 
+echo "--- proactive-tick-volume weekly count (from real seed) ---"
+prime_seed_jobs
+volume_snippet="$(extract_seed_block "# Seed proactive-tick-volume")"
+python3 -c "$volume_snippet" >/dev/null
+volume=$(python3 - "$TMPDIR/cron/jobs.json" <<'PY'
+import json, sys
+jobs = [j for j in json.load(open(sys.argv[1]))["jobs"] if j.get("name") == "proactive-tick-volume"]
+job = jobs[0] if len(jobs) == 1 else {}
+sched = job.get("schedule", {})
+checks = {
+    "one_job": len(jobs) == 1,
+    "script": job.get("script") == "proactive-tick-volume.py",
+    "no_agent": job.get("no_agent") is True,
+    "deliver_dots": job.get("deliver") == "dots",
+    "cron_kind": sched.get("kind") == "cron",
+    "sunday_9am": sched.get("expr") == "0 9 * * 0" and job.get("schedule_display") == "Sunday 9am",
+    "enabled": job.get("enabled") is True,
+    "no_prompt": "prompt" not in job,
+}
+bad = [k for k, v in checks.items() if not v]
+print("pass" if not bad else "fail " + repr(bad))
+PY
+)
+[ "$volume" = "pass" ] && ok "proactive-tick-volume seeded: no_agent script, deliver dots, Sunday 9am, no prompt" \
+    || nope "proactive-tick-volume seed" "$volume"
+
 echo ""
 echo "=== friday-memory restore runs before the SOUL template seed ==="
 
