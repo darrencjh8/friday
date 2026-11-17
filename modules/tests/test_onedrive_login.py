@@ -85,6 +85,26 @@ class LoginWalkTest(unittest.TestCase):
             walk([{"kind": "clicked", "text": "Next"}] * 10)
 
 
+class HeldRedirectTest(unittest.TestCase):
+    def test_paused_redirect_ends_the_pending_call(self) -> None:
+        """The held redirect freezes the page, so the call's own reply never arrives."""
+        import json
+
+        class Socket:
+            sent = []
+
+            def send(self, msg):
+                self.sent.append(msg)
+
+            def recv(self, timeout=None):
+                return json.dumps({"method": "Fetch.requestPaused", "params": {"request": {"url": CODE_URL}}})
+
+        page = od.Chromium.__new__(od.Chromium)
+        page.ws, page.next_id, page.session, page.code_url = Socket(), 0, "s", None
+        self.assertIsNone(page.evaluate("1"))
+        self.assertEqual(page.code_url, CODE_URL)
+
+
 class TotpTest(unittest.TestCase):
     def test_rfc6238_vectors(self) -> None:
         self.assertEqual(od.totp(SECRET, 59), "287082")

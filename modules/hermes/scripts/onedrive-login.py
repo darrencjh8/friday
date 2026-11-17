@@ -161,9 +161,15 @@ class Chromium:
             msg["sessionId"] = self.session
         self.ws.send(json.dumps(msg))
         while True:
-            reply = json.loads(self.ws.recv(timeout=30))
+            try:
+                reply = json.loads(self.ws.recv(timeout=30))
+            except TimeoutError:
+                raise LoginError(f"{method}: Chromium did not answer") from None
             if reply.get("method") == "Fetch.requestPaused":
+                # The held redirect freezes the page, so the pending reply may
+                # never come; the URL is all that was wanted anyway.
                 self.code_url = reply["params"]["request"]["url"]
+                return {}
             if reply.get("id") == self.next_id:
                 if "error" in reply:
                     raise LoginError(f"{method}: {reply['error'].get('message')}")
