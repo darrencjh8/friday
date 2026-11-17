@@ -18,6 +18,10 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT
 export PERSONA_DIR="$TMPDIR/clone" PERSONA_STATE_DIR="$TMPDIR/state" SOUL_PATH="$TMPDIR/SOUL.md"
 ORIGIN="$TMPDIR/origin.git"
 LOG='- 2026-11-14 (Hermes): likes rainy-day cafes now'
+# Jev is stubbed with a file:// endpoint holding its answer; clean by default.
+export JEV_API_KEY=test JEV_ENDPOINT="file://$TMPDIR/jev.json"
+jev() { printf '{"answers":{"verdict":{"choice":"%s","confidence":%s,"probabilities":{"a":%s,"b":0.05}}}}' "$1" "$2" "$2" >"$TMPDIR/jev.json"; }
+jev clean 0.9
 
 git init -q --bare -b main "$ORIGIN"
 git clone -q "$ORIGIN" "$TMPDIR/seed"
@@ -47,6 +51,26 @@ grep -q 'new look' "$TMPDIR"/state/pending/*.patch && ok "the refused edit is ke
 printf 'Mon: pilates\n' >"$PERSONA_DIR/calendar.md"
 set +e; run "no log"; rc=$?; set -e
 [ "$rc" = 2 ] && clean && ok "a change without an evolution log line is refused" || nope "test_log_required" "rc=$rc $(cat "$TMPDIR/out")"
+
+echo "=== the personal-information gate refuses before anything is pushed ==="
+gate_refused() { # $1 test name; the edit in the clone must be refused, parked, and never pushed
+    printf '%s\n' '- 2026-11-14 (Hermes): gate case' >>"$PERSONA_DIR/SOUL.md"
+    set +e; run "gate case"; rc=$?; set -e
+    [ "$rc" = 2 ] && clean && grep -q 'personal information' "$TMPDIR/out" && [ -z "$(git -C "$ORIGIN" tag -l 'backup-*')" ] \
+        && ok "$1" || nope "$1" "rc=$rc $(cat "$TMPDIR/out")"
+}
+printf 'Mon: lunch with friend@corp.test\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_email"
+grep -q "corp.test" "$TMPDIR/out" && nope "test_gate_no_quote" "the match was quoted" || ok "the matched text is not quoted"
+printf 'Mon: call 9123 4567\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_phone"
+printf 'host 10.1.2.3\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_private_ip"
+printf 'see /home/someone/notes\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_home_path"
+printf 'token ghp_abcdefghijklmnopqrstuvwxyz0123456789\n' >"$PERSONA_DIR/preferences.md"; gate_refused "test_gate_token"
+jev personal 0.9; printf 'Tue 3pm: owner dentist\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_jev_personal"
+jev clean 0.5; printf 'Tue: pilates\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_jev_low_confidence"
+rm -f "$TMPDIR/jev.json"; printf 'Tue: pilates\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_jev_unreachable"
+jev clean 0.9; JEV_API_KEY='' ; printf 'Tue: pilates\n' >"$PERSONA_DIR/calendar.md"; gate_refused "test_gate_no_key"
+export JEV_API_KEY=test
+rm -rf "$PERSONA_STATE_DIR/pending"
 
 echo "=== an allowed change is published after a backup tag ==="
 printf 'Mon: pilates\n' >"$PERSONA_DIR/calendar.md"
