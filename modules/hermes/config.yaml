@@ -238,6 +238,9 @@ timezone: Asia/Singapore
 # so this baked block drops no live keys on the top-level merge.
 cron:
   wrap_response: false
+  # Per-job count of run-output files kept (Hermes default 50). 120 keeps a week of
+  # hourly proactive-tick runs for the message-volume measurement (#247).
+  output_retention: 120
 
 mcp_servers:
     expense-tracker:
