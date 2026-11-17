@@ -496,6 +496,23 @@ print('present' if profiles and fields and reviewer_isolation else 'missing')
 ")
 [ "$managed_routing_migration" = "present" ] && ok "managed profile routing and reviewer isolation migrate on startup" || nope "managed profile migration" "got: $managed_routing_migration"
 
+# The restore must skip exactly the retired profiles the seed removes (#221):
+# if the lists drift, a fresh-volume restore resurrects a profile boot just deleted.
+restore_retired_list=$(python3 - "$SEED_SCRIPT" "$SCRIPT_DIR/../scripts/memory-restore.sh" <<'PY'
+import re
+import sys
+seed = open(sys.argv[1]).read()
+restore = open(sys.argv[2]).read()
+seed_match = re.search(r"for retired_profile in ([^;]+); do", seed)
+restore_match = re.search(r'retired_profiles="([^"]+)"', restore)
+if not seed_match or not restore_match:
+    print("missing")
+else:
+    print("pass" if sorted(seed_match.group(1).split()) == sorted(restore_match.group(1).split()) else "mismatch")
+PY
+)
+[ "$restore_retired_list" = "pass" ] && ok "restore skips the same retired profiles the seed removes" || nope "restore retired list" "got: $restore_retired_list"
+
 echo ""
 echo "=== default profile display name ==="
 
@@ -2211,6 +2228,7 @@ echo ""
 echo "=== friday-memory restore runs before the SOUL template seed ==="
 
 order=$(python3 - "$SEED_SCRIPT" <<'PY'
+import re
 import sys
 s = open(sys.argv[1]).read()
 auth = s.find("/opt/hermes-defaults/scripts/github-auth.sh")
@@ -2218,6 +2236,7 @@ chown = s.find("chown -R hermes:hermes /opt/data/memories /opt/data/profiles")
 restore = s.find("/opt/hermes-defaults/scripts/memory-restore.sh")
 seed = s.find("cp /opt/hermes-defaults/SOUL.md.template /opt/data/SOUL.md")
 subst = s.find('paths = ["/opt/data/config.yaml", "/opt/data/SOUL.md"]')
+mig_calls = [m.start() for m in re.finditer(r"(?m)^migrate_managed_routing$", s)]
 checks = {
     "restore_called": restore != -1,
     "after_auth": auth != -1 and auth < restore,
@@ -2226,6 +2245,9 @@ checks = {
     "single_seed": s.count("SOUL.md.template /opt/data/SOUL.md") == 1,
     "seed_before_subst": seed < subst,
     "inline_clone_gone": "friday-memory-clone" not in s,
+    "migration_defined": "migrate_managed_routing() {" in s,
+    "migration_before_restore": any(c < restore for c in mig_calls),
+    "migration_after_restore": any(c > restore for c in mig_calls),
 }
 bad = [k for k, v in checks.items() if not v]
 print("pass" if not bad else "fail " + repr(bad))
