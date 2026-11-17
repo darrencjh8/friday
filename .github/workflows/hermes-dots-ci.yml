@@ -49,6 +49,21 @@ jobs:
           ref: ${{ inputs.ref }}
           token: ${{ secrets.SUBMODULE_PAT }}
 
+      # Friday's clips and icons come from the friday-persona release pinned in
+      # persona-media.version; refs from before the move still carry the files.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: .friday
+          sparse-checkout: scripts/fetch-persona-media.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch persona media
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          if [ -f persona-media.version ]; then bash .friday/scripts/fetch-persona-media.sh android .; fi
+          rm -rf .friday
+
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
@@ -78,6 +93,21 @@ jobs:
           repository: darrencjh8/hermes-dots
           ref: ${{ inputs.ref }}
           token: ${{ secrets.SUBMODULE_PAT }}
+
+      # Friday's clips and icons come from the friday-persona release pinned in
+      # persona-media.version; refs from before the move still carry the files.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: .friday
+          sparse-checkout: scripts/fetch-persona-media.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch persona media
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: |
+          if [ -f persona-media.version ]; then bash .friday/scripts/fetch-persona-media.sh android .; fi
+          rm -rf .friday
 
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:

@@ -136,6 +136,12 @@ jobs:
                   fi
                   echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
 
+            # dots-web builds Friday's clips and icons from the pinned friday-persona release.
+            - name: Fetch persona media
+              env:
+                  GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+              run: bash ./scripts/fetch-persona-media.sh dots-web modules/dots-web
+
             - name: Build images
               env:
                   DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}

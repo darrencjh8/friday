@@ -127,6 +127,19 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
+      # Friday's clips and icons come from the friday-persona release pinned in
+      # persona-media.version; before the move hermes-dots carries the files.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: friday
+          sparse-checkout: scripts/fetch-persona-media.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch persona media
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        run: if [ -f persona-media.version ]; then bash ../friday/scripts/fetch-persona-media.sh android .; fi
+
       - name: Hardening checks
         run: ./scripts/check-hardening.sh
 

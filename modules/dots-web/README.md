@@ -9,3 +9,8 @@ Added here: `server.mjs`, `server.test.mjs`, `Dockerfile` and this file. `server
 and Upstash: it serves the build and the pairing relay from one origin, keeping deposits in memory.
 
 The service listens on host loopback only. See `docs/operations.md` for how it is exposed.
+
+Friday's portrait clips (`public/dots/nova/`) and icons (`public/icons/nova-*`) are not in git. They
+come from the darrencjh8/friday-persona release pinned in `persona-media.version`, downloaded before
+every build. For a local build run `bash ../../scripts/fetch-persona-media.sh dots-web .` from this
+directory (needs `gh` logged in with access to friday-persona).
