@@ -223,18 +223,23 @@ describe("StatementProcessor", () => {
         .mockResolvedValueOnce({
           choices: [{ finish_reason: "stop", message: { content: "Done." } }],
         });
+      mockTools.executeTool.mockResolvedValue({ text: "x", password: "pdf-pw" });
       const infoSpy = vi.spyOn(logger, "info");
-
-      await processor.processStatement(
-        "msg-1",
-        Buffer.from("From: bank@example.com\r\nSubject: S\r\n\r\nBody."),
-        null,
-      );
-
-      const line = infoSpy.mock.calls
-        .map(([obj]) => obj)
-        .find((obj) => obj && obj.event === "statement_tool_exec");
-      infoSpy.mockRestore();
+      let line;
+      try {
+        await processor.processStatement(
+          "msg-1",
+          Buffer.from("From: bank@example.com\r\nSubject: S\r\n\r\nBody."),
+          null,
+        );
+        line = infoSpy.mock.calls
+          .map(([obj]) => obj)
+          .find((obj) => obj && obj.event === "statement_tool_exec");
+      } finally {
+        infoSpy.mockRestore();
+      }
+      expect(line).toBeDefined();
+      expect(line.result).not.toContain("pdf-pw");
       expect(line.args).toEqual({ uid: 1, password: "[REDACTED]" });
       expect(mockTools.executeTool).toHaveBeenCalledWith("extract_inbox_pdf", {
         uid: 1,
