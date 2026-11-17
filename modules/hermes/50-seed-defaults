@@ -250,6 +250,12 @@ Files:
 - accounts.md — accounts, cards, identifiers
 - expenses.md — payee and category mappings
 - prefs.md — stable preferences and corrections
+- expense-tracker-pipeline.md — alert holds, the 12h retry cooldown, transfer diagnosis
+- workflow.md — delegation, dev-loop canonical copy, cron seeding, skill ownership / delegate_task / opencode / MANAGED vs DEFAULTS / curator adopt
+- dev-loop-issues-triage.md — dev-loop issue triage notes
+- MISSES.md — recorded recall misses
+- wiki.md — LLM wiki working copy, Notion source IDs, wikilink conventions
+- persona-target.md — Hermes's own current persona target, set by the daily persona-reflection loop
 TOPICINDEX
 fi
 if [ ! -f /opt/data/memories/topics/MISSES.md ]; then
