@@ -368,6 +368,7 @@ jobs:
                   node-version: 24
             - run: node --test server.test.mjs
             - run: node --test src/appIcon.test.ts src/pairing/crypto.test.ts
+            - run: bash ../../scripts/test-fetch-persona-media.sh
             # The tests use a fixture build, so only the image proves the real one is served.
             - run: docker build -t dots-web-smoke .
             - run: docker run -d --name dots-web-smoke -p 127.0.0.1:8789:8789 dots-web-smoke
