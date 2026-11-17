@@ -361,6 +361,8 @@ jobs:
         defaults:
             run:
                 working-directory: modules/dots-web
+        env:
+            GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
         steps:
             - uses: actions/checkout@v4
             - uses: actions/setup-node@v4
@@ -369,10 +371,23 @@ jobs:
             - run: node --test server.test.mjs
             - run: node --test src/appIcon.test.ts src/pairing/crypto.test.ts
             - run: bash ../../scripts/test-fetch-persona-media.sh
+            # Friday's clips and icons come from the pinned friday-persona release. Runs without
+            # the secret (Dependabot) build and smoke the image without them.
+            - name: Fetch persona media
+              if: env.GH_TOKEN != ''
+              run: bash ../../scripts/fetch-persona-media.sh dots-web .
             # The tests use a fixture build, so only the image proves the real one is served.
             - run: docker build -t dots-web-smoke .
             - run: docker run -d --name dots-web-smoke -p 127.0.0.1:8789:8789 dots-web-smoke
             - run: sleep 3 && curl -fsS http://127.0.0.1:8789/ | grep -q '<title>Hermes'
+            # A missing file falls back to index.html with 200, so check the type, not the status.
+            - name: The image serves Friday's clips and icons
+              if: env.GH_TOKEN != ''
+              run: |
+                  for path in /dots/nova/idle.webp /dots/nova/still.webp /icons/nova-default-192.png /icons/nova-night-512.png; do
+                      type=$(curl -fsS -o /dev/null -w '%{content_type}' "http://127.0.0.1:8789$path")
+                      case "$type" in image/*) ;; *) echo "$path served as '$type'"; exit 1 ;; esac
+                  done
             - run: test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8789/api/pair?id=AAAAAAAAAAAAAAAAAAAAAA')" = 204
 
     image-gen:
