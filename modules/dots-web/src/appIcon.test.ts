@@ -1,17 +1,25 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { appName, setAppIcon } from "./appIcon.ts";
 import type { WebAgent } from "./types.ts";
 
 /**
  * L'icône de l'onglet et de la PWA suit le choix du logo du téléphone
- * (friday #211, #231) : Night / Day pointent vers leurs portraits #136,
- * tout le reste (Default, inconnu, absent, ancienne couleur) prend la
- * silhouette Default.
+ * (friday #211, #231) : Night / Day pointent vers leurs portraits
+ * (Night = portrait nuit sans cardigan, Day = portrait jour cardigan
+ * entièrement porté), et Default est le portrait jour — la silhouette
+ * noire ne sert plus. Tout le reste (inconnu, absent, ancienne couleur)
+ * retombe sur Default.
  * Le nom de l'app suit le premier agent appairé (friday #212) : "Hermes" avant tout
  * appairage, le nom du premier agent ensuite, via ?name= sur le manifeste.
  * `document` est un faux minimal : seuls les `link[rel]` lus par setAppIcon
  * existent, avec leur href enregistré.
+ * Les fichiers d'icônes eux-mêmes sont vérifiés plus bas : Default et Day
+ * sont le même portrait (donc les mêmes octets), Night en est un autre,
+ * et les six PNG ont la bonne taille.
  */
 const seen = new Map<string, string>();
 
@@ -155,4 +163,45 @@ test("appIcon.manifestNameEncoded", () => {
   installDocument();
   setAppIcon("nova", undefined, "Mon Agent");
   assert.equal(seen.get("manifest"), "/manifest-nova-default.webmanifest?name=Mon%20Agent");
+});
+
+// Contenu des fichiers d'icônes (friday #231, portraits cardigan) :
+// Default et Day sont le même portrait jour (cardigan entièrement porté),
+// Night est le portrait nuit sans cardigan. Ces tests lisent les PNG
+// servis par la PWA ; ils échouent tant que Default est la silhouette.
+const iconsDir = join(dirname(fileURLToPath(import.meta.url)), "..", "public", "icons");
+
+function iconBytes(name: string): Buffer {
+  return readFileSync(join(iconsDir, name));
+}
+
+function pngSize(name: string): { width: number; height: number } {
+  const bytes = iconBytes(name);
+  assert.equal(bytes.subarray(1, 4).toString("ascii"), "PNG", `${name} is not a PNG`);
+  return { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) };
+}
+
+test("iconFiles.defaultEqualsDay", () => {
+  // Buffer.equals, not assert.deepEqual: deepEqual on Buffers hangs in
+  // this Node version (verified: 20s+ on two 18/44 KB buffers).
+  assert.ok(
+    iconBytes("nova-default-192.png").equals(iconBytes("nova-day-192.png")),
+    "iconFiles.defaultEqualsDay failed: Default is not the Day portrait (still the silhouette?)",
+  );
+  assert.ok(iconBytes("nova-default-512.png").equals(iconBytes("nova-day-512.png")));
+});
+
+test("iconFiles.nightDiffersFromDay", () => {
+  assert.ok(
+    !iconBytes("nova-night-192.png").equals(iconBytes("nova-day-192.png")),
+    "iconFiles.nightDiffersFromDay failed: Night uses the Day portrait",
+  );
+  assert.ok(!iconBytes("nova-night-512.png").equals(iconBytes("nova-day-512.png")));
+});
+
+test("iconFiles.dimensions", () => {
+  for (const key of ["nova-default", "nova-night", "nova-day"]) {
+    assert.deepEqual(pngSize(`${key}-192.png`), { width: 192, height: 192 });
+    assert.deepEqual(pngSize(`${key}-512.png`), { width: 512, height: 512 });
+  }
 });
