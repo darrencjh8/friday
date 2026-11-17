@@ -19,6 +19,7 @@ import { dispatchEmail } from "./classify.js";
 import { createMcpServer } from "./mcp-server.js";
 import { mountProcessingRoute } from "./processing.js";
 import { mountBackupRoute } from "./actual_backup.js";
+import { mountOneDriveAuthRoutes } from "./onedrive_oauth.js";
 
 // ── Startup guard: fail fast if critical env vars are missing ──
 function guardEnv() {
@@ -137,6 +138,7 @@ async function main() {
     // Monthly Actual Budget backup to OneDrive, triggered by a Hermes cron job.
     // Deliberately not a tool, so no agent can call it through MCP.
     mountBackupRoute(app);
+    mountOneDriveAuthRoutes(app);
 
     // Tool schemas endpoint
     app.get("/tools", (_req, res) => res.json(registry.getToolSchemas()));

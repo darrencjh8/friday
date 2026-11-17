@@ -88,7 +88,28 @@ export async function exchangeCodeForToken(redirectUri) {
         "/app/config/onedrive/refresh_token";
     const dir = dirname(tokenPath);
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-    writeFileSync(tokenPath, data.refresh_token);
+    writeFileSync(tokenPath, data.refresh_token, { mode: 0o600 });
 
     return { success: true };
+}
+
+/**
+ * REST twins of the two auth MCP tools, for Friday's onedrive-login script,
+ * which logs in with no LLM in the loop and so cannot call MCP tools.
+ */
+export function mountOneDriveAuthRoutes(app) {
+    app.post("/onedrive/auth-url", (_req, res) => {
+        try {
+            res.json({ url: getAuthUrl() });
+        } catch (e) {
+            res.status(500).json({ error: e.message });
+        }
+    });
+    app.post("/onedrive/auth-complete", async (req, res) => {
+        try {
+            res.json(await exchangeCodeForToken(req.body?.redirect_uri || ""));
+        } catch (e) {
+            res.status(500).json({ success: false, error: e.message });
+        }
+    });
 }
