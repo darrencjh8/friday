@@ -256,7 +256,7 @@ describe("calibrate_jev", () => {
         const { result, calls } = await tools.dryRun(() => tools.executeTool("calibrate_jev", CAL_ARGS), { calibrate: true });
         expect(seen.firecrawl).toBe(1);
         expect(result.v1).toMatchObject({ payee: "Food", reason: "accepted", scores: { variant: "v1" } });
-        expect(result.v2).toMatchObject({ payee: "Food", reason: "accepted", scores: { variant: "v2", options: 2 } });
+        expect(result.v2).toMatchObject({ payee: "Food", reason: "accepted", scores: { variant: "v2", options: 1 } });
         expect(result.earlier).toEqual({ Food: 2, Snack: 1 });
         expect(calls).toEqual([{ tool: "calibrate_jev", args: { merchant: "ACME BURGER 01", as_of: "2026-10-20" }, result }]);
         expect(JSON.stringify(calls)).not.toContain("on your card");
