@@ -27,7 +27,8 @@ Two independent defects combined in one run (2026-11-17 09:31 UTC, Affin Bank st
 ## Tests
 
 - `modules/expense-tracker/tests/statement/orchestrator-265.test.js` (written, RED at base 3feed05, recorded with `loop.py repro`):
-  - `tests.statement.orchestrator-265.post-summary-failure`: notify_user summary succeeds, next `chat()` rejects with "All LLM routes failed" → exactly one `notify_user`, result `completed`, email marked read.
+  - `tests.statement.orchestrator-265.post-summary-failure`: turn 1 returns tool_calls [`record_statement` (mock returns `{id, status: "recorded"}`), `notify_user` with the summary]; turn 2 `chat()` rejects with "All LLM routes failed" → exactly one `notify_user`, result `completed`, details contain the summary text, email marked read.
+  - `tests.statement.orchestrator-265.mid-run-notify-still-errors` (guard, green at base): turn 1 returns only `notify_user` (password-ask, no `record_statement` or history hit); turn 2 `chat()` rejects → result `error`, two `notify_user` calls (the ask + the failure notice). Pins the H1 distinction: a mid-run notify is not a summary.
   - `tests.statement.orchestrator-265.reasoning-content-preserved`: an assistant turn carrying `reasoning_content` + `tool_calls` → the rebuilt history passed to the next `chat()` carries the same `reasoning_content` on the tool-call turn.
 - Add to the same file: max-iterations after a successful summary notify returns completed with no second notice; a content-only assistant turn keeps its `reasoning_content` too.
 - Add to `modules/expense-tracker/tests/orchestrator.test.js`, next to the existing "LLMClient truncation and reasoning-disabled handling" tests (mock `chat.completions.create`, two routes configured): fallback sends `thinking: {type: "disabled"}` when history has a tool-call turn without `reasoning_content`, and sends adaptive thinking when the history carries it.
