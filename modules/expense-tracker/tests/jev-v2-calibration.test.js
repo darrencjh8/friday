@@ -134,11 +134,36 @@ describe("classifyPayee v2", () => {
         expect(bodies[0].state).toContain("The owner's earlier bookings of this same merchant: Food 2x, Snack 1x.");
     });
 
-    it("leaves out bookkeeping, unused and opposite-direction payees", async () => {
+    it("leaves out bookkeeping, unused, once-used and opposite-direction payees", async () => {
+        // Snack was booked once before the alert: a payee used once has a
+        // description copied from that one row, and it drew Food's probability
+        // away until Food missed the confidence bar (ShopBack KOI, 2026-11-16).
         const { fn, bodies } = stubJev();
         await classify(fn, { variant: "v2", history });
         const options = Object.keys(bodies[0].questions.payee.criteria);
-        expect(options).toEqual(["Food", "Snack", NONE_OPTION]);
+        expect(options).toEqual(["Food", NONE_OPTION]);
+    });
+
+    it("keeps a payee once it has been used twice", async () => {
+        const twice = payeeHistory([...ROWS, row("p-snack", -300, "2026-09-08", "CORNER KIOSK")], {
+            payees: PAYEES,
+            categories: CATEGORIES,
+            merchant: "ACME BURGER 01",
+            asOf: "2026-10-20",
+        });
+        const { fn, bodies } = stubJev();
+        await classify(fn, { variant: "v2", history: twice });
+        expect(Object.keys(bodies[0].questions.payee.criteria)).toEqual(["Food", "Snack", NONE_OPTION]);
+    });
+
+    it("asks for none only when the kind of business is unclear", async () => {
+        const { fn, bodies } = stubJev();
+        await classify(fn, { variant: "v2", history });
+        const q = bodies[0].questions.payee;
+        expect(q.instructions).toContain("Judge what kind of business this merchant is");
+        expect(q.instructions).toContain("Choose the none option only when");
+        expect(q.instructions).not.toContain("unless the evidence supports one label");
+        expect(q.criteria[NONE_OPTION]).toBe("The kind of business is unclear, or no listed label fits it.");
     });
 
     it("keeps an income payee for money received", async () => {
