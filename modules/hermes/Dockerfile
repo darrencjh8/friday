@@ -6,10 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     poppler-utils \
     qpdf \
     sysstat \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 # Own Google Tasks CLI (stdlib only, no third-party binary).
 COPY scripts/gtasks.py /usr/local/bin/gtasks
 RUN chmod 0755 /usr/local/bin/gtasks
+# PDF text with OCR for scanned pages (#266).
+COPY scripts/pdftext.py /usr/local/bin/pdftext
+RUN chmod 0755 /usr/local/bin/pdftext
 # `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
 # from the seeded scripts directory, so they are wrappers rather than copies.
 RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
