@@ -91,7 +91,7 @@ describe("Encrypted PDF integration (test-protected.pdf)", () => {
         );
         expect(typeof text).toBe("string");
         expect(text.length).toBeGreaterThan(0);
-    });
+    }, 60_000); // image-only PDF: pages are OCR'd (#266)
 
     it("extractEmailContent returns [PDF_ENCRYPTED] without password", async () => {
         const email = buildEncryptedEmail(ENCRYPTED_PDF);
@@ -105,7 +105,7 @@ describe("Encrypted PDF integration (test-protected.pdf)", () => {
         expect(typeof result).toBe("string");
         expect(result.length).toBeGreaterThan(0);
         expect(result).not.toContain("[PDF_ENCRYPTED");
-    });
+    }, 60_000);
 });
 
 function buildEncryptedEmail(pdfAttachment) {
