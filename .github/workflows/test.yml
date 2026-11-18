@@ -175,6 +175,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_memory_triage_compact.py
             - name: Test memory_triage apply plan freshness
               run: python -m unittest modules/hermes/tests/test_memory_triage_apply.py
+            - name: Test pdftext OCR fallback
+              run: python -m unittest modules/hermes/tests/test_pdftext.py
             - name: Test mnemosyne-vacuum script
               run: bash modules/hermes/tests/test-mnemosyne-vacuum.sh
             - name: Test mnemosyne forget pass
