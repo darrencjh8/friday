@@ -1,0 +1,185 @@
+# Builds Friday Spotlight, the hermes-dots Windows desktop app (desktop/ in
+# darrencjh8/hermes-dots), here in friday (public repo, free minutes) and
+# publishes the installer in darrencjh8/hermes-dots, never in friday, the
+# same way hermes-dots-release.yml ships the Android APK.
+#
+# Releases are tagged desktop-vX.Y.Z and never marked "latest": the Android
+# updater reads /releases/latest, which must stay an APK release.
+#
+# Runs daily at 06:30 SGT and releases only when desktop/ or web/ changed
+# since the last desktop release. Manual dispatch builds any `ref`;
+# `release: true` also publishes it. A pull request touching this file
+# builds main without publishing.
+#
+# The installer is unsigned: Windows SmartScreen asks once before running it.
+name: Hermes-Dots desktop release
+
+on:
+  schedule:
+    # Daily 06:30 SGT (22:30 UTC), after the Android release.
+    - cron: '30 22 * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'hermes-dots branch, tag, or commit SHA to build'
+        type: string
+        default: 'main'
+      release:
+        description: 'Publish the build as a hermes-dots release'
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - .github/workflows/hermes-dots-desktop.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hermes-dots-desktop-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # TEMPORARY: builds the unmerged hermes-dots branch so this PR's CI proves the build; back to 'main' before merge.
+  DOTS_REF: ${{ inputs.ref || 'feat/desktop-spotlight' }}
+  TAURI_CLI: '@tauri-apps/cli@2.12.6'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.check.outputs.sha }}
+      release: ${{ steps.check.outputs.release }}
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ env.DOTS_REF }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+          fetch-depth: 0
+
+      - name: Version, and whether to release
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+          EVENT: ${{ github.event_name }}
+          RELEASE_INPUT: ${{ inputs.release }}
+        run: |
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          # Parse with the jq binary: `gh release list --jq` is not supported
+          # by the gh on the runner. A gh failure fails the step.
+          tags_json=$(gh release list --repo darrencjh8/hermes-dots --limit 100 --json tagName) || { echo "gh release list failed" >&2; exit 1; }
+          last=$(echo "$tags_json" | jq -r '.[].tagName' | grep -E '^desktop-v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1 || true)
+          if [ -z "$last" ]; then
+            version=0.1.0
+          else
+            v=${last#desktop-v}
+            version="${v%.*}.$(( ${v##*.} + 1 ))"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          release=false
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$RELEASE_INPUT" = "true" ]; then
+            release=true
+          elif [ "$EVENT" = "schedule" ]; then
+            if [ -z "$last" ] || ! git diff --quiet "$last" HEAD -- desktop web; then
+              release=true
+            else
+              echo "No desktop/ or web/ change since $last: skipping."
+            fi
+          fi
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "Version $version, release=$release"
+
+  web:
+    needs: check
+    if: github.event_name != 'schedule' || needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: hermes-dots/web
+    env:
+      GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ needs.check.outputs.sha }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: hermes-dots
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      # Friday's clips (android) and icons (dots-web) come from the
+      # friday-persona release pinned in hermes-dots, as for dots-web.
+      - name: Fetch persona media
+        run: |
+          bash ../../scripts/fetch-persona-media.sh dots-web .
+          bash ../../scripts/fetch-persona-media.sh android ..
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: CLIPS_REQUIRED=1 npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: hermes-dots/web/dist
+          retention-days: 1
+
+  build:
+    needs: [check, web]
+    runs-on: windows-latest
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+        working-directory: hermes-dots/desktop/src-tauri
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ needs.check.outputs.sha }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: hermes-dots
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: hermes-dots/web/dist
+      # The app icon is Friday's launcher icon, never committed (persona media).
+      - name: Icons
+        run: npx --yes "$TAURI_CLI" icon ../../web/dist/icons/nova-default-512.png -o icons
+      - name: Build the installer
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          npx --yes "$TAURI_CLI" build --config "{\"version\":\"$VERSION\"}"
+          mkdir -p ../../dist-desktop
+          cp target/release/bundle/nsis/*.exe "../../dist-desktop/Friday-Spotlight-$VERSION-setup.exe"
+          (cd ../../dist-desktop && sha256sum -- *.exe > "Friday-Spotlight-$VERSION-setup.exe.sha256")
+      - uses: actions/upload-artifact@v4
+        with:
+          name: friday-spotlight
+          path: hermes-dots/dist-desktop
+
+  release:
+    needs: [check, build]
+    if: needs.check.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: friday-spotlight
+          path: dist
+      - name: Publish in hermes-dots (not latest)
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+          VERSION: ${{ needs.check.outputs.version }}
+          SHA: ${{ needs.check.outputs.sha }}
+        run: |
+          gh release create "desktop-v$VERSION" dist/* \
+            --repo darrencjh8/hermes-dots \
+            --target "$SHA" \
+            --latest=false \
+            --title "Friday Spotlight $VERSION" \
+            --notes "Windows installer for Friday Spotlight (Ctrl+Space), built from \`$SHA\`. Unsigned: Windows SmartScreen asks once (More info → Run anyway). See desktop/README.md for pairing and plugins."
