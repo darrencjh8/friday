@@ -40,8 +40,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  # TEMPORARY: builds the unmerged hermes-dots branch so this PR's CI proves the build; back to 'main' before merge.
-  DOTS_REF: ${{ inputs.ref || 'feat/desktop-spotlight' }}
+  DOTS_REF: ${{ inputs.ref || 'main' }}
   TAURI_CLI: '@tauri-apps/cli@2.12.6'
 
 jobs:
