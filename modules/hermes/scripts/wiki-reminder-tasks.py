@@ -29,6 +29,21 @@ LEAD_DAYS = {
     "weekly": 0,
 }
 
+# Payment handling class -> (task, exceptions). task "lead" keeps the lead
+# window above; "on-date" creates a "Record:" task only on the charge date;
+# None creates nothing. Exceptions are the only things an auto class may
+# report, and only as problems (Dots), never as tasks. A candidate without
+# "handling" is manual-pay, so habits and unclassified rows keep coverage.
+# Add a class here: one line.
+HANDLING = {
+    "manual-pay": ("lead", ()),
+    "auto-charge-no-action": (None, ("failed-charge", "missing-posting")),
+    "auto-charge-watch": (None, ("failed-charge", "missing-posting",
+                                 "amount-change", "date-change",
+                                 "missing-statement")),
+    "auto-charge-record": ("on-date", ("failed-charge", "missing-posting")),
+}
+
 
 def marker_for(key, action_date):
     return f"{MARKER_PREFIX}{key}:{action_date}"
@@ -203,8 +218,14 @@ def main(today_override=None, snapshot_path=None):
         title = item.get("title") or ""
         action_date = item.get("action_date") or ""
         note = item.get("note") or ""
+        handling = item.get("handling") or "manual-pay"
+        exception = item.get("exception") or ""
         if (
-            not isinstance(kind, str)
+            not isinstance(handling, str)
+            or handling not in HANDLING
+            or not isinstance(exception, str)
+            or (exception and exception not in HANDLING[handling][1])
+            or not isinstance(kind, str)
             or kind not in LEAD_DAYS
             or not isinstance(key, str)
             or not key
@@ -235,11 +256,25 @@ def main(today_override=None, snapshot_path=None):
                           "note": note})
             continue
         days_left = (due - current).days
-        lead_days = LEAD_DAYS[kind]
+        task_mode = HANDLING[handling][0]
+        lead_days = LEAD_DAYS[kind] if task_mode == "lead" else 0
         marker = marker_for(key, action_date)
         entry = {"key": key, "type": kind, "title": title,
                  "action_date": action_date, "days_left": days_left,
-                 "lead_days": lead_days, "status": "", "note": note}
+                 "lead_days": lead_days, "status": "", "note": note,
+                 "handling": handling}
+        if exception:
+            detail = f" ({note})" if note else ""
+            problems.append(f"exception: {key}: {exception}{detail}")
+            entry["status"] = "exception"
+            items.append(entry)
+            continue
+        if task_mode is None or (task_mode == "on-date" and days_left > 0):
+            entry["status"] = "auto"
+            items.append(entry)
+            continue
+        if task_mode == "on-date":
+            title = f"Record: {title}"
         if days_left < 0:
             problems.append(f"overdue-manual: {key} was due {action_date}")
             entry["status"] = "overdue-manual"

@@ -20,6 +20,16 @@ class WikiReminderTaskTests(unittest.TestCase):
         self.assertIn("wiki-reminder-marker", helper)
         self.assertIn("--include-completed", helper)
 
+    def test_reminder_jobs_use_payment_handling_classes(self):
+        text = SEED.read_text(encoding="utf-8")
+        due = text.split('"name": "wiki-due-reminders"')[0].rsplit("PROMPT = ", 1)[1]
+        tick = text.split("# Seed proactive-tick cron job")[1].split("MANAGED = {")[0]
+        for prompt in (due, tick):
+            for name in ("manual-pay", "auto-charge-no-action",
+                         "auto-charge-watch", "auto-charge-record", "Handling"):
+                self.assertIn(name, prompt)
+        self.assertIn("recurring-payments.md", tick)
+
 
 if __name__ == "__main__":
     unittest.main()
