@@ -358,33 +358,48 @@ jobs:
               if: always() && steps.changed.outputs.run == 'true'
               run: docker rm -f hermes-image-test || true
 
+    # The tailnet web app is hermes-dots web/ at the commit pinned in modules/hermes-dots.sha.
     dots-web:
         runs-on: ubuntu-latest
         defaults:
             run:
-                working-directory: modules/dots-web
+                working-directory: hermes-dots/web
         env:
             GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
         steps:
             - uses: actions/checkout@v4
+            - name: Read the pinned hermes-dots commit
+              id: pin
+              working-directory: .
+              run: echo "sha=$(tr -d '[:space:]' < modules/hermes-dots.sha)" >> "$GITHUB_OUTPUT"
+            - uses: actions/checkout@v4
+              with:
+                  repository: darrencjh8/hermes-dots
+                  ref: ${{ steps.pin.outputs.sha }}
+                  token: ${{ secrets.SUBMODULE_PAT }}
+                  path: hermes-dots
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
             - run: bash ../../scripts/test-fetch-persona-media.sh
-            # Friday's clips and icons come from the pinned friday-persona release; the icon
-            # tests and the image both read them.
+            # Friday's clips (android) and icons (dots-web) come from the friday-persona
+            # release pinned in hermes-dots; the icon tests and the image both read them.
             - name: Fetch persona media
-              run: bash ../../scripts/fetch-persona-media.sh dots-web .
-            - run: node --test server.test.mjs
-            - run: node --test src/appIcon.test.ts src/pairing/crypto.test.ts
+              run: |
+                  bash ../../scripts/fetch-persona-media.sh dots-web .
+                  bash ../../scripts/fetch-persona-media.sh android ..
+            - run: npm ci
+            - run: npm run typecheck
+            - run: npm test
             # The tests use a fixture build, so only the image proves the real one is served.
-            - run: docker build -t dots-web-smoke .
+            - run: docker build -f web/Dockerfile -t dots-web-smoke .
+              working-directory: hermes-dots
             - run: docker run -d --name dots-web-smoke -p 127.0.0.1:8789:8789 dots-web-smoke
             - run: sleep 3 && curl -fsS http://127.0.0.1:8789/ | grep -q '<title>Hermes'
             # A missing file falls back to index.html with 200, so check the type, not the status.
             - name: The image serves Friday's clips and icons
               run: |
-                  for path in /dots/nova/idle.webp /dots/nova/still.webp /icons/nova-default-192.png /icons/nova-night-512.png; do
+                  for path in /clips/nova_state_still_white.webp /clips/nova_state_thinking_black.webp /icons/nova-default-192.png /icons/nova-night-512.png; do
                       type=$(curl -fsS -o /dev/null -w '%{content_type}' "http://127.0.0.1:8789$path")
                       case "$type" in image/*) ;; *) echo "$path served as '$type'"; exit 1 ;; esac
                   done

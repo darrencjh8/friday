@@ -1,17 +1,18 @@
 # Publishes Friday's portraits, clips and icons from darrencjh8/friday-persona
 # (media/) as a versioned release in friday-persona, never in friday, then
-# opens a pull request in each consumer that bumps its persona-media.version.
-# The consumers download the pinned release at build time with
-# scripts/fetch-persona-media.sh, so the media never lives in their git trees:
-#   friday       modules/dots-web/persona-media.version  (tested by test.yml)
-#   hermes-dots  persona-media.version                    (Hermes-Dots CI is dispatched here)
+# opens a pull request in hermes-dots that bumps its persona-media.version.
+# hermes-dots downloads the pinned release at build time with
+# scripts/fetch-persona-media.sh, so the media never lives in its git tree.
+# The Android app and the web app (web/persona-media.version is a link to the
+# root file) share that pin; friday's tailnet app picks a bump up when
+# modules/hermes-dots.sha moves past it.
 #
 # Manual dispatch only. The tag is the next vN after the highest existing one;
 # a published release is never changed. A consumer without a version file
 # yet is skipped. The bump pull requests are never merged here.
 #
 # SUBMODULE_PAT must be able to read friday-persona and write releases there,
-# and to push branches and open pull requests in friday and hermes-dots.
+# and to push branches and open pull requests in hermes-dots.
 name: Persona media release
 
 on:
@@ -72,8 +73,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - repo: darrencjh8/friday
-            file: modules/dots-web/persona-media.version
           - repo: darrencjh8/hermes-dots
             file: persona-media.version
     env:

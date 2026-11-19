@@ -32,6 +32,7 @@ on:
                     - expense-tracker
                     - actual-api
                     - codex-router
+                    - dots-web
 
 concurrency:
     group: production-deploy
@@ -74,6 +75,19 @@ jobs:
                   ref: main
                   token: ${{ secrets.SUBMODULE_PAT }}
                   path: modules/codex-router
+
+            # dots-web is built from hermes-dots web/ at a pinned commit, so every
+            # update to the tailnet app is a reviewed bump of modules/hermes-dots.sha.
+            - name: Read the pinned hermes-dots commit
+              id: hermes_dots
+              run: echo "sha=$(tr -d '[:space:]' < modules/hermes-dots.sha)" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@v4
+              with:
+                  repository: darrencjh8/hermes-dots
+                  ref: ${{ steps.hermes_dots.outputs.sha }}
+                  token: ${{ secrets.SUBMODULE_PAT }}
+                  path: modules/hermes-dots
 
             - name: Detect changed modules
               id: changes
@@ -131,16 +145,21 @@ jobs:
                   echo "$CHANGED" | grep -q "^modules/fetch-claude-usage.py" && COMPONENTS="$COMPONENTS codex-router"
                   echo "$CHANGED" | grep -q "^\.github/"               && COMPONENTS="$COMPONENTS hermes"
                   echo "$CHANGED" | grep -qE "^(\.github/workflows/deploy\.yml|modules/(docker-compose\.yml|deploy\.sh))$" && COMPONENTS="$COMPONENTS codex-router"
+                  # A bump of the hermes-dots pin rebuilds the tailnet web app.
+                  echo "$CHANGED" | grep -q "^modules/hermes-dots\.sha$" && COMPONENTS="$COMPONENTS dots-web"
                   if [ -z "$COMPONENTS" ] || echo "$CHANGED" | grep -qE "^(Dockerfile|deploy\.sh|modules/(docker-compose\.yml|deploy\.sh)$)"; then
                       COMPONENTS="all"
                   fi
                   echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
 
-            # dots-web builds Friday's clips and icons from the pinned friday-persona release.
+            # dots-web builds Friday's clips (android) and icons (dots-web) from the
+            # friday-persona release pinned in hermes-dots' persona-media.version.
             - name: Fetch persona media
               env:
                   GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
-              run: bash ./scripts/fetch-persona-media.sh dots-web modules/dots-web
+              run: |
+                  bash ./scripts/fetch-persona-media.sh dots-web modules/hermes-dots/web
+                  bash ./scripts/fetch-persona-media.sh android modules/hermes-dots
 
             - name: Build images
               env:

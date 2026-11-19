@@ -63,11 +63,14 @@ class TestIssue185(unittest.TestCase):
         lines = []
         for entry in entries:
             path = os.path.join(ROOT, entry["file"])
-            with open(path, encoding="utf-8") as handle:
-                if entry["value"] not in handle.read():
-                    failures.append(
-                        f"allowlisted value no longer occurs in "
-                        f"{entry['file']}")
+            # A file deleted since (modules/dots-web, #271) still holds the
+            # value in history at the entry's commit, so the entry stays.
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as handle:
+                    if entry["value"] not in handle.read():
+                        failures.append(
+                            f"allowlisted value no longer occurs in "
+                            f"{entry['file']}")
             lines.append(_finding(entry))
         found = alert.collect(lines, recent=None, allowed=allowed)
         for entry in entries:

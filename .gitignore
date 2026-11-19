@@ -89,3 +89,6 @@ modules/onedrive-sync/config/onedrive-state/
 # public repository. Copy scripts/.pii-patterns.local.json.example to this path.
 scripts/.pii-patterns.local.json
 .agents/
+
+# hermes-dots at the pinned commit (modules/hermes-dots.sha), checked out by CI to build dots-web.
+modules/hermes-dots/
