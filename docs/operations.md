@@ -47,6 +47,11 @@ Other workflows:
 
 `expense-tracker`, `portfolio-tracker`, `actual-api`, and hermes `8642` publish to `127.0.0.1` only. `codex-router` binds `0.0.0.0:4100` so the `hermes_shared` network and external clients can reach it, and hermes publishes only `8644` on all interfaces (no host IP in `docker-compose.yml`). The front sits in front of two interchangeable router colours (`codex-router-a`, `codex-router-b`), which publish no ports of their own; a deploy rolls one colour at a time, so `4100` never goes dark. The Webapp publishes to `127.0.0.1` only for the same reason; Tailscale serve terminates TLS on the tailnet.
 
+The `dots-web` image is built from `web/` in darrencjh8/hermes-dots at the commit pinned in
+`modules/hermes-dots.sha`; friday keeps no copy of the web app. To ship a hermes-dots change to the
+tailnet app, merge it in hermes-dots, then open a friday pull request that moves the pin to the new
+commit. The deploy rebuilds `dots-web` whenever the pin changes.
+
 ## Tailnet exposure (Tailscale serve)
 
 Tailscale terminates TLS and proxies to host loopback, so nothing here is published to the LAN.

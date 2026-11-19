@@ -40,7 +40,7 @@ class DotsPlatformWiringTest(unittest.TestCase):
 
     def test_web_app_is_published_on_host_loopback_only(self):
         service = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))["services"]["dots-web"]
-        self.assertEqual(service["build"]["context"], "../modules/dots-web")
+        self.assertEqual(service["build"], {"context": "../modules/hermes-dots", "dockerfile": "web/Dockerfile"})
         self.assertEqual(service["ports"], ["127.0.0.1:8789:8789"])
 
     def test_web_origins_come_from_a_deploy_secret(self):

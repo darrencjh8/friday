@@ -4,7 +4,7 @@
 # darrencjh8/friday-persona (media/), never in the app repositories.
 #
 # Usage: fetch-persona-media.sh <dots-web|android> <consumer dir>
-#   dots-web: modules/dots-web in friday   android: the hermes-dots root
+#   dots-web: hermes-dots web/   android: the hermes-dots root
 # The consumer dir holds persona-media.version, a friday-persona release tag
 # such as v1. Needs GH_TOKEN with read access to darrencjh8/friday-persona.
 set -euo pipefail

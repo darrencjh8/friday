@@ -171,6 +171,29 @@ def _now_ms() -> int:
     return int(time.time() * 1000)
 
 
+def _reply_fields(frame: dict[str, Any]) -> dict[str, Any]:
+    """Validated ``reply_to``/``quote`` from an incoming message frame.
+
+    Mirrors what the web and Android clients already accept, so a stored
+    quote round-trips losslessly and a malformed frame stores nothing.
+    """
+    fields: dict[str, Any] = {}
+    reply_to = frame.get("reply_to")
+    if isinstance(reply_to, str) and reply_to:
+        fields["reply_to"] = reply_to
+    quote = frame.get("quote")
+    if isinstance(quote, dict):
+        qid = quote.get("id")
+        qtext = quote.get("text")
+        if isinstance(qid, str) and qid and isinstance(qtext, str) and qtext:
+            fields["quote"] = {
+                "id": qid,
+                "text": qtext,
+                "sender": "user" if quote.get("sender") == "user" else "agent",
+            }
+    return fields
+
+
 def _token(extra: Optional[dict] = None) -> str:
     return (_extra_or_secret(extra or {}, "token", "DOTS_TOKEN") or "").strip()
 
@@ -1037,6 +1060,7 @@ class DotsAdapter(BasePlatformAdapter):
         speakers = self._room_speakers(chat, frame.get("room"))
         event = self._history.add({
             "type": "message", "id": uuid.uuid4().hex, "role": "user", "text": text, "ts": _now_ms(), "final": True, "chat": chat,
+            **_reply_fields(frame),
             **({"room": [d["id"] for d in speakers]} if speakers else {}),
         })
         await self._ack({"type": "ack", "client_id": client_id, "id": event["id"], "seq": event["seq"], "ts": event["ts"], "chat": chat}, ws)
