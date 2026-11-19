@@ -5,6 +5,7 @@ import static org.junit.Assert.*;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -194,5 +195,82 @@ public class PpClientImportIbkrTest {
         Map<String, Object> result = ppc.importIbkr(
                 emptyXml.toFile(), sgdAccountId, usdAccountId, portfolioId);
         assertEquals(0, ((Number) result.get("trades_imported")).intValue());
+    }
+    // Option trades follow the owner's bookkeeping: a sold option's premium is a
+    // dividend on the underlying, a bought option is a fee on it, and an
+    // expiry or assignment leg (netCash 0) books nothing. No option security.
+    private static String optionTrade(String tradeId, String buySell, String qty, String netCash,
+            String underlyingIsin, String underlyingSymbol) {
+        return String.format("""
+                <Trade currency="USD" assetCategory="OPT" subCategory="P" symbol="AAPL  270115P00120000"
+                    description="AAPL 15JAN27 120 P" conid="728893355" securityID="" securityIDType=""
+                    underlyingSymbol="%s" underlyingSecurityID="%s" tradeID="%s" multiplier="100"
+                    strike="120" expiry="20270115" putCall="P" reportDate="20261118"
+                    dateTime="20261118;103723" tradeDate="20261118" transactionType="ExchTrade"
+                    quantity="%s" tradePrice="2.35" proceeds="235" taxes="-0.07" ibCommission="-0.77"
+                    ibCommissionCurrency="USD" netCash="%s" buySell="%s" transactionID="1%s"
+                    levelOfDetail="EXECUTION" />
+                """, underlyingSymbol, underlyingIsin, tradeId, qty, netCash, buySell, tradeId);
+    }
+
+    private Path flexWith(String trades) throws Exception {
+        Path xml = Files.createTempFile("ibkr-opt-", ".xml");
+        xml.toFile().deleteOnExit();
+        Files.writeString(xml, IBKR_FLEX_XML.replace("</Trades>", trades + "</Trades>"));
+        return xml;
+    }
+
+    private static List<Map<String, Object>> withNote(List<Map<String, Object>> txs, String needle) {
+        return txs.stream().filter(t -> String.valueOf(t.get("notes")).contains(needle)).toList();
+    }
+
+    @Test
+    public void testOptionTradesBookedOnUnderlying() throws Exception {
+        Path xml = flexWith(
+                optionTrade("501", "SELL", "-1", "234.16", "US0378331005", "AAPL")
+                + optionTrade("502", "BUY", "1", "-50.5", "", "AAPL")
+                + optionTrade("503", "BUY", "1", "0", "US0378331005", "AAPL"));
+        PpClient ppc = new PpClient(tmpPortfolio.toFile());
+        Map<String, Object> r = ppc.importIbkr(xml.toFile(), "", usdAccountId, portfolioId);
+
+        assertEquals(List.of(), r.get("errors"));
+        assertEquals(1, ((Number) r.get("trades_imported")).intValue()); // the AAPL stock buy
+        assertEquals(0, ((Number) r.get("securities_created")).intValue());
+
+        List<Map<String, Object>> txs = ppc.dumpTransactions();
+        List<Map<String, Object>> sold = withNote(txs, "Trade-ID: 501");
+        assertEquals(1, sold.size());
+        assertEquals("DIVIDENDS", sold.get(0).get("type"));
+        assertEquals(23416, sold.get(0).get("amount_cents"));
+        assertEquals(securityId, sold.get(0).get("security_id"));
+        assertEquals(usdAccountId, sold.get(0).get("account_id"));
+
+        List<Map<String, Object>> bought = withNote(txs, "Trade-ID: 502");
+        assertEquals(1, bought.size());
+        assertEquals("FEES", bought.get(0).get("type"));
+        assertEquals(5050, bought.get(0).get("amount_cents"));
+        assertEquals(securityId, bought.get(0).get("security_id"));
+
+        assertEquals(0, withNote(txs, "Trade-ID: 503").size());
+
+        // The daily sync re-reads a 7-day window: a rerun must not double-book.
+        Map<String, Object> r2 = new PpClient(tmpPortfolio.toFile())
+                .importIbkr(xml.toFile(), "", usdAccountId, portfolioId);
+        assertEquals(List.of(), r2.get("errors"));
+        List<Map<String, Object>> after = new PpClient(tmpPortfolio.toFile()).dumpTransactions();
+        assertEquals(1, withNote(after, "Trade-ID: 501").size());
+        assertEquals(1, withNote(after, "Trade-ID: 502").size());
+    }
+
+    @Test
+    public void testOptionWithUnknownUnderlyingIsReported() throws Exception {
+        Path xml = flexWith(optionTrade("601", "SELL", "-1", "100", "US0000000000", "ZZZZ"));
+        PpClient ppc = new PpClient(tmpPortfolio.toFile());
+        Map<String, Object> r = ppc.importIbkr(xml.toFile(), "", usdAccountId, portfolioId);
+        @SuppressWarnings("unchecked")
+        List<String> errors = (List<String>) r.get("errors");
+        assertEquals(1, errors.size());
+        assertTrue(errors.get(0).contains("ZZZZ"));
+        assertEquals(0, withNote(ppc.dumpTransactions(), "Trade-ID: 601").size());
     }
 }
