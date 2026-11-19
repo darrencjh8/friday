@@ -47,6 +47,16 @@ import name.abuchen.portfolio.datatransfer.ibflex.IBFlexStatementExtractor;
 import name.abuchen.portfolio.snapshot.ClientSnapshot;
 import name.abuchen.portfolio.snapshot.filter.ClientClassificationFilter;
 import org.eclipse.core.runtime.NullProgressMonitor;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.TransformerException;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.SAXException;
 
 public class PpClient {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -982,6 +992,81 @@ public class PpClient {
     }
 
     /**
+     * Copy of the Flex XML without its option (assetCategory OPT) trades, which
+     * are collected into {@code optionTrades}. Returns the original file when it
+     * holds no option trades.
+     */
+    private static File withoutOptionTrades(File xmlFile, List<Element> optionTrades) throws IOException {
+        try {
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            Document doc = dbf.newDocumentBuilder().parse(xmlFile);
+            NodeList trades = doc.getElementsByTagName("Trade");
+            for (int i = trades.getLength() - 1; i >= 0; i--) {
+                Element t = (Element) trades.item(i);
+                if ("OPT".equals(t.getAttribute("assetCategory"))) {
+                    optionTrades.add(0, t);
+                    t.getParentNode().removeChild(t);
+                }
+            }
+            if (optionTrades.isEmpty()) return xmlFile;
+            File out = File.createTempFile("ibkr-stock-", ".xml");
+            TransformerFactory.newInstance().newTransformer()
+                    .transform(new DOMSource(doc), new StreamResult(out));
+            return out;
+        } catch (ParserConfigurationException | SAXException | TransformerException e) {
+            throw new IOException("Cannot read IBKR XML: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Books one option trade on its underlying: a sale's net premium is a
+     * dividend, a purchase's net cost a fee. Expiry and assignment legs carry no
+     * cash (the assigned stock arrives as its own stock trade) and book nothing.
+     *
+     * @return true for a dividend, false for a fee, null when nothing was booked
+     */
+    private Boolean bookOptionTrade(Client client, Element trade, Account sgdAccount, Account usdAccount)
+            throws IOException {
+        String tradeId = trade.getAttribute("tradeID");
+        String note = trade.getAttribute("description") + " | Trade-ID: " + tradeId;
+        long cents = Math.round(Double.parseDouble(trade.getAttribute("netCash")) * 100);
+        if (cents == 0) return null;
+
+        String currency = trade.getAttribute("currency");
+        Account account = "SGD".equals(currency) ? sgdAccount : "USD".equals(currency) ? usdAccount : null;
+        if (account == null) throw new IOException("no account configured for " + currency);
+        // The daily sync re-reads several days of trades: book each trade once.
+        for (AccountTransaction t : account.getTransactions()) {
+            if (t.getNote() != null && t.getNote().contains("Trade-ID: " + tradeId)) return null;
+        }
+
+        String isin = trade.getAttribute("underlyingSecurityID");
+        String symbol = trade.getAttribute("underlyingSymbol");
+        Security underlying = null;
+        for (Security s : client.getSecurities()) {
+            if (!isin.isEmpty() && isin.equals(s.getIsin())) { underlying = s; break; }
+        }
+        if (underlying == null) {
+            for (Security s : client.getSecurities()) {
+                if (symbol.equals(s.getTickerSymbol())) { underlying = s; break; }
+            }
+        }
+        if (underlying == null) throw new IOException("underlying " + symbol + " not found in PP");
+
+        AccountTransaction t = new AccountTransaction();
+        t.setType(cents > 0 ? AccountTransaction.Type.DIVIDENDS : AccountTransaction.Type.FEES);
+        t.setDateTime(LocalDate.parse(trade.getAttribute("tradeDate"),
+                java.time.format.DateTimeFormatter.BASIC_ISO_DATE).atStartOfDay());
+        t.setCurrencyCode(currency);
+        t.setAmount(Math.abs(cents) * Values.Amount.factor() / 100);
+        t.setSecurity(underlying);
+        t.setNote(note);
+        account.addTransaction(t);
+        return cents > 0;
+    }
+
+    /**
      * Import IBKR Flex Query XML using the same IBFlexStatementExtractor
      * as the Portfolio Performance desktop UI.
      * Handles: trades, dividends, deposits, fees, interest, taxes,
@@ -1007,12 +1092,21 @@ public class PpClient {
         Portfolio portfolio = (portfolioId != null && !portfolioId.isEmpty())
                 ? findPortfolio(client, portfolioId) : null;
 
+        // Option trades never reach PP's extractor: they are booked on the
+        // underlying below, the way the owner records them.
+        List<Element> optionTrades = new ArrayList<>();
+        File stockXml = withoutOptionTrades(xmlFile, optionTrades);
+
         IBFlexStatementExtractor extractor = new IBFlexStatementExtractor(client);
-        Extractor.InputFile inputFile = new Extractor.InputFile(xmlFile);
+        Extractor.InputFile inputFile = new Extractor.InputFile(stockXml);
 
         List<Exception> errors = new ArrayList<>();
-        List<Extractor.Item> items = extractor.extract(
-                new SecurityCache(client), inputFile, errors);
+        List<Extractor.Item> items;
+        try {
+            items = extractor.extract(new SecurityCache(client), inputFile, errors);
+        } finally {
+            if (!stockXml.equals(xmlFile)) stockXml.delete();
+        }
 
         // Post-process: pair dividend taxes with dividend transactions
         extractor.postProcessing(items);
@@ -1078,6 +1172,18 @@ public class PpClient {
                 }
             } catch (Exception e) {
                 errors.add(new IOException("Failed to insert item: " + e.getMessage(), e));
+            }
+        }
+
+        for (Element trade : optionTrades) {
+            try {
+                Boolean dividend = bookOptionTrade(client, trade, sgdAccount, usdAccount);
+                if (dividend == null) itemsSkipped++;
+                else if (dividend) dividendsImported++;
+                else otherImported++;
+            } catch (Exception e) {
+                errors.add(new IOException("Option trade " + trade.getAttribute("tradeID")
+                        + ": " + e.getMessage(), e));
             }
         }
 
