@@ -21,7 +21,7 @@ HERMES = HERE.parents[1] / "hermes"
 SCRIPT = HERMES / "scripts" / "curator-proposals.py"
 APPROVAL_SCRIPT = HERMES / "scripts" / "curator-proposal-approval.py"
 REPLY_PATCH = HERMES / "patches" / "patch-telegram-reply-context.py"
-REPLY_FIXTURE = HERMES / "tests" / "fixtures" / "upstream_telegram_reply_context_v0.22.2.py"
+REPLY_FIXTURE = HERMES / "tests" / "fixtures" / "upstream_telegram_reply_context_stable.py"
 STORE_FIXTURE = HERMES / "tests" / "fixtures" / "upstream_rich_sent_store_v0.22.2.py"
 
 
@@ -227,7 +227,6 @@ class TelegramReplyContextPatchTest(unittest.TestCase):
         namespace = {"Any": object}
         exec(compile(patched, "patched_adapter", "exec"), namespace)
         adapter = namespace["TelegramAdapter"]()
-        adapter._rich_text = "table heading\nrow one\nrow two"
         message = types.SimpleNamespace(
             reply_to_message=types.SimpleNamespace(message_id=7, text="partial header", caption=None),
             quote=None,
