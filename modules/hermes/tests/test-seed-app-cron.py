@@ -136,6 +136,34 @@ class SeedAppCronTests(unittest.TestCase):
         self.assertIn("refresh-codex-router-checkout.sh", refresh)
         self.assertIn('|| echo "WARNING: could not advance the codex-router checkout', refresh)
 
+    def test_portfolio_sync_runs_after_ibkr_flex_statement(self) -> None:
+        # IBKR builds the prior day's Flex statement around 00:15 New York
+        # time (12:15-13:15 SGT), so a noon run imports every trade a day late.
+        block = extract_block("# Seed finance-portfolio-sync cron job")
+        want = {"kind": "cron", "expr": "30 14 * * *", "display": "30 14 * * *"}
+        with tempfile.TemporaryDirectory() as tmp:
+            jobs_path = Path(tmp) / "cron" / "jobs.json"
+            jobs_path.parent.mkdir()
+            jobs_path.write_text('{"jobs": []}')
+            self.assertEqual(run_seed_block(block, jobs_path)[0]["schedule"], want)
+
+            old = {"kind": "cron", "expr": "0 12 * * *", "display": "0 12 * * *"}
+            jobs_path.write_text(json.dumps({"jobs": [{
+                "name": "finance-portfolio-sync", "schedule": old,
+                "schedule_display": "0 12 * * *", "script": "portfolio-sync.sh",
+                "no_agent": True, "deliver": "local",
+                "next_run_at": "2026-11-20T12:00:00+08:00",
+            }]}))
+            job = run_seed_block(block, jobs_path)[0]
+            self.assertEqual(job["schedule"], want)
+            self.assertEqual(job["schedule_display"], "30 14 * * *")
+            self.assertIsNone(job["next_run_at"])
+
+            # A schedule the owner picked by hand is left alone.
+            job["schedule"] = {"kind": "cron", "expr": "0 18 * * *", "display": "0 18 * * *"}
+            jobs_path.write_text(json.dumps({"jobs": [job]}))
+            self.assertEqual(run_seed_block(block, jobs_path)[0]["schedule"]["expr"], "0 18 * * *")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

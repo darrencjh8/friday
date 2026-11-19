@@ -155,7 +155,7 @@ Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--
 | `memory-backup` | every 360m | Backup memories to private git repo |
 | `persona-sync` | every 360m | Pull the shared persona repo and refresh the persona block in SOUL.md |
 | `persona-reflection` | `40 21 * * *` (daily 21:40) | Reflect on the day and publish at most one persona change to the shared persona repo |
-| `finance-portfolio-sync` | `0 12 * * *` (daily noon) | Zero-token `POST /tools/pp-sync-all` portfolio sync |
+| `finance-portfolio-sync` | `30 14 * * *` (daily 14:30 SGT, after the IBKR Flex statement) | Zero-token `POST /tools/pp-sync-all` portfolio sync |
 | `wiki-due-reminders` | `15 8 * * *` (daily 08:15) | Wiki due-date reminders |
 | `memory-approve-queue` | `0 8 * * *` (daily 08:00) | Drain the memory write-approval queue |
 | `ops-log-issues` | `30 18 * * *` (daily 18:30) | Daily log issue triage (artifact-only workdir) |

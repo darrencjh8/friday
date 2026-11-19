@@ -1186,8 +1186,16 @@ for j in jobs:
         if "deliver_extra" in j:
             del j["deliver_extra"]
             changed = True
+        # Move the old noon default (a hand-picked schedule stays): IBKR builds
+        # the prior day's Flex statement around 00:15 New York time, 12:15 to
+        # 13:15 SGT, so a noon run imported every trade a day late.
+        if j.get("schedule", {}).get("expr") == "0 12 * * *":
+            j["schedule"] = {"kind": "cron", "expr": "30 14 * * *", "display": "30 14 * * *"}
+            j["schedule_display"] = "30 14 * * *"
+            j["next_run_at"] = None
+            changed = True
         if changed:
-            print("cron: finance-portfolio-sync migrated to no_agent")
+            print("cron: finance-portfolio-sync migrated")
         else:
             print("cron: finance-portfolio-sync unchanged")
         break
@@ -1196,8 +1204,8 @@ if not found:
     jobs.append({
         "id": uuid.uuid4().hex[:12],
         "name": "finance-portfolio-sync",
-        "schedule": {"kind": "cron", "expr": "0 12 * * *", "display": "0 12 * * *"},
-        "schedule_display": "0 12 * * *",
+        "schedule": {"kind": "cron", "expr": "30 14 * * *", "display": "30 14 * * *"},
+        "schedule_display": "30 14 * * *",
         "script": "portfolio-sync.sh",
         "no_agent": True,
         "enabled": True,
