@@ -9,7 +9,7 @@
 
 import { LLMClient, DeepSeekClient } from "../orchestrator.js";
 import { extractEmailContent } from "../extractors.js";
-import { logger } from "../logging.js";
+import { logger, redactSensitive } from "../logging.js";
 import { STATEMENT_PROMPT } from "./prompts.js";
 
 const MAX_TOOL_ITERATIONS = 20;
@@ -307,11 +307,11 @@ export class StatementProcessor {
           logger.info({
             event: "statement_tool_exec",
             tool: name,
-            args,
+            args: redactSensitive(args),
             result:
               typeof result === "string"
                 ? result.slice(0, 200)
-                : JSON.stringify(result).slice(0, 200),
+                : JSON.stringify(redactSensitive(result)).slice(0, 200),
           });
         }
       }
