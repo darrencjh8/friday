@@ -24,7 +24,9 @@ friday/
 │   ├── actual-api/
 │   ├── image-gen/
 │   ├── codex-router/              # Checked out from darrencjh8/codex-router by CI (not tracked here)
-│   └── codex-router-front/        # Caddy config for the front that publishes 4100
+│   ├── codex-router-front/        # Caddy config for the front that publishes 4100
+│   ├── hermes-dots.sha            # The darrencjh8/hermes-dots commit dots-web is built from
+│   └── hermes-dots/               # Checked out at that commit by CI (not tracked here)
 ├── .github/workflows/deploy.yml   # CI/CD entry point
 └── specs/                         # Spec-Kit feature specs
 ```
@@ -36,12 +38,13 @@ There is no `gateway/` directory in the repository (`git ls-files gateway` retur
 `.github/workflows/deploy.yml` runs on push to `main` on the self-hosted runner:
 
 1. **Trigger:** push to `main`, plus `workflow_dispatch`. Serialized by concurrency group `production-deploy` (`cancel-in-progress: false`).
-2. **Checkout:** the repo, then `darrencjh8/codex-router@main` into `modules/codex-router`.
+2. **Checkout:** the repo, then `darrencjh8/codex-router@main` into `modules/codex-router`, then `darrencjh8/hermes-dots` at the commit in `modules/hermes-dots.sha` into `modules/hermes-dots` (the `dots-web` image builds from its `web/`).
 3. **Detect changed modules** (`git diff --name-only HEAD~1 HEAD`):
    - `modules/hermes/`, `gateway/`, `.github/` → `hermes`
    - `modules/expense-tracker/` → `expense-tracker`
    - `modules/portfolio-tracker/` → `portfolio-tracker`
    - `modules/actual-api/` → `actual-api`
+   - `modules/hermes-dots.sha` → `dots-web`
    - changes to `.github/workflows/deploy.yml` → `codex-router`
    - changes to `modules/docker-compose.yml` or `modules/deploy.sh` → `codex-router` first, then overridden to `all` by the rule below
    - changes to `modules/codex-router-front/` → `codex-router`

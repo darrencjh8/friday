@@ -141,6 +141,15 @@ log "sync complete"
 FAILED=$(printf '%s\n' "$SUMMARY" | grep -v 'nothing imported - all' \
     | grep -E '^  (error:|\(parse error|.*: error \()' || true)
 if [ -n "$FAILED" ]; then
+    # An expired or missing OneDrive login fails pull/push. Log in again and
+    # rerun once; ONEDRIVE_RELOGGED stops a second login if that rerun fails too.
+    if [ -z "${ONEDRIVE_RELOGGED:-}" ] && printf '%s\n' "$FAILED" \
+        | grep -E '^  (pull|push): error \((Token HTTP 400|OneDrive refresh token not found)' >/dev/null; then
+        log "OneDrive login expired; logging in again"
+        if ${ONEDRIVE_LOGIN:-python3 "$(dirname "$0")/onedrive-login.py"}; then
+            ONEDRIVE_RELOGGED=1 exec bash "$0" "$@"
+        fi
+    fi
     log "ERROR: a sync step failed"
     exit 1
 fi

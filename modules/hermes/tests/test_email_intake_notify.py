@@ -35,8 +35,10 @@ class FakeTelegram:
         self.sent = []
         self.fail = fail
         self.reject = set(reject)
+        self.request_ids = []
 
-    def __call__(self, text):
+    def __call__(self, text, request_id=None):
+        self.request_ids.append(request_id)
         if text in self.reject:
             return notify.REJECTED
         if self.fail:
@@ -241,6 +243,15 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
         self.assertEqual(len(telegram.sent), 2)
 
+    def test_dots_messages_carry_their_journal_key_as_request_id(self):
+        # #238: a retry after an ambiguous failure reuses the id, so the gateway drops the duplicate.
+        telegram, dots = FakeTelegram(), FakeTelegram(fail=1)
+        outbox = notify.Outbox(self.journal, telegram, dots=dots)
+        self.journal.queue_notification("a", "S$5.00 at Alpha Cafe, logged")
+        outbox.flush()
+        outbox.flush()
+        self.assertEqual(dots.request_ids, ["a", "a"])
+
     def test_without_dots_everything_stays_on_telegram(self):
         telegram = FakeTelegram()
         outbox = notify.Outbox(self.journal, telegram)
@@ -312,6 +323,13 @@ class WebhookSenderTest(unittest.TestCase):
         self.assertEqual(json.loads(data), {"message": "hello"})
         self.assertEqual(headers["X-Webhook-Signature"],
                          hmac.new(b"sekret", data, hashlib.sha256).hexdigest())
+        self.assertNotIn("X-Request-ID", headers)
+
+    def test_request_id_header_lets_the_gateway_drop_a_retried_duplicate(self):
+        calls = []
+        sender = notify.WebhookSender("u", "s", post=lambda url, data, headers: calls.append(headers))
+        sender("hello", request_id="a")
+        self.assertEqual(calls[0]["X-Request-ID"], "email-intake:a")
 
     def test_an_outage_or_auth_error_is_retried_and_a_bad_request_dropped(self):
         import urllib.error

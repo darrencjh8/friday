@@ -1,0 +1,112 @@
+# Publishes Friday's portraits, clips and icons from darrencjh8/friday-persona
+# (media/) as a versioned release in friday-persona, never in friday, then
+# opens a pull request in hermes-dots that bumps its persona-media.version.
+# hermes-dots downloads the pinned release at build time with
+# scripts/fetch-persona-media.sh, so the media never lives in its git tree.
+# The Android app and the web app (web/persona-media.version is a link to the
+# root file) share that pin; friday's tailnet app picks a bump up when
+# modules/hermes-dots.sha moves past it.
+#
+# Manual dispatch only. The tag is the next vN after the highest existing one;
+# a published release is never changed. A consumer without a version file
+# yet is skipped. The bump pull requests are never merged here.
+#
+# SUBMODULE_PAT must be able to read friday-persona and write releases there,
+# and to push branches and open pull requests in hermes-dots.
+name: Persona media release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write # dispatch Hermes-Dots CI for the hermes-dots bump
+
+concurrency:
+  group: persona-media-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    env:
+      GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/friday-persona
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: persona
+
+      - name: Next version
+        id: version
+        run: |
+          # A gh failure must fail the step, never seed v1 over existing releases.
+          tags_json=$(gh release list -R darrencjh8/friday-persona --limit 100 --json tagName) || { echo "gh release list failed" >&2; exit 1; }
+          last=$(echo "$tags_json" | jq -r '.[].tagName' | { grep -E '^v[0-9]+$' || true; } | sed 's/^v//' | sort -n | tail -n 1)
+          echo "version=v$(( ${last:-0} + 1 ))" >> "$GITHUB_OUTPUT"
+
+      - name: Pack
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          test -d persona/media/dots-web && test -d persona/media/android
+          tar -czf "persona-media-$VERSION.tar.gz" -C persona media
+          sha256sum "persona-media-$VERSION.tar.gz" > "persona-media-$VERSION.tar.gz.sha256"
+
+      - name: Publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          sha=$(git -C persona rev-parse HEAD)
+          gh release create "$VERSION" -R darrencjh8/friday-persona --target "$sha" \
+            --title "Persona media $VERSION" \
+            --notes "Friday's app media (\`media/\`) from \`$sha\`. Unpacked at build time by friday's \`scripts/fetch-persona-media.sh\`." \
+            "persona-media-$VERSION.tar.gz" "persona-media-$VERSION.tar.gz.sha256"
+
+  bump:
+    needs: release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - repo: darrencjh8/hermes-dots
+            file: persona-media.version
+    env:
+      # A PAT, not GITHUB_TOKEN: a pull request opened with GITHUB_TOKEN starts no CI.
+      GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: ${{ matrix.repo }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+          path: consumer
+
+      - name: Bump and open the pull request
+        id: bump
+        working-directory: consumer
+        run: |
+          if [ ! -f "${{ matrix.file }}" ]; then
+            echo "${{ matrix.repo }} has no ${{ matrix.file }} yet: skipping."
+            exit 0
+          fi
+          branch="persona-media/$VERSION"
+          printf '%s\n' "$VERSION" > "${{ matrix.file }}"
+          git checkout -b "$branch"
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qam "Bump persona media to $VERSION"
+          git push -q origin "$branch"
+          gh pr create -R "${{ matrix.repo }}" --base main --head "$branch" \
+            --title "Bump persona media to $VERSION" \
+            --body "Points \`${{ matrix.file }}\` at friday-persona release [$VERSION](https://github.com/darrencjh8/friday-persona/releases/tag/$VERSION), opened by the Persona media release workflow in friday. Merge to build with the new media."
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Run Hermes-Dots CI on the bump
+        if: matrix.repo == 'darrencjh8/hermes-dots' && steps.bump.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run hermes-dots-ci.yml -R darrencjh8/friday --ref main -f ref=${{ steps.bump.outputs.sha }}

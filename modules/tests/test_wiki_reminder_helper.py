@@ -274,5 +274,96 @@ class HelperTests(unittest.TestCase):
             self.assertEqual(code, 1)
 
 
+class PaymentHandlingTests(unittest.TestCase):
+    """Each payment handling class only nudges when the owner must act."""
+
+    run_helper = HelperTests.run_helper
+
+    def run_snapshot(self, candidates):
+        module = load_helper()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "reminders.json")
+            original = module.main
+            module.main = lambda today_override: original(
+                today_override=today_override, snapshot_path=path)
+            code, calls = self.run_helper(module, candidates, {})
+            snapshot = json.loads(Path(path).read_text(encoding="utf-8"))
+        adds = [c for c in calls if "add" in c]
+        return code, adds, snapshot
+
+    def test_manual_pay_keeps_current_behavior(self):
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "bill-a", "type": "monthly", "title": "Pay bill A",
+             "action_date": "2026-10-17", "handling": "manual-pay"},
+            {"key": "unclassed-bill", "type": "monthly", "title": "Pay bill",
+             "action_date": "2026-10-17"},
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(adds), 2)
+        self.assertEqual([i["status"] for i in snapshot["items"]], ["created", "created"])
+
+    def test_auto_charged_rent_creates_nothing(self):
+        # Regression: an automatic rent charge must never recreate a task.
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "rent", "type": "monthly", "title": "Pay rent",
+             "action_date": "2026-10-15", "handling": "auto-charge-no-action"},
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(adds, [])
+        self.assertEqual(snapshot["problems"], [])
+        self.assertEqual(snapshot["items"][0]["status"], "auto")
+
+    def test_auto_charge_no_action_reports_failed_charge_only(self):
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "rent", "type": "monthly", "title": "Rent",
+             "action_date": "2026-10-15", "handling": "auto-charge-no-action",
+             "exception": "failed-charge"},
+        ])
+        self.assertEqual(code, 1)
+        self.assertEqual(adds, [])
+        self.assertEqual(snapshot["problems"], ["exception: rent: failed-charge"])
+        self.assertEqual(snapshot["items"][0]["status"], "exception")
+
+    def test_auto_charge_watch_silent_until_exception(self):
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "streaming", "type": "monthly", "title": "Streaming",
+             "action_date": "2026-10-15", "handling": "auto-charge-watch"},
+            {"key": "insurance", "type": "monthly", "title": "Premium",
+             "action_date": "2026-10-15", "handling": "auto-charge-watch",
+             "exception": "amount-change", "note": "100.00 -> 120.00"},
+        ])
+        self.assertEqual(code, 1)
+        self.assertEqual(adds, [])
+        self.assertEqual([i["status"] for i in snapshot["items"]], ["auto", "exception"])
+        self.assertEqual(snapshot["problems"],
+                         ["exception: insurance: amount-change (100.00 -> 120.00)"])
+
+    def test_auto_charge_record_tasks_only_on_charge_date(self):
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "premium", "type": "annual_oneoff", "title": "Insurance premium",
+             "action_date": "2026-10-15", "handling": "auto-charge-record",
+             "note": "Record in budget"},
+            {"key": "premium-later", "type": "annual_oneoff", "title": "Insurance",
+             "action_date": "2026-10-20", "handling": "auto-charge-record"},
+        ])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(adds), 1)
+        self.assertIn("Record: Insurance premium", adds[0])
+        self.assertEqual([i["status"] for i in snapshot["items"]], ["created", "auto"])
+
+    def test_unknown_class_or_exception_is_unclassified(self):
+        code, adds, snapshot = self.run_snapshot([
+            {"key": "a", "type": "monthly", "title": "a",
+             "action_date": "2026-10-15", "handling": "auto-magic"},
+            {"key": "b", "type": "monthly", "title": "b",
+             "action_date": "2026-10-15", "handling": "auto-charge-no-action",
+             "exception": "amount-change"},
+        ])
+        self.assertEqual(code, 1)
+        self.assertEqual(adds, [])
+        self.assertEqual([i["status"] for i in snapshot["items"]],
+                         ["unclassified", "unclassified"])
+
+
 if __name__ == "__main__":
     unittest.main()

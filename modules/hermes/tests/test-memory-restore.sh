@@ -17,7 +17,7 @@ restore_script="$SCRIPT_DIR/../scripts/memory-restore.sh"
 # Fake friday-memory repo contents
 FAKE_REPO="$TMPDIR/fake-repo"
 mkdir -p "$FAKE_REPO/wiki/entities/accounts" "$FAKE_REPO/wiki/concepts" \
-    "$FAKE_REPO/mnemosyne" "$FAKE_REPO/profiles/architect" \
+    "$FAKE_REPO/mnemosyne" "$FAKE_REPO/profiles/code-reviewer" \
     "$FAKE_REPO/skills" "$FAKE_REPO/expense-tracker"
 printf 'core fact\n' > "$FAKE_REPO/MEMORY.md"
 printf 'user fact\n' > "$FAKE_REPO/USER.md"
@@ -26,9 +26,9 @@ printf '# Schema\n' > "$FAKE_REPO/wiki/SCHEMA.md"
 printf 'banks content\n' > "$FAKE_REPO/wiki/entities/accounts/banks-cards.md"
 printf 'routing\n' > "$FAKE_REPO/wiki/concepts/llm-routing.md"
 printf 'mnemo-bytes\n' > "$FAKE_REPO/mnemosyne/mnemosyne.db"
-printf 'arch soul\n' > "$FAKE_REPO/profiles/architect/SOUL.md"
-printf 'api_key: test\n' > "$FAKE_REPO/profiles/architect/config.yaml"
-printf 'desc\n' > "$FAKE_REPO/profiles/architect/profile.yaml"
+printf 'arch soul\n' > "$FAKE_REPO/profiles/code-reviewer/SOUL.md"
+printf 'api_key: test\n' > "$FAKE_REPO/profiles/code-reviewer/config.yaml"
+printf 'desc\n' > "$FAKE_REPO/profiles/code-reviewer/profile.yaml"
 printf 'default\n' > "$FAKE_REPO/profiles/_active"
 mkdir -p "$FAKE_REPO/topics"
 printf 'topic fact\n' > "$FAKE_REPO/topics/accounts.md"
@@ -82,8 +82,8 @@ grep -q "topic fact" "$DATA/memories/topics/accounts.md" 2>/dev/null && ok "fres
     || nope "wiki restore" "nested entity missing"
 grep -q "mnemo-bytes" "$DATA/mnemosyne/data/mnemosyne.db" 2>/dev/null && ok "mnemosyne.db restored" \
     || nope "mnemosyne restore" "missing"
-[ -f "$DATA/profiles/architect/SOUL.md" ] && [ -f "$DATA/profiles/architect/config.yaml" ] \
-    && [ -f "$DATA/profiles/architect/profile.yaml" ] && ok "profile files restored" \
+[ -f "$DATA/profiles/code-reviewer/SOUL.md" ] && [ -f "$DATA/profiles/code-reviewer/config.yaml" ] \
+    && [ -f "$DATA/profiles/code-reviewer/profile.yaml" ] && ok "profile files restored" \
     || nope "profile restore" "profile files missing"
 [ -f "$DATA/active_profile" ] && ok "active profile pointer restored" \
     || nope "active profile restore" "_active not restored"
@@ -125,10 +125,10 @@ if [ "$(id -u)" -eq 0 ]; then
     ok "skipped as root (permissions are not enforced)"
 else
     DATA="$TMPDIR/postclonefail"
-    mkdir -p "$DATA/profiles/architect"
-    chmod 555 "$DATA/profiles/architect"
+    mkdir -p "$DATA/profiles/code-reviewer"
+    chmod 555 "$DATA/profiles/code-reviewer"
     run_restore "$DATA" || true
-    chmod 755 "$DATA/profiles/architect"
+    chmod 755 "$DATA/profiles/code-reviewer"
     [ -f "$DATA/.memory-restore-failed" ] && ok "post-clone failure leaves the marker" \
         || nope "post-clone failure marker" "marker missing after a failed copy"
 fi

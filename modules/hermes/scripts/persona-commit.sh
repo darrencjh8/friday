@@ -13,6 +13,7 @@
 # - a file other than SOUL.md, calendar.md or preferences.md changed;
 # - SOUL.md does not gain an evolution log line naming Hermes;
 # - a change was already published today (Asia/Singapore);
+# - the message or added lines hold personal information (persona-pii-gate.py);
 # - the rebase onto the other agent's newer commit conflicts.
 #
 # Exit status: 0 published or nothing to publish, 2 refused, 3 conflict,
@@ -65,8 +66,10 @@ fi
 today=$(TZ=Asia/Singapore date +%F)
 [ "$(cat "$STATE_DIR/last-publish" 2>/dev/null || true)" != "$today" ] \
     || park "refused: a persona change was already published today" 2
+git add -A
+gate=$({ printf '%s\n' "$MESSAGE"; git diff --cached -U0 | sed -n '/^+++ /d; s/^+//p'; } \
+    | python3 "$(dirname "$0")/persona-pii-gate.py") || park "refused: $gate" 2
 
-g add -A
 g commit --quiet -m "$MESSAGE (Hermes)"
 for _ in 1 2; do
     g fetch --quiet origin main || { log "fetch failed"; park "not published" 1; }

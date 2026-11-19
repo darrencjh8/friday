@@ -19,6 +19,7 @@ import {
 } from "../../src/statement/orchestrator.js";
 import { STATEMENT_PROMPT } from "../../src/statement/prompts.js";
 import { extractEmailContent } from "../../src/extractors.js";
+import { logger } from "../../src/logging.js";
 
 function makeConfig(overrides = {}) {
   return {
@@ -196,6 +197,54 @@ describe("StatementProcessor", () => {
 
       expect(result.action).toBe("completed");
       expect(mockTools.executeTool).toHaveBeenCalled();
+    });
+
+    it("redacts the PDF password in the statement_tool_exec log line (#263)", async () => {
+      processor._llm.chat = vi
+        .fn()
+        .mockResolvedValueOnce({
+          choices: [
+            {
+              finish_reason: "tool_calls",
+              message: {
+                tool_calls: [
+                  {
+                    id: "call-1",
+                    function: {
+                      name: "extract_inbox_pdf",
+                      arguments: '{"uid":1,"password":"hunter2-secret"}',
+                    },
+                  },
+                ],
+              },
+            },
+          ],
+        })
+        .mockResolvedValueOnce({
+          choices: [{ finish_reason: "stop", message: { content: "Done." } }],
+        });
+      mockTools.executeTool.mockResolvedValue({ text: "x", password: "pdf-pw" });
+      const infoSpy = vi.spyOn(logger, "info");
+      let line;
+      try {
+        await processor.processStatement(
+          "msg-1",
+          Buffer.from("From: bank@example.com\r\nSubject: S\r\n\r\nBody."),
+          null,
+        );
+        line = infoSpy.mock.calls
+          .map(([obj]) => obj)
+          .find((obj) => obj && obj.event === "statement_tool_exec");
+      } finally {
+        infoSpy.mockRestore();
+      }
+      expect(line).toBeDefined();
+      expect(line.result).not.toContain("pdf-pw");
+      expect(line.args).toEqual({ uid: 1, password: "[REDACTED]" });
+      expect(mockTools.executeTool).toHaveBeenCalledWith("extract_inbox_pdf", {
+        uid: 1,
+        password: "hunter2-secret",
+      });
     });
 
     it("returns error on unexpected finish_reason", async () => {

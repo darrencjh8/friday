@@ -120,8 +120,56 @@ export function qpdfSucceeded(err) {
     return !err || err.code === 3;
 }
 
+function run(cmd, args, accept = (err) => !err) {
+    return new Promise((resolve, reject) => {
+        execFile(cmd, args, (err, stdout) =>
+            accept(err) ? resolve(stdout) : reject(err),
+        );
+    });
+}
+
+function safeUnlink(p) {
+    try {
+        unlinkSync(p);
+    } catch {}
+}
+
 /**
- * Extract text from a PDF buffer using pdftotext.
+ * Scanned statement pages have no text layer, so pdftotext returns them blank
+ * (#266). OCR each blank page that holds an image with pdftoppm + tesseract;
+ * if OCR fails, say so plainly so the agent does not ask for "a clearer PDF".
+ * pdftotext ends every page with a form feed, so the last split part is empty.
+ */
+async function ocrBlankPages(text, pdfPath) {
+    const pages = text.split("\f");
+    if (!pages.slice(0, -1).some((p) => !p.trim())) return text;
+    // `pdfimages -list` rows start with the page number; header rows do not.
+    const listing = await run("pdfimages", ["-list", pdfPath]).catch(() => "");
+    const imagePages = new Set(
+        String(listing || "")
+            .split("\n")
+            .map((line) => line.trim().split(/\s+/)[0])
+            .filter((col) => /^\d+$/.test(col)),
+    );
+    for (let i = 0; i < pages.length - 1; i++) {
+        if (pages[i].trim() || !imagePages.has(String(i + 1))) continue;
+        const n = String(i + 1);
+        const imgBase = pdfPath.replace(".pdf", `-p${n}`);
+        try {
+            await run("pdftoppm", ["-r", "300", "-f", n, "-l", n, "-singlefile", "-png", pdfPath, imgBase]);
+            const ocr = await run("tesseract", [`${imgBase}.png`, "stdout"]);
+            pages[i] = String(ocr || "").trim() || `[PDF_PAGE_${n}_IMAGE_ONLY: OCR found no text]`;
+        } catch (e) {
+            pages[i] = `[PDF_PAGE_${n}_IMAGE_ONLY: scanned page, OCR failed: ${String(e.message || e).slice(0, 100)}]`;
+        } finally {
+            safeUnlink(`${imgBase}.png`);
+        }
+    }
+    return pages.join("\f");
+}
+
+/**
+ * Extract text from a PDF buffer using pdftotext, OCR'ing image-only pages.
  *
  * @param {Buffer} pdfBuffer - raw PDF bytes
  * @param {string} [password] - optional password for encrypted PDFs
@@ -132,83 +180,23 @@ export async function extractPdfFromBuffer(pdfBuffer, password = null) {
         tmpdir(),
         `pdf-ext-${Date.now()}-${Math.random().toString(36).slice(2)}.pdf`,
     );
+    const decPath = pdfPath.replace(".pdf", "-dec.pdf");
     const outPath = pdfPath.replace(".pdf", ".txt");
     writeFileSync(pdfPath, pdfBuffer);
-
-    if (password) {
-        // Decrypt with qpdf first, then pdftotext on decrypted output
-        const decPath = pdfPath.replace(".pdf", "-dec.pdf");
-        return new Promise((resolve, reject) => {
-            execFile(
-                "qpdf",
-                ["--password=" + password, "--decrypt", pdfPath, decPath],
-                (qpdfErr) => {
-                    try {
-                        unlinkSync(pdfPath);
-                    } catch {}
-                    if (!qpdfSucceeded(qpdfErr)) {
-                        try {
-                            unlinkSync(decPath);
-                        } catch {}
-                        reject(qpdfErr);
-                        return;
-                    }
-                    execFile(
-                        "pdftotext",
-                        ["-layout", decPath, outPath],
-                        (pdftotextErr) => {
-                            try {
-                                unlinkSync(decPath);
-                            } catch {}
-                            if (pdftotextErr) {
-                                try {
-                                    unlinkSync(outPath);
-                                } catch {}
-                                reject(pdftotextErr);
-                            } else {
-                                try {
-                                    const text = readFileSync(outPath, "utf8");
-                                    resolve(text);
-                                } catch (e) {
-                                    reject(e);
-                                } finally {
-                                    try {
-                                        unlinkSync(outPath);
-                                    } catch {}
-                                }
-                            }
-                        },
-                    );
-                },
-            );
-        });
+    try {
+        let srcPath = pdfPath;
+        if (password) {
+            // Decrypt with qpdf first, then pdftotext on decrypted output
+            await run("qpdf", ["--password=" + password, "--decrypt", pdfPath, decPath], qpdfSucceeded);
+            srcPath = decPath;
+        }
+        await run("pdftotext", ["-layout", srcPath, outPath]);
+        return await ocrBlankPages(readFileSync(outPath, "utf8"), srcPath);
+    } finally {
+        safeUnlink(pdfPath);
+        safeUnlink(decPath);
+        safeUnlink(outPath);
     }
-
-    // No password — existing behavior
-    return new Promise((resolve, reject) => {
-        execFile("pdftotext", ["-layout", pdfPath, outPath], (err) => {
-            try {
-                unlinkSync(pdfPath);
-            } catch {}
-            if (err) {
-                try {
-                    unlinkSync(outPath);
-                } catch {}
-                reject(err);
-            } else {
-                try {
-                    const text = readFileSync(outPath, "utf8");
-                    resolve(text);
-                } catch (e) {
-                    reject(e);
-                } finally {
-                    try {
-                        unlinkSync(outPath);
-                    } catch {}
-                }
-            }
-        });
-    });
 }
 
 /** Extract text from PDF via base64 (kept for the extract_pdf_text tool) */

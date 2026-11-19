@@ -77,7 +77,7 @@ graph TB
 4. **Writes go through the Java CLI.** `insert_pp_transaction` and `update_pp_balance` are executed by `modules/portfolio-tracker/pp-cli/` (built from `pp-cli/pom.xml` against the Portfolio Performance model JAR), so edits use Portfolio Performance's own model classes.
 5. **OneDrive.** `pp-pull` and `pp-push` sync the Portfolio XML through the Microsoft Graph API (`modules/portfolio-tracker/src/onedrive.js`). There is no rclone or `onedrive-sync` container in the runtime stack.
 6. **Google Sheets.** `query_pp_taxonomies` reads taxonomy data and `update_google_sheet` exports it using the configured service account and `GOOGLE_SHEET_ID`.
-7. **Scheduled sync.** The Hermes container seeds a `finance-portfolio-sync` cron job (`modules/hermes/50-seed-defaults`, schedule `0 12 * * *`) that runs `modules/hermes/scripts/portfolio-sync.sh` as a zero-token call to `POST http://portfolio-tracker:8081/tools/pp-sync-all`.
+7. **Scheduled sync.** The Hermes container seeds a `finance-portfolio-sync` cron job (`modules/hermes/50-seed-defaults`, schedule `30 14 * * *` SGT, after IBKR builds the prior day's Flex statement) that runs `modules/hermes/scripts/portfolio-sync.sh` as a zero-token call to `POST http://portfolio-tracker:8081/tools/pp-sync-all`.
 8. **From chat.** `modules/hermes/config.yaml` defines the `portfolio-sync` and `portfolio-status` quick commands, which curl `pp-sync-all` and `pp-status` directly.
 
 Both trackers expose a **Streamable HTTP MCP server at `/mcp`** in addition to the REST `/tools/*` endpoints. Hermes registers them under `mcp_servers` in `modules/hermes/config.yaml`. The `fetch_pp_*`, `pp-*`, `insert_pp_transaction` and other names above are REST `/tools/*` routes; the portfolio MCP server exposes 12 `portfolio_*` tools (for example `portfolio_sync`, `portfolio_onedrive_pull`, `portfolio_query_security`).
@@ -107,7 +107,7 @@ friday/
 │   │   ├── opencode/                 # opencode/Codex CLI defaults
 │   │   ├── profiles/                 # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                  # github-auth, memory-backup/restore/triage, portfolio-sync, slack-manifest, skill sync
-│   │   ├── skills/                   # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, skill-merge-approval, spec-auditor
+│   │   ├── skills/                   # expense-tracker, experience-wiki, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, pdf-reading, skill-merge-approval, spec-auditor
 │   │   └── tests/
 │   ├── portfolio-tracker/
 │   │   ├── src/                      # orchestrator, imap, tools, mcp-server, onedrive, ibkr, sheets
@@ -214,7 +214,7 @@ Other workflows:
 | [modules/hermes/SLACK.md](modules/hermes/SLACK.md) | Slack app setup, Socket Mode, and token/scopes. |
 | [modules/portfolio-tracker/README.md](modules/portfolio-tracker/README.md) | Portfolio tracker details and local run instructions. |
 | [modules/expense-tracker/docs/design.md](modules/expense-tracker/docs/design.md) | Expense tracker design. |
-| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `hermes-troubleshooting`, `image-gen`, `skill-merge-approval`, `spec-auditor`. |
+| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `experience-wiki`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `hermes-troubleshooting`, `image-gen`, `pdf-reading`, `skill-merge-approval`, `spec-auditor`. |
 | [.agents/skills/full-deploy/SKILL.md](.agents/skills/full-deploy/SKILL.md) | Full-deploy operator runbook. |
 
 ## Ports

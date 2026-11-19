@@ -222,9 +222,12 @@ services:
 
     # Dots web app and its pairing relay. Tailscale Serve exposes it on the tailnet;
     # the Hermes gateway only accepts it once its origin is in DOTS_WEB_ORIGINS.
+    # Built from hermes-dots web/ at the commit pinned in modules/hermes-dots.sha;
+    # the deploy checks that commit out into modules/hermes-dots.
     dots-web:
         build:
-            context: ../modules/dots-web
+            context: ../modules/hermes-dots
+            dockerfile: web/Dockerfile
         ports:
             - "127.0.0.1:8789:8789"
         environment:

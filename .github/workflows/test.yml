@@ -30,7 +30,7 @@ jobs:
             - uses: actions/setup-node@v4
               with:
                   node-version: 22
-            - run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf
+            - run: sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils qpdf tesseract-ocr
             - run: npm ci
             - run: npm test
 
@@ -175,6 +175,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_memory_triage_compact.py
             - name: Test memory_triage apply plan freshness
               run: python -m unittest modules/hermes/tests/test_memory_triage_apply.py
+            - name: Test pdftext OCR fallback
+              run: python -m unittest modules/hermes/tests/test_pdftext.py
             - name: Test mnemosyne-vacuum script
               run: bash modules/hermes/tests/test-mnemosyne-vacuum.sh
             - name: Test mnemosyne forget pass
@@ -197,12 +199,16 @@ jobs:
               run: bash modules/hermes/tests/test-memory-backup.sh
             - name: Test memory restore script
               run: bash modules/hermes/tests/test-memory-restore.sh
+            - name: Test memory restore skips retired profiles
+              run: python -m unittest modules/hermes/tests/test_memory_restore_retired.py
             - name: Test seed memory pointer
               run: bash modules/hermes/tests/test-memory-pointer.sh
             - name: Test persona sync script
               run: bash modules/hermes/tests/test-persona-sync.sh
             - name: Test persona commit and reflection scripts
               run: bash modules/hermes/tests/test-persona-commit.sh
+            - name: Test experience commit script
+              run: bash modules/hermes/tests/test-experience-commit.sh
             - name: Test Hermes model routing
               run: bash modules/hermes/tests/test-model-routing.sh
             - name: Test Hermes dev-loop review policy
@@ -352,21 +358,51 @@ jobs:
               if: always() && steps.changed.outputs.run == 'true'
               run: docker rm -f hermes-image-test || true
 
+    # The tailnet web app is hermes-dots web/ at the commit pinned in modules/hermes-dots.sha.
     dots-web:
         runs-on: ubuntu-latest
         defaults:
             run:
-                working-directory: modules/dots-web
+                working-directory: hermes-dots/web
+        env:
+            GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
         steps:
             - uses: actions/checkout@v4
+            - name: Read the pinned hermes-dots commit
+              id: pin
+              working-directory: .
+              run: echo "sha=$(tr -d '[:space:]' < modules/hermes-dots.sha)" >> "$GITHUB_OUTPUT"
+            - uses: actions/checkout@v4
+              with:
+                  repository: darrencjh8/hermes-dots
+                  ref: ${{ steps.pin.outputs.sha }}
+                  token: ${{ secrets.SUBMODULE_PAT }}
+                  path: hermes-dots
             - uses: actions/setup-node@v4
               with:
                   node-version: 24
-            - run: node --test server.test.mjs
+            - run: bash ../../scripts/test-fetch-persona-media.sh
+            # Friday's clips (android) and icons (dots-web) come from the friday-persona
+            # release pinned in hermes-dots; the icon tests and the image both read them.
+            - name: Fetch persona media
+              run: |
+                  bash ../../scripts/fetch-persona-media.sh dots-web .
+                  bash ../../scripts/fetch-persona-media.sh android ..
+            - run: npm ci
+            - run: npm run typecheck
+            - run: npm test
             # The tests use a fixture build, so only the image proves the real one is served.
-            - run: docker build -t dots-web-smoke .
+            - run: docker build -f web/Dockerfile -t dots-web-smoke .
+              working-directory: hermes-dots
             - run: docker run -d --name dots-web-smoke -p 127.0.0.1:8789:8789 dots-web-smoke
             - run: sleep 3 && curl -fsS http://127.0.0.1:8789/ | grep -q '<title>Hermes'
+            # A missing file falls back to index.html with 200, so check the type, not the status.
+            - name: The image serves Friday's clips and icons
+              run: |
+                  for path in /clips/nova_state_still_white.webp /clips/nova_state_thinking_black.webp /icons/nova-default-192.png /icons/nova-night-512.png; do
+                      type=$(curl -fsS -o /dev/null -w '%{content_type}' "http://127.0.0.1:8789$path")
+                      case "$type" in image/*) ;; *) echo "$path served as '$type'"; exit 1 ;; esac
+                  done
             - run: test "$(curl -s -o /dev/null -w '%{http_code}' 'http://127.0.0.1:8789/api/pair?id=AAAAAAAAAAAAAAAAAAAAAA')" = 204
 
     image-gen:

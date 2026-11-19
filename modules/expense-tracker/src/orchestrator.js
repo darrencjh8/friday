@@ -52,6 +52,8 @@ import {
 
 /** A payee that already books travel: no abroad question for it. */
 const TRAVEL_PAYEE_RE = /travel|flight|hotel/i;
+/** Citi "Credit Card/Ready Credit Payment Received": the card side of a repayment. */
+const CARD_PAYMENT_RECEIVED_SUBJECT_RE = /credit card\b.*\bpayment received\b/i;
 /** Consecutive LLM-outage retries of one email per process before the 12h cooldown applies (#694). */
 const MAX_LLM_OUTAGE_RETRIES = 12;
 
@@ -850,6 +852,18 @@ export class AgentOrchestrator {
             if (subject) headerLines.push(`Subject: ${subject}`);
             if (headerLines.length)
                 emailText = headerLines.join("\n") + "\n\n" + emailText;
+        }
+
+        // A card's own "Payment Received" alert confirms a repayment the paying
+        // bank's alert already booked as a transfer into the card. Booking it
+        // too counted the money twice, and the credit-card sign flip in Phase 2
+        // turned the credit into spend (Citi, 2026-11-05, SGD 515.75).
+        if (CARD_PAYMENT_RECEIVED_SUBJECT_RE.test(String(subject || ""))) {
+            return this._executePhase3({
+                action: "skip",
+                merchant: subject,
+                reasoning: "Card payment-received alert: the repayment is booked from the paying account's alert",
+            });
         }
 
         // Phase 1: LLM Analysis

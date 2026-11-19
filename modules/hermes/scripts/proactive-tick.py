@@ -29,6 +29,11 @@ Sources:
   earlier, at most once a day each.
 - persona: once a day from PERSONA_HOUR, a slot for one self-initiated message
   of Friday's own (#220 Phase 4); the agent uses it only with a real reason.
+- followups: Friday's own follow-ups (#240), `YYYY-MM-DD | note` entries under
+  the `followups` key of this job's Hermes cron notepad, offered once a day from
+  their date until she deletes them. The notepad is read-only here; the agent
+  writes it with `hermes cron notepad`, and the scheduler injects it into every
+  run, which also carries the `reported` log of what she already told the user.
 When any source has something, the open Friday tasks and the user's notify
 preferences are added as context so the agent can match mail to what it
 already tracks, along with the next 24 hours of calendar.
@@ -44,6 +49,7 @@ import functools
 import glob
 import json
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -51,6 +57,8 @@ import sys
 HOME = os.environ.get("HERMES_HOME", "/opt/data")
 DB = os.path.join(os.environ.get("MNEMOSYNE_DATA_DIR") or os.path.join(HOME, "mnemosyne", "data"), "mnemosyne.db")
 STATE = os.path.join(HOME, "proactive-tick", "state.json")
+NOTEPAD = os.path.join(HOME, "cron", "notepad.db")
+JOBS = os.path.join(HOME, "cron", "jobs.json")
 PATCH_GLOB = os.path.join(HOME, "installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py")
 PATCH_MARKER = "# friday-patch: mnemosyne read-only in cron"
 SGT = datetime.timezone(datetime.timedelta(hours=8))
@@ -257,8 +265,41 @@ def persona_source(today, seen, cursors):
     return [(key, "slot: you may send one short message of your own today (step 10)")]
 
 
+def own_job_id():
+    try:
+        with open(JOBS, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    jobs = data.get("jobs", []) if isinstance(data, dict) else data
+    return next((j.get("id") for j in jobs if isinstance(j, dict) and j.get("name") == "proactive-tick"), None)
+
+
+def followups_source(today, seen, cursors):
+    if not os.path.exists(NOTEPAD):
+        return []
+    conn = sqlite3.connect(f"file:{NOTEPAD}?mode=ro", uri=True, timeout=10)
+    try:
+        row = conn.execute("SELECT value FROM cron_notepad WHERE job_id = ? AND key = 'followups'",
+                           (own_job_id(),)).fetchone()
+    except sqlite3.OperationalError as error:
+        if "no such table" in str(error):  # nothing was ever written to any notepad
+            return []
+        raise
+    finally:
+        conn.close()
+    items = []
+    for entry in re.split(r"[;\n]", row[0] if row else ""):
+        entry = entry.strip()
+        due = parse_date(entry)
+        key = f"followup:{entry}"
+        if due and due <= today and seen.get(key) != today.isoformat():
+            items.append((key, entry))
+    return items
+
+
 SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "calendar": calendar_source,
-           "tasks": tasks_source, "persona": persona_source}
+           "tasks": tasks_source, "persona": persona_source, "followups": followups_source}
 
 
 def save_state(today, seen, cursors):
@@ -316,7 +357,9 @@ def main():
     if preferences:
         sections.append("## notify preferences\n" + preferences.strip())
     save_state(today, seen, cursors)
-    print(f"Today: {today.isoformat()}\n\n" + "\n\n".join(sections))
+    job_id = own_job_id()
+    header = f"Today: {today.isoformat()}" + (f"\nJob id: {job_id}" if job_id else "")
+    print(header + "\n\n" + "\n\n".join(sections))
     return 0
 
 

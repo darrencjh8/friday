@@ -47,6 +47,16 @@ export const JEV_PROMPT_VARIANTS = Object.freeze(["v1", "v2"]);
 const BOOKKEEPING_RE = /\btest\b|balance adjustment/i;
 /** A payee booked at least this often, almost always the other way, is left out. */
 const SIGN_MIN_ROWS = 3;
+/**
+ * A payee used fewer times than this is not offered. Its description is
+ * copied from its one row (`Malaysia Spend & Commitment`: one row, booked
+ * under Food), so it reads like the real label and draws its probability
+ * away: on a 27-alert replay, food merchants scored Food 0.45-0.56 with such
+ * options and 0.70-0.99 without. 2, not 3: Loan payment (2 rows) was a right
+ * live pick. ponytail: a raw row count; a payee the owner just created is
+ * left out until its second booking, which falls back to Misc (the safe side).
+ */
+const MIN_ROWS = 2;
 const SIGN_SHARE = 0.9;
 const MAX_EXAMPLES = 3;
 
@@ -135,6 +145,7 @@ function v2Names(names, history, direction) {
         const entry = history.byName.get(name);
         if (!entry) return false;
         const total = entry.inflows + entry.outflows;
+        if (total < MIN_ROWS) return false;
         const opposite = direction === "incoming" ? entry.outflows : entry.inflows;
         return !(total >= SIGN_MIN_ROWS && opposite / total >= SIGN_SHARE);
     });
@@ -410,8 +421,8 @@ export async function classifyPayee({
             : context,
     });
     const v2Instructions = incoming
-        ? "Money was received. Which of the owner's payee labels would the owner use for it? Use the option descriptions and the owner's earlier bookings. Choose the none option unless the evidence supports one label."
-        : "Money was paid to this merchant. Which of the owner's payee labels would the owner use for this spending? Use the option descriptions, the owner's earlier bookings of this merchant, and search results only when they are clearly about this same merchant. Choose the none option unless the evidence supports one label.";
+        ? "Money was received. Which of the owner's payee labels would the owner use for it? Use the option descriptions and the owner's earlier bookings. Choose the none option only when the source is unclear or no label fits it."
+        : "Money was paid to this merchant. Which of the owner's payee labels would the owner use for this spending? Judge what kind of business this merchant is from its name, the email, and search results only when they are clearly about this same merchant. Then pick the label the owner uses for that kind of spending, from the option descriptions and the owner's earlier bookings of this merchant. Choose the none option only when the kind of business is unclear or no label fits it.";
     const v1Instructions = incoming
         ? "Money was received. Which listed payee is the source of it? Choose the none option unless the email supports one payee."
         : searched
@@ -430,7 +441,7 @@ export async function classifyPayee({
             ...(v2 ? { criteriaFor: (name) => v2Criterion(history?.byName.get(name)) } : {}),
             unknownReason: "unknown_payee",
             noneCriterion: v2
-                ? "No listed label fits this transaction on the evidence given."
+                ? "The kind of business is unclear, or no listed label fits it."
                 : searched
                   ? "Neither the email nor search results about this same merchant show which listed payee this is."
                   : "The email does not show which listed payee this is.",

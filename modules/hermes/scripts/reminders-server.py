@@ -82,10 +82,10 @@ letter-spacing:.05em;border-bottom:none}
 tr.attn td:first-child{border-left:3px solid var(--warn);padding-left:6px}
 .pill{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;
 border-radius:999px;color:var(--muted)}
-.pill.created,.pill.skipped{background:var(--ok-soft);color:var(--ok)}
+.pill.created,.pill.skipped,.pill.auto{background:var(--ok-soft);color:var(--ok)}
 .pill.pending{background:var(--warn-soft);color:var(--warn)}
 .pill.overdue-manual,.pill.conflict,.pill.create-failed,
-.pill.unclassified{background:var(--err-soft);color:var(--err)}
+.pill.unclassified,.pill.exception{background:var(--err-soft);color:var(--err)}
 .chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 10px;
 border-radius:999px;color:var(--muted)}
@@ -428,13 +428,14 @@ async function load() {
   const rows = document.getElementById("rows");
   rows.textContent = "";
   document.getElementById("rows-empty").hidden = items.length > 0;
-  // Partition into Needs-attention and Done (fail-closed: only created
-  // and skipped count as done; any unknown or missing status lands in
+  // Partition into Needs-attention and Done (fail-closed: only created,
+  // skipped, and auto (auto-charged, nothing to do) count as done; any
+  // unknown or missing status lands in
   // Needs-attention). Pending group first, server order kept inside
   // each group.
   const groups = [[], []];
   for (const it of items)
-    groups[(it.status === "created" || it.status === "skipped") ? 1 : 0]
+    groups[["created", "skipped", "auto"].includes(it.status) ? 1 : 0]
       .push(it);
   const gname = ["Needs attention", "Done"];
   for (let g = 0; g < 2; g++) {

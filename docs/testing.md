@@ -17,7 +17,7 @@ deploying on non-push events. Keep this page in step with that file.
 | `compose-config` | repo root | `docker compose config -q` on every tracked `docker-compose.yml`, then `python -m unittest discover -s modules/tests` | |
 | `hermes-scripts` | repo root | `shellcheck`, the `modules/hermes/tests/*.sh` suites, and the Python `unittest` modules listed in the job | |
 | `hermes-image` | repo root | builds and boots the Hermes image when `modules/hermes/`, the compose file or `test.yml` changed | |
-| `dots-web` | `modules/dots-web` | `node --test server.test.mjs`, then a Docker smoke test serving the built app on `127.0.0.1:8789` | |
+| `dots-web` | `hermes-dots/web` (checked out at the commit in `modules/hermes-dots.sha`) | `npm run typecheck` and `npm test`, then a Docker smoke test serving the built app on `127.0.0.1:8789` | |
 | `image-gen` | `modules/image-gen` | `node --test __tests__/server.test.js` | there is no `npm test` script |
 | `whisper` | repo root | builds the whisper image and decodes a silent WAV fixture with it | |
 | `docs-drift` | repo root | `bash scripts/check-docs-drift.sh` — verifies the docs state the same facts as the code | also runs inside the `hermes-scripts` job |

@@ -106,3 +106,36 @@ describe("a card repayment reached by payee name", () => {
         expect(output).toMatchObject({ payee_id: "to-citi", _is_transfer: true });
     });
 });
+
+describe("a card's own payment-received alert", () => {
+    // Redacted from the Citi alert of 2026-11-05. The repayment it confirms
+    // was already booked as a transfer from the paying bank's alert, so
+    // booking this one too counted the money twice; the credit-card sign flip
+    // then turned the credit into a 515.75 spend.
+    const raw = [
+        "From: Citibank Singapore <alerts@citibank.com.sg>",
+        "Subject: Citi Alerts – Credit Card/Ready Credit Payment Received",
+        "Date: Thu, 05 Nov 2026 08:32:04 +0800",
+        "Content-Type: text/plain; charset=utf-8",
+        "",
+        "Dear Customer, We would like to inform you that we have received the following Credit payment on your Citi Rewards Card:",
+        "Card Number : XXXX-XXXX-XXXX-3555",
+        "Transaction Date : 04/11/2026",
+        "Transaction Amount : SGD 515.75",
+        "Transaction Details : via Cash/Cheque",
+        "Thank you for using Citi Alerts.",
+    ].join("\r\n");
+
+    it("is skipped, not booked", async () => {
+        const orchestrator = makeOrchestrator();
+        const result = await orchestrator.processEmail(
+            "uid-1", raw, null, "Citibank Singapore <alerts@citibank.com.sg>",
+            "Citi Alerts – Credit Card/Ready Credit Payment Received",
+        );
+        expect(result.action).toBe("skipped");
+        const tools = orchestrator._tools.executeTool.mock.calls.map(([name]) => name);
+        expect(tools).not.toContain("insert_transaction");
+        expect(tools).toContain("mark_email_read");
+        expect(orchestrator._llm.chat).not.toHaveBeenCalled();
+    });
+});
