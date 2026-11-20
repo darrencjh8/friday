@@ -148,6 +148,18 @@ jobs:
       # The app icon is Friday's launcher icon, never committed (persona media).
       - name: Icons
         run: npx --yes "$TAURI_CLI" icon ../../web/dist/icons/nova-default-512.png -o icons
+      # The voice installer (desktop/voice) ships uv, which fetches Python,
+      # PyTorch and the speech models on the user's PC into the folder they
+      # choose. Pinned and checked here; never committed.
+      - name: uv for the voice installer
+        env:
+          UV_VERSION: '0.13.9'
+          UV_SHA256: 'edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb'
+        run: |
+          curl -fsSLo uv.zip "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-x86_64-pc-windows-msvc.zip"
+          echo "$UV_SHA256  uv.zip" | sha256sum -c -
+          7z e uv.zip uv.exe -ouv -y
+          rm uv.zip
       - name: Build the installer
         env:
           VERSION: ${{ needs.check.outputs.version }}
