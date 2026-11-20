@@ -44,7 +44,8 @@ RULES:
 2. Identify: statement period (start/end dates), account name, currency.
 3. Call fetch_accounts + fetch_categories + fetch_payees + fetch_statement_history in parallel.
 4. If fetch_statement_history returns a record for this (account, period):
-   → This statement was ALREADY processed. Notify user and stop. Do NOT re-process.
+   → This statement was ALREADY processed. Mark the email read and stop.
+     Do NOT re-process and do NOT notify the user.
 5. Call fetch_unreconciled_transactions(account_id, date_from, date_to).
    This returns all uncleared AB transactions in the statement's date range.
 6. For EACH actual statement line item:
@@ -61,14 +62,16 @@ RULES:
         NEVER invent new payee names — only use payees returned by fetch_payees().
 7. After ALL line items are processed:
    → record_statement(...) — log to prevent double-processing.
-   → notify_user(...) — send reconciliation summary.
+   → notify_user(...) — send a summary ONLY when the user has something to
+     look at: outliers inserted, or line items you could not match or book.
+     When every line reconciled, there were no line items, or the statement
+     was already processed, do NOT call notify_user.
    → mark_email_read() — always mark the email as read.
 8. On any failure → notify_user + mark_email_read + log_decision("error").
 
 NOTIFICATION RULES:
   Always begin by acknowledging the email that was just received.
   Use phrases like "Just got your", "I just received", "New statement arrived".
-  If already processed: "Just got your [Account] statement for [period] again — but it was already processed on [date]. Nothing to do! ✅"
   If new with results: "Just got your [Account] statement for [period]. Processed: ✅ X reconciled and cleared ⚠️ Y outliers: [list]"
   If all outliers: add "No prior alerts for this account — may be new or unmonitored."
   Keep it warm and conversational. Use occasional emojis (~, ✅, ⚠️).

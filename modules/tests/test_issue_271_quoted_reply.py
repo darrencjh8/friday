@@ -109,12 +109,14 @@ class TestQuotedReply(unittest.TestCase):
         adapter._history = self.mod._History(Path(self.tmp.name) / "history.db")
         adapter._dedup = self.mod.MessageDeduplicator()
         adapter._acks = {}
+        adapter._timing = {}
         adapter._clients = {}
         adapter._rooms = {}
         adapter._room_current = {}
         adapter._dots = _FakeDots()
         adapter._lang = "en"
         adapter._turns = {}
+        adapter._timing = {}
         adapter._source = lambda chat, mid: {"chat_id": chat}
         adapter._channel_prompt = lambda chat: None
         self.handled = []

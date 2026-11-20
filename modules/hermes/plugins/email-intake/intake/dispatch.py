@@ -373,7 +373,7 @@ class Dispatcher:
         for kind, _ in self._legs(decision):
             row = self._journal.dispatch_state(evidence_hash, kind, self._mode)
             if row["status"] != "handed_off":
-                records.append({**(row["result"] or {}), "_status": row["status"]})
+                records.append({**(row["result"] or {}), "_status": row["status"], "_kind": kind})
         parsed = mail.parse(raw)
         text = notify.result_text(records, parsed.sender_domain, parsed.subject)
         offers = notify.offers_text(records)

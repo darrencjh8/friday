@@ -35,7 +35,9 @@ Sources:
   writes it with `hermes cron notepad`, and the scheduler injects it into every
   run, which also carries the `reported` log of what she already told the user.
 When any source has something, the open Friday tasks and the user's notify
-preferences are added as context so the agent can match mail to what it
+preferences (the Rules section of the wiki page concepts/notify-preferences.md,
+or the old Mnemosyne notify/preferences slot while the page has none) are added
+as context so the agent can match mail to what it
 already tracks, along with the next 24 hours of calendar.
 
 Reads only: the Mnemosyne DB is opened read-only and this script only reads
@@ -57,6 +59,7 @@ import sys
 HOME = os.environ.get("HERMES_HOME", "/opt/data")
 DB = os.path.join(os.environ.get("MNEMOSYNE_DATA_DIR") or os.path.join(HOME, "mnemosyne", "data"), "mnemosyne.db")
 STATE = os.path.join(HOME, "proactive-tick", "state.json")
+NOTIFY_PAGE = os.path.join(HOME, "home", "wiki", "concepts", "notify-preferences.md")
 NOTEPAD = os.path.join(HOME, "cron", "notepad.db")
 JOBS = os.path.join(HOME, "cron", "jobs.json")
 PATCH_GLOB = os.path.join(HOME, "installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py")
@@ -108,6 +111,21 @@ def read_slots(category):
         ).fetchall()
     finally:
         conn.close()
+
+
+def notify_preferences():
+    """The Rules section of the wiki page; the old Mnemosyne slot while the page has none."""
+    try:
+        text = open(NOTIFY_PAGE, encoding="utf-8").read()
+    except OSError:
+        text = ""
+    match = re.search(r"^## Rules[ \t]*\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    try:
+        return dict(read_slots("notify")).get("preferences")
+    except sqlite3.Error:
+        return None
 
 
 def goals_source(today, seen, cursors):
@@ -350,10 +368,7 @@ def main():
             soon = []  # the calendar source already reported the failure
         if soon:
             sections.append("## calendar (next 24 hours)\n" + "\n".join(event_line(e) for e in soon))
-    try:
-        preferences = dict(read_slots("notify")).get("preferences")
-    except sqlite3.Error:
-        preferences = None
+    preferences = notify_preferences()
     if preferences:
         sections.append("## notify preferences\n" + preferences.strip())
     save_state(today, seen, cursors)

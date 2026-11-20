@@ -547,19 +547,18 @@ describe("zero-due statements", () => {
   const calls = (name) =>
     mockTools.executeTool.mock.calls.filter(([n]) => n === name);
 
-  it("skips the LLM and notifies when no PDF and total due is zero", async () => {
+  it("skips the LLM and stays silent when no PDF and total due is zero", async () => {
     extractEmailContent.mockResolvedValue(
       "Here is your monthly statement. Total Due: RM0.00 Due Date: 24/10/2026 Pay in full.",
     );
     const result = await processor.processStatement("msg-1", NO_PDF, null);
     expect(chat).not.toHaveBeenCalled();
-    expect(calls("notify_user")).toHaveLength(1);
-    const msg = calls("notify_user")[0][1].message;
-    expect(msg).toContain("RM0.00");
-    expect(msg).toContain("24/10/2026");
+    // Nothing is owed and nothing to reconcile: no message to the owner.
+    expect(calls("notify_user")).toHaveLength(0);
     expect(calls("mark_email_read")).toHaveLength(1);
     expect(result.action).toBe("completed");
-    expect(result.details).toBe(msg);
+    expect(result.details).toContain("RM0.00");
+    expect(result.details).toContain("24/10/2026");
   });
 
   it("omits the due date clause when none is present", async () => {
@@ -568,17 +567,6 @@ describe("zero-due statements", () => {
     expect(chat).not.toHaveBeenCalled();
     expect(result.details).toContain("SGD 0.00");
     expect(result.details.toLowerCase()).not.toContain("due date");
-  });
-
-  it("does not mark read and returns error when the notice fails", async () => {
-    extractEmailContent.mockResolvedValue("Total Due: RM0.00");
-    mockTools.executeTool.mockImplementation((name) =>
-      Promise.resolve(name === "notify_user" ? false : true),
-    );
-    const result = await processor.processStatement("msg-1", NO_PDF, null);
-    expect(chat).not.toHaveBeenCalled();
-    expect(calls("mark_email_read")).toHaveLength(0);
-    expect(result.action).toBe("error");
   });
 
   it("uses the LLM when a PDF is attached", async () => {

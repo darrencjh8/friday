@@ -99,7 +99,7 @@ A **statement is authoritative** — it represents the bank's final record for a
 **Acceptance Criteria:**
 - [ ] A new `statement_journal` SQLite table tracks: account_id, budget_id, period_start, period_end, matched_count, outlier_count, processed_at
 - [ ] Before processing, the system checks `(account_id, period_start, period_end)` against the journal
-- [ ] If already processed → notify user, mark email read, stop (no re-processing)
+- [ ] If already processed → mark email read, stop (no re-processing, no message)
 - [ ] After successful processing, a row is inserted into the journal
 - [ ] Journal is in a separate database file (`data/statement.db`)
 
@@ -152,8 +152,8 @@ A **statement is authoritative** — it represents the bank's final record for a
 | OCR returns empty/garbled text | `[PDF_EXTRACTION_ERROR]` → notify user → mark read → stop |
 | PDF is a single receipt (not a statement) | Pre-classification (US-1) routes it as "transaction" → alert pipeline |
 | HTML email contains tabular statement (no PDF) | Pre-classification routes as "statement" → statement pipeline |
-| Same statement period processed twice | Statement journal detects duplicate → notify "already processed" → mark read → stop |
-| Statement has zero transactions (unused card) | LLM detects no transactions → notify → record as processed → mark read |
+| Same statement period processed twice | Statement journal detects duplicate → mark read → stop (no message) |
+| Statement has zero transactions (unused card) | LLM detects no transactions → record as processed → mark read (no message) |
 | Account has zero uncleared AB transactions (new card) | All items inserted as outliers with `"no prior alerts"` note |
 | Statement in MYR | `ensureBudget` switches to MYR budget — all AB operations on MYR |
 | OCR extracts wrong amount (garbled) | fuzzy_match amount diffs → no match → inserted as outlier (safe) |
