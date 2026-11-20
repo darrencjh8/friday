@@ -44,8 +44,8 @@ RULES:
 2. Identify: statement period (start/end dates), account name, currency.
 3. Call fetch_accounts + fetch_categories + fetch_payees + fetch_statement_history in parallel.
 4. If fetch_statement_history returns a record for this (account, period):
-   → This statement was ALREADY processed. Mark the email read and stop. Do NOT
-     re-process and do NOT notify the user.
+   → This statement was ALREADY processed. Mark the email read and stop.
+     Do NOT re-process and do NOT notify the user.
 5. Call fetch_unreconciled_transactions(account_id, date_from, date_to).
    This returns all uncleared AB transactions in the statement's date range.
 6. For EACH actual statement line item:
