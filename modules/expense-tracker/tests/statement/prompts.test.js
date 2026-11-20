@@ -100,6 +100,12 @@ describe("STATEMENT_PROMPT", () => {
         expect(occurrences).toBeGreaterThanOrEqual(2);
     });
 
+    it("keeps a statement that needs nothing silent", () => {
+        expect(STATEMENT_PROMPT).toContain("ONLY when the user has something to");
+        expect(STATEMENT_PROMPT).toContain("do NOT notify the user");
+        expect(STATEMENT_PROMPT).not.toContain("Nothing to do!");
+    });
+
     it("contains NOTIFICATION RULES with warm, conversational tone", () => {
         expect(STATEMENT_PROMPT).toContain("NOTIFICATION RULES");
         expect(STATEMENT_PROMPT).toContain("warm");
