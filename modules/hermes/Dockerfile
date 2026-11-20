@@ -15,7 +15,7 @@ RUN chmod 0755 /usr/local/bin/gtasks
 # PDF text with OCR for scanned pages (#266).
 COPY scripts/pdftext.py /usr/local/bin/pdftext
 RUN chmod 0755 /usr/local/bin/pdftext
-# IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-openssl does the DTLS).
+# IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-gnutls does the DTLS).
 COPY scripts/ikea.py /usr/local/bin/ikea
 RUN chmod 0755 /usr/local/bin/ikea
 # `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
