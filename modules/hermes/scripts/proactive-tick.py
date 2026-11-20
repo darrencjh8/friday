@@ -272,9 +272,13 @@ def persona_source(today, seen, cursors):
 def nightly_source(today, seen, cursors):
     """Alert once a day when the nightly maintenance run never reached Friday.
 
-    A session counts as the nightly when it started at or after 02:00 SGT
-    today and its first message starts with the nightly marker. Session start
-    is the earliest message timestamp; messages.timestamp is epoch seconds.
+    A session counts as the nightly when it is an API-server session started
+    at or after 02:00 SGT today and its first user message starts with the
+    nightly marker. Session start is sessions.started_at (epoch seconds);
+    the first prompt is the lowest messages.id with role 'user'. Never
+    filter on created_source: it has been NULL on API-server sessions since
+    2026-11-08. A NULL first-message content, or a session with no user
+    rows, never counts as the nightly and never raises.
     A missing state.db means Hermes has no session record yet, so the source
     stays silent (like read_slots and followups_source for a missing
     database); a present-but-unreadable database raises, so main() reports
@@ -288,13 +292,14 @@ def nightly_source(today, seen, cursors):
         return []
     conn = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True, timeout=10)
     try:
-        starts = conn.execute("SELECT session_id, MIN(timestamp) FROM messages GROUP BY session_id").fetchall()
-        for session_id, start in starts:
-            if start < since:
-                continue
-            row = conn.execute("SELECT text FROM messages WHERE session_id = ? ORDER BY timestamp ASC, rowid ASC LIMIT 1",
-                               (session_id,)).fetchone()
-            if row and row[0] and row[0].lstrip().startswith(NIGHTLY_MARKER):
+        sessions = conn.execute(
+            "SELECT id FROM sessions WHERE source = 'api_server' AND started_at >= ?", (since,)).fetchall()
+        for (session_id,) in sessions:
+            row = conn.execute(
+                "SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+                (session_id,)).fetchone()
+            content = row[0] if row else None
+            if content and content.lstrip().startswith(NIGHTLY_MARKER):
                 return []
     finally:
         conn.close()
