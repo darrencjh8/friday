@@ -2,7 +2,7 @@
 
 Gateway for the Dots Android app. Vendored from `server/hermes-plugin-dots` in
 [Drevero/Dots-hermes](https://github.com/Drevero/Dots-hermes) at commit
-`bdadbc0268cb187ff3b75506132bb3d96344ac28`, licensed GPL-3.0. Update it by copying a reviewed
+`2cd27e6b00740b51d29e9fd0ccecc3fdacf67d2b`, licensed GPL-3.0. Update it by copying a reviewed
 commit over these files and changing the hash above, then reapplying the local change below.
 
 Local change: `DotsAdapter._attach_screen_supervisor` in `adapter.py` (marked "Friday patch") attaches
