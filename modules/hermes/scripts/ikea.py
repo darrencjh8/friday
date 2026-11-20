@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Switch IKEA TRÅDFRI lights and plugs through the (old) TRÅDFRI gateway, on the LAN.
 
-The gateway speaks CoAP over DTLS; libcoap's `coap-client-openssl` does the transport.
+The gateway speaks CoAP over DTLS; libcoap's `coap-client-gnutls` does the transport.
 
   ikea pair <gateway-ip> [security-code]   once; the code is on the gateway's label
   ikea list                                 devices with type and on/off state
@@ -20,7 +20,9 @@ import sys
 import uuid
 
 CONFIG = os.environ.get("IKEA_CONFIG", "/opt/data/ikea.json")
-COAP = "coap-client-openssl"
+# The gateway only offers PSK-AES128-CCM8, which the image's OpenSSL refuses at its default
+# security level ("handshake failure"); GnuTLS still negotiates it.
+COAP = "coap-client-gnutls"
 # Device "5750" types the gateway reports, and the control list each one carries.
 KINDS = {2: ("light", "3311"), 3: ("plug", "3312")}
 
