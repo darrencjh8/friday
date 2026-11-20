@@ -289,6 +289,36 @@ def _jev_intent(text: str, apps: list[str], key: str) -> dict[str, Any]:
     return {"ask": True}
 
 
+# Friday desktop's maths fallback: a spoken sum its calculator can't do goes to the model router's
+# thinking pool, the same router Hermes itself talks to (modules/hermes/config.yaml in friday).
+SOLVE_URL = "http://codex-router:4100/v1"
+SOLVE_MODEL = "auto-thinking"
+SOLVE_INSTRUCTIONS = (
+    "You answer a maths question someone asked out loud. Work it out carefully, then reply with one short "
+    "sentence to be read aloud that gives the result: digits, at most 4 decimal places, no working, no markdown."
+)
+
+
+def _solve(text: str) -> str:
+    """The router's thinking model on a maths question; "" when it fails. Blocking (urllib); run it in a thread."""
+    if not text:
+        return ""
+    base = (os.environ.get("DOTS_SOLVE_URL") or SOLVE_URL).rstrip("/")
+    body = json.dumps({"model": os.environ.get("DOTS_SOLVE_MODEL") or SOLVE_MODEL, "instructions": SOLVE_INSTRUCTIONS,
+                       "input": text[:500], "stream": False}).encode()
+    request = urllib.request.Request(f"{base}/responses", data=body,
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer local"})
+    try:
+        with urllib.request.urlopen(request, timeout=110) as response:
+            output = json.load(response).get("output") or []
+    except Exception as e:  # noqa: BLE001 - any failure means "ask Friday"
+        logger.warning("[dots] solve: router failed: %s", type(e).__name__)
+        return ""
+    parts = [str(part.get("text") or "").strip() for item in output if isinstance(item, dict) and item.get("type") == "message"
+             for part in item.get("content") or [] if isinstance(part, dict) and part.get("type") == "output_text"]
+    return " ".join(p for p in parts if p)[:500]
+
+
 def _token(extra: Optional[dict] = None) -> str:
     return (_extra_or_secret(extra or {}, "token", "DOTS_TOKEN") or "").strip()
 
@@ -759,6 +789,8 @@ class DotsAdapter(BasePlatformAdapter):
         # browser's web token (None for the phone, which holds DOTS_TOKEN).
         self._clients: dict["web.WebSocketResponse", dict[str, Any]] = {}
         self._activities: dict[str, str] = {}  # chat -> idle | thinking | typing
+        # chat -> (when the owner's message arrived, whether a reply has been sent yet): "[dots] timing:" log lines.
+        self._timing: dict[str, tuple[float, bool]] = {}
         self._approvals: dict[str, str] = {}  # approval_id -> session_key
         self._turns: dict[str, str] = {}  # chat -> id of the user message being answered
         self._tool_started: dict[str, float] = {}  # tool event id -> monotonic start
@@ -1022,6 +1054,8 @@ class DotsAdapter(BasePlatformAdapter):
         elif kind == "intent":
             # Jev takes a second or more: answer in the background, not holding up this socket.
             asyncio.ensure_future(self._on_intent(frame, ws))
+        elif kind == "solve":
+            asyncio.ensure_future(self._on_solve(frame, ws))
         elif kind == "usage_get":
             await self._push(await self._usage_frame(frame), ws)
         elif kind == "cron_action":
@@ -1152,8 +1186,17 @@ class DotsAdapter(BasePlatformAdapter):
     async def _on_intent(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         """Friday desktop asks whether a spoken sentence opens one of its apps (see _jev_intent)."""
         text = str(frame.get("text") or "").strip()
+        started = time.monotonic()
         result = await asyncio.to_thread(_jev_intent, text, _intent_apps(frame.get("apps")), os.environ.get("JEV_API_KEY", ""))
+        logger.info("[dots] timing: intent answered %s by Jev in %d ms", next(iter(result), "?"), (time.monotonic() - started) * 1000)
         await self._push({"type": "intent", "id": str(frame.get("id") or ""), **result}, ws)
+
+    async def _on_solve(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday desktop's maths its calculator can't do (see _solve); an empty answer means "ask Friday"."""
+        started = time.monotonic()
+        answer = await asyncio.to_thread(_solve, str(frame.get("text") or "").strip())
+        logger.info("[dots] timing: solve %s in %d ms", "answered" if answer else "failed", (time.monotonic() - started) * 1000)
+        await self._push({"type": "solve", "id": str(frame.get("id") or ""), "answer": answer}, ws)
 
     async def _on_user_message(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         client_id = str(frame.get("client_id") or uuid.uuid4())
@@ -1161,6 +1204,8 @@ class DotsAdapter(BasePlatformAdapter):
         if not text or await self._is_duplicate(client_id, ws):
             return
         chat = self._chat_of(frame)
+        self._timing[chat] = (time.monotonic(), False)
+        logger.info("[dots] timing: message received in %s (%d chars)", chat, len(text))
         speakers = self._room_speakers(chat, frame.get("room"))
         event = self._history.add({
             "type": "message", "id": uuid.uuid4().hex, "role": "user", "text": text, "ts": _now_ms(), "final": True, "chat": chat,
@@ -1178,6 +1223,18 @@ class DotsAdapter(BasePlatformAdapter):
         await self.handle_message(MessageEvent(
             text=text + _pc_context(frame), message_type=MessageType.TEXT, source=self._source(chat, event["id"]),
             message_id=event["id"], raw_message=frame, timestamp=datetime.now(tz=UTC), channel_prompt=self._channel_prompt(chat)))
+        self._log_timing(chat, "handed to the agent")
+
+    def _log_timing(self, chat: str, step: str, *, reply: bool = False, done: bool = False) -> None:
+        """"[dots] timing: <step> after <ms> since the owner's message in <chat> arrived", once per step kind."""
+        started, replied = self._timing.get(chat, (0.0, False))
+        if not started or (reply and replied):
+            return
+        logger.info("[dots] timing: %s in %s after %d ms", step, chat, (time.monotonic() - started) * 1000)
+        if done:
+            self._timing.pop(chat, None)
+        elif reply:
+            self._timing[chat] = (started, True)
 
     # -- Group room (sub-dots invited into a conversation) ---------------------------------------
 
@@ -1803,6 +1860,7 @@ class DotsAdapter(BasePlatformAdapter):
         chat = self._known(event.source.chat_id if event.source else None)
         # Room turns are synthetic messages: their turn stays the owner's question, nothing to mark read.
         if event.message_id and event.message_id not in self._room_waiters:
+            self._log_timing(chat, "agent started")
             self._turns[chat] = event.message_id
             await self._push({"type": "read", "id": event.message_id})
         await self._set_activity(chat, "thinking")
@@ -1891,6 +1949,7 @@ class DotsAdapter(BasePlatformAdapter):
             "text": content[:MAX_MESSAGE_LENGTH], "ts": _now_ms(), "final": True,
         })
         await self._push(event)
+        self._log_timing(chat, "first reply sent", reply=True)
         if not self._room_parts(chat):  # a debate would ring once per speaker: only its conclusion notifies
             self._notify("message", event["id"], content, chat)
         if self._activity_of(chat) != "idle":
@@ -1904,6 +1963,7 @@ class DotsAdapter(BasePlatformAdapter):
         # A room speaker's last edit is not the end of the debate: its room keeps "typing" until the next one.
         await self._set_activity(chat, "idle" if finalize and not self._room_parts(chat) else "typing")
         await self._push({"type": "edit", "id": message_id, "text": content[:MAX_MESSAGE_LENGTH], "final": finalize})
+        self._log_timing(chat, "reply finished" if finalize else "first reply sent", reply=not finalize, done=finalize)
         return SendResult(success=True, message_id=message_id)
 
     async def _send_exec_approval_prompt(self, prompt) -> SendResult:
