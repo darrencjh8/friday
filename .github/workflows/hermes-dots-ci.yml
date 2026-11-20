@@ -130,7 +130,8 @@ jobs:
           GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
         run: |
           mkdir -p release
-          tags=$(gh release list -R darrencjh8/hermes-dots --limit 2 --json tagName | jq -r '.[].tagName')
+          # Phone releases only: desktop-v* releases carry a Windows installer, no APK.
+          tags=$(gh release list -R darrencjh8/hermes-dots --limit 20 --json tagName | jq -r '.[].tagName | select(startswith("desktop-v") | not)' | head -n 2)
           set -- $tags
           gh release download "$1" -R darrencjh8/hermes-dots -p '*.apk' -O release/latest.apk
           [ -n "${2:-}" ] && gh release download "$2" -R darrencjh8/hermes-dots -p '*.apk' -O release/previous.apk || true
