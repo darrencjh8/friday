@@ -90,7 +90,15 @@ class TestNightlyMissed(unittest.TestCase):
         ])
         self.assertEqual(tick.nightly_source(self.today, {}, {}), [(KEY, ALERT)])
 
-    def test_missing_state_db_raises(self):
+    def test_missing_state_db_is_silent(self):
+        # No state.db yet (fresh Hermes / test harness): no session record
+        # exists, so the source stays silent, like read_slots and
+        # followups_source for a missing database.
+        self.assertEqual(tick.nightly_source(self.today, {}, {}), [])
+
+    def test_unreadable_state_db_raises(self):
+        conn = sqlite3.connect(self.db)  # file exists, no messages table
+        conn.close()
         with self.assertRaises(sqlite3.OperationalError):
             tick.nightly_source(self.today, {}, {})
 

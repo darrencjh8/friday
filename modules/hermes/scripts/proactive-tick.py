@@ -275,13 +275,17 @@ def nightly_source(today, seen, cursors):
     A session counts as the nightly when it started at or after 02:00 SGT
     today and its first message starts with the nightly marker. Session start
     is the earliest message timestamp; messages.timestamp is epoch seconds.
-    A missing or unreadable state.db raises, so main() reports the source
-    failure instead of staying silent or alerting on a dead database.
+    A missing state.db means Hermes has no session record yet, so the source
+    stays silent (like read_slots and followups_source for a missing
+    database); a present-but-unreadable database raises, so main() reports
+    the source failure instead of alerting on a dead database.
     """
     key = "nightly:missed"
     if seen.get(key) == today.isoformat() or datetime.datetime.now(SGT).hour < NIGHTLY_HOUR:
         return []
     since = int(datetime.datetime.combine(today, datetime.time(NIGHTLY_SINCE_HOUR), SGT).timestamp())
+    if not os.path.exists(STATE_DB):
+        return []
     conn = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True, timeout=10)
     try:
         starts = conn.execute("SELECT session_id, MIN(timestamp) FROM messages GROUP BY session_id").fetchall()
