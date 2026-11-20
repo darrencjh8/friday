@@ -729,6 +729,8 @@ if should_deploy "codex-router" || should_deploy "all"; then
 echo ""
 echo "--- Codex Router ---"
   check_var "CODEX_ROUTER_AUTH_PASSWORD" ""
+  # Unset refuses every home-network caller of 4100 (see the front's Caddyfile).
+  check_var_optional "CODEX_ROUTER_LAN_TOKEN" ""
   echo "  [LLM Provider]"
   check_var_optional "LLM_PROVIDER" ""
   check_var_optional "LLM_BASE_URL" ""

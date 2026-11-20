@@ -197,6 +197,7 @@ The production server runs host-level services alongside Docker. `chrome-daemon.
 | Service | Port | Purpose |
 |---------|------|---------|
 | `chrome-daemon` | CDP :9222 | Chromium (headed, Xvfb :99) for Perchance browser automation (template: `chrome-daemon.service`) |
+| `cdp-forward` | 172.17.0.1:9223 | Forwards CDP to the containers on the Docker bridge address only, never the home network: DevTools has no authentication (template: `cdp-forward.service`) |
 
 ### Internal Networking
 

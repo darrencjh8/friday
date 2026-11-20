@@ -255,6 +255,10 @@ services:
         image: caddy:2.11.7-alpine
         ports:
             - "0.0.0.0:4100:4100"
+        # The token callers on the home network must send (see the Caddyfile);
+        # Docker, host and Tailscale callers need none.
+        environment:
+            - CODEX_ROUTER_LAN_TOKEN=${CODEX_ROUTER_LAN_TOKEN:-}
         # The directory, not the Caddyfile itself: a checkout that replaces the
         # file's inode would leave a bind-mounted file pointing at the old one,
         # so `caddy reload` would keep serving the configuration it booted with.

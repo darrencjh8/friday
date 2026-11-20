@@ -1,0 +1,20 @@
+# Forwards Chrome's DevTools port (chrome-daemon.service, 127.0.0.1:9222) to the
+# containers, which reach it at the Docker bridge address (172.17.0.1:9223, see
+# modules/perchance-gen/perchance-image.cjs). It listens on that address only:
+# DevTools has no authentication, so on 0.0.0.0 anything on the home network
+# could drive the browser and its logged-in sessions.
+# Template, like chrome-daemon.service: deploy.sh does not install it.
+[Unit]
+Description=CDP Forward (172.17.0.1:9223 -> 127.0.0.1:9222)
+# docker0 (172.17.0.1) must exist before socat can bind to it.
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/socat TCP-LISTEN:9223,bind=172.17.0.1,reuseaddr,fork TCP:127.0.0.1:9222
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
