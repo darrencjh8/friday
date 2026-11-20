@@ -115,6 +115,7 @@ class TestQuotedReply(unittest.TestCase):
         adapter._dots = _FakeDots()
         adapter._lang = "en"
         adapter._turns = {}
+        adapter._timing = {}
         adapter._source = lambda chat, mid: {"chat_id": chat}
         adapter._channel_prompt = lambda chat: None
         self.handled = []
