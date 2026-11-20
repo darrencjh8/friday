@@ -274,6 +274,29 @@ class ProactiveTickScriptTest(unittest.TestCase):
         self.assertIn("## notify preferences\nno dividend pings", out)
         self.assertEqual(self.tick(), "")
 
+    def wiki_page(self, text):
+        page = self.home / "home" / "wiki" / "concepts" / "notify-preferences.md"
+        page.parent.mkdir(parents=True, exist_ok=True)
+        page.write_text(text)
+
+    def test_notify_preferences_come_from_the_wiki_page(self):
+        self.module()
+        self.slot("goal", "car-fund", "status: active\ncheck_in: 2026-01-01")
+        self.slot("notify", "preferences", "old slot line")
+        self.wiki_page("---\ntitle: Notify preferences\n---\n# Notify preferences\n\nIntro.\n\n"
+                       "## Rules\n- no dividend pings\n- quiet before 9am\n\n## Related\n- [[x]]\n")
+        out = self.tick()
+        self.assertIn("## notify preferences\n- no dividend pings\n- quiet before 9am", out)
+        self.assertNotIn("old slot line", out)
+        self.assertNotIn("[[x]]", out)
+
+    def test_a_page_without_rules_falls_back_to_the_slot(self):
+        self.module()
+        self.slot("goal", "car-fund", "status: active\ncheck_in: 2026-01-01")
+        self.slot("notify", "preferences", "slot line")
+        self.wiki_page("# Notify preferences\n\nNo rules section yet.\n")
+        self.assertIn("## notify preferences\nslot line", self.tick())
+
     def test_missing_patch_alerts_once_a_day(self):
         self.module(marker=False)
         out = self.tick()
@@ -387,7 +410,7 @@ class WiringTest(unittest.TestCase):
         skill = (HERE.parent / "skills" / "goals" / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("name: goals", skill)
         self.assertIn('category="goal"', skill)
-        self.assertIn('category="notify", name="preferences"', skill)
+        self.assertIn("concepts/notify-preferences.md", skill)
 
 
 if __name__ == "__main__":

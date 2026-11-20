@@ -33,7 +33,7 @@ log: dated one-line notes of decisions and progress, newest first, at most 5
 
 ## Notify preferences
 
-What the user wants to hear about lives in one slot: category `notify`, name `preferences`, as short plain lines ("no dividend pings", "flag any trade over 5k", "quiet before 9am"). `proactive-tick` passes it to every run and follows it. When he says what he does or does not want to be told, read the slot, change only that line, show him the result, and write it back with `mnemosyne_remember_canonical(category="notify", name="preferences", body=...)` after he confirms.
+What the user wants to hear about lives on the wiki page `concepts/notify-preferences.md`, one short plain bullet per rule under `## Rules` ("no dividend pings", "flag any trade over 5k", "quiet before 9am"), each ending with who said it and the date. `proactive-tick` passes that section to every run and follows it. When he says what he does or does not want to be told, read the page, change only that rule, show him the result, and write it to the page (with its `log.md` line, following SCHEMA.md) after he confirms. The old Mnemosyne slot (category `notify`, name `preferences`) is only a fallback for when the page has no rules; do not write to it.
 
 ## Approval
 
