@@ -109,6 +109,7 @@ class TestQuotedReply(unittest.TestCase):
         adapter._history = self.mod._History(Path(self.tmp.name) / "history.db")
         adapter._dedup = self.mod.MessageDeduplicator()
         adapter._acks = {}
+        adapter._timing = {}
         adapter._clients = {}
         adapter._rooms = {}
         adapter._room_current = {}
