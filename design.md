@@ -74,7 +74,7 @@ friday/                          # Umbrella repository root (product name: Frida
 │   │   ├── 50-seed-defaults              # Seeds skills/profiles/cron into the container
 │   │   ├── SOUL.md.template              # Agent persona template
 │   │   ├── SLACK.md                      # Slack app setup + manifest instructions
-│   │   ├── skills/                       # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, ikea, image-gen, skill-merge-approval, spec-auditor
+│   │   ├── skills/                       # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, ikea, image-gen, skill-merge-approval, spec-auditor, wol
 │   │   ├── profiles/                     # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                      # Skill reconciler, Slack manifest generator
 │   │   └── tests/                        # Shell-based contract tests

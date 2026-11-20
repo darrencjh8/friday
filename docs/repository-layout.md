@@ -22,7 +22,7 @@ friday/
 │   │   ├── SLACK.md                  # Slack app setup and Socket Mode notes
 │   │   ├── profiles/                 # code-reviewer (friday default profile is seeded at boot)
 │   │   ├── scripts/                  # github-auth, memory-backup/restore/triage, portfolio-sync, slack-manifest, skill sync
-│   │   ├── skills/                   # expense-tracker, experience-wiki, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, ikea, image-gen, pdf-reading, skill-merge-approval, spec-auditor
+│   │   ├── skills/                   # expense-tracker, experience-wiki, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, ikea, image-gen, pdf-reading, skill-merge-approval, spec-auditor, wol
 │   │   └── tests/
 │   ├── portfolio-tracker/
 │   │   ├── src/                      # orchestrator, imap, tools, mcp-server, onedrive, ibkr, sheets
