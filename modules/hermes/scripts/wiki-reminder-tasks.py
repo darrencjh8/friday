@@ -5,16 +5,19 @@ Reads candidate JSON on stdin, enforces per-type lead windows, and invokes
 `gtasks` with argument arrays (never shell). It never edits task text or
 due dates, and never deletes; its only sanctioned mutation auto-closes
 stale open daily-habit tasks dated before today (marks completed, keeps
-them retrievable). Each candidate is processed independently: valid due
-tasks are created first, then the stale-close sweep runs, then problems
-are reported.
+them retrievable). A manual payment whose `paid_account` already received
+money this cycle in Actual Budget gets no task. Each candidate is processed
+independently: valid due tasks are created first, then the stale-close
+sweep runs, then problems are reported.
 """
 
 import datetime as datetime_module
+import importlib.util
 import json
 import os
 import subprocess
 import sys
+import urllib.parse
 
 TASK_LIST = "Planned"
 MARKER_PREFIX = "wiki-reminder-marker:"
@@ -43,6 +46,42 @@ HANDLING = {
                                  "missing-statement")),
     "auto-charge-record": ("on-date", ("failed-charge", "missing-posting")),
 }
+
+
+# A payment into the candidate's `paid_account` this many days before its due
+# date, or later, counts as this cycle's payment: no reminder task is needed.
+PAID_WINDOW_DAYS = 20
+
+
+def _snapshot_module():
+    """wiki-source-snapshot.py, for its read-only Actual helpers."""
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "wiki-source-snapshot.py")
+    spec = importlib.util.spec_from_file_location("wiki_source_snapshot", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def paid_into(account, due, current):
+    """True when Actual shows money into `account` this cycle, False when not,
+    None when Actual cannot tell (the reminder is then created as before).
+
+    ponytail: SGD budget only; a MYR account is not found and reads as None.
+    """
+    try:
+        snap = _snapshot_module()
+        budget = os.environ["ACTUAL_PRIMARY_BUDGET_FILE"]
+        ctx = snap.mcp_call("http://expense-tracker:8080/mcp", "fetch_context", {"budget_id": budget})
+        ids = {a.get("id") for a in ctx["accounts"] if a.get("name") == account}
+        since = (due - datetime_module.timedelta(days=PAID_WINDOW_DAYS)).isoformat()
+        query = urllib.parse.urlencode({"budget_id": budget, "since_date": since})
+        txns, _ = snap.http_json(f"http://actual-api:3000/transactions?{query}")
+    except Exception:  # noqa: BLE001 - an unreadable Actual never hides a reminder
+        return None
+    if not ids:
+        return None
+    return any(t.get("account") in ids and (t.get("amount") or 0) > 0
+               and (t.get("date") or "") <= current.isoformat() for t in txns)
 
 
 def marker_for(key, action_date):
@@ -220,8 +259,10 @@ def main(today_override=None, snapshot_path=None):
         note = item.get("note") or ""
         handling = item.get("handling") or "manual-pay"
         exception = item.get("exception") or ""
+        paid_account = item.get("paid_account") or ""
         if (
-            not isinstance(handling, str)
+            not isinstance(paid_account, str)
+            or not isinstance(handling, str)
             or handling not in HANDLING
             or not isinstance(exception, str)
             or (exception and exception not in HANDLING[handling][1])
@@ -295,6 +336,11 @@ def main(today_override=None, snapshot_path=None):
             else:
                 skipped.append(key)
                 entry["status"] = "skipped"
+            items.append(entry)
+            continue
+        if paid_account and handling == "manual-pay" and paid_into(paid_account, due, current):
+            skipped.append(key)
+            entry["status"] = "paid"
             items.append(entry)
             continue
         notes = note.rstrip() + f"\n{marker}"

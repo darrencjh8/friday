@@ -279,8 +279,10 @@ class PaymentHandlingTests(unittest.TestCase):
 
     run_helper = HelperTests.run_helper
 
-    def run_snapshot(self, candidates):
+    def run_snapshot(self, candidates, paid=None):
         module = load_helper()
+        if paid is not None:
+            module.paid_into = paid
         with tempfile.TemporaryDirectory() as tmp:
             path = str(Path(tmp) / "reminders.json")
             original = module.main
@@ -363,6 +365,77 @@ class PaymentHandlingTests(unittest.TestCase):
         self.assertEqual(adds, [])
         self.assertEqual([i["status"] for i in snapshot["items"]],
                          ["unclassified", "unclassified"])
+
+
+class PaidCheckTests(unittest.TestCase):
+    """A manual payment already made this cycle needs no reminder task."""
+
+    run_helper = HelperTests.run_helper
+    run_snapshot = PaymentHandlingTests.run_snapshot
+
+    def loan(self, **extra):
+        return {"key": "loan-a", "type": "monthly", "title": "Pay loan A",
+                "action_date": "2026-10-17", "paid_account": "Loan A", **extra}
+
+    def test_paid_this_cycle_creates_no_task(self):
+        seen = []
+        code, adds, snapshot = self.run_snapshot(
+            [self.loan()], paid=lambda account, due, current: seen.append((account, due)) or True)
+        self.assertEqual(code, 0)
+        self.assertEqual(adds, [])
+        self.assertEqual(snapshot["items"][0]["status"], "paid")
+        self.assertEqual(seen, [("Loan A", datetime.date(2026, 10, 17))])
+
+    def test_not_paid_creates_the_task(self):
+        code, adds, snapshot = self.run_snapshot([self.loan()], paid=lambda *a: False)
+        self.assertEqual(len(adds), 1)
+        self.assertEqual(snapshot["items"][0]["status"], "created")
+
+    def test_unreadable_actual_still_creates_the_task(self):
+        code, adds, snapshot = self.run_snapshot([self.loan()], paid=lambda *a: None)
+        self.assertEqual(len(adds), 1)
+        self.assertEqual(snapshot["items"][0]["status"], "created")
+
+    def test_no_paid_account_never_checks(self):
+        def boom(*a):
+            raise AssertionError("checked")
+        code, adds, snapshot = self.run_snapshot(
+            [{"key": "b", "type": "monthly", "title": "b", "action_date": "2026-10-17"}], paid=boom)
+        self.assertEqual(len(adds), 1)
+
+    def test_outside_the_window_never_checks(self):
+        def boom(*a):
+            raise AssertionError("checked")
+        code, adds, snapshot = self.run_snapshot([self.loan(action_date="2026-11-17")], paid=boom)
+        self.assertEqual(snapshot["items"][0]["status"], "pending")
+
+    def test_paid_account_must_be_text(self):
+        code, adds, snapshot = self.run_snapshot([self.loan(paid_account=5)], paid=lambda *a: True)
+        self.assertEqual(snapshot["items"][0]["status"], "unclassified")
+
+    def actual(self, txns, accounts=({"id": "acc-a", "name": "Loan A"},)):
+        module = load_helper()
+        fake = mock.Mock()
+        fake.mcp_call.return_value = {"accounts": list(accounts)}
+        fake.http_json.return_value = (txns, {})
+        module._snapshot_module = lambda: fake
+        return module, fake
+
+    def test_paid_into_counts_money_in_this_cycle_only(self):
+        due, today = datetime.date(2026, 11, 21), datetime.date(2026, 11, 21)
+        with mock.patch.dict("os.environ", {"ACTUAL_PRIMARY_BUDGET_FILE": "b"}):
+            module, fake = self.actual([{"account": "acc-a", "amount": 50000, "date": "2026-11-17"}])
+            self.assertTrue(module.paid_into("Loan A", due, today))
+            since = "since_date=2026-11-01"
+            self.assertIn(since, fake.http_json.call_args[0][0])
+            module, _ = self.actual([{"account": "acc-a", "amount": -500, "date": "2026-11-17"},
+                                     {"account": "acc-b", "amount": 50000, "date": "2026-11-17"}])
+            self.assertFalse(module.paid_into("Loan A", due, today))
+            module, _ = self.actual([], accounts=())
+            self.assertIsNone(module.paid_into("Loan A", due, today))
+            module, fake = self.actual([])
+            fake.http_json.side_effect = OSError("down")
+            self.assertIsNone(module.paid_into("Loan A", due, today))
 
 
 if __name__ == "__main__":
