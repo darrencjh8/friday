@@ -729,6 +729,10 @@ if should_deploy "codex-router" || should_deploy "all"; then
 echo ""
 echo "--- Codex Router ---"
   check_var "CODEX_ROUTER_AUTH_PASSWORD" ""
+  # The manager's write key, also required from home-network callers of 4100
+  # (see the front's Caddyfile). Unset, the router keeps its generated key and
+  # the front refuses the home network.
+  check_var_optional "LITELLM_MASTER_KEY" ""
   echo "  [LLM Provider]"
   check_var_optional "LLM_PROVIDER" ""
   check_var_optional "LLM_BASE_URL" ""

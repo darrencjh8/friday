@@ -102,7 +102,9 @@ class DeployWorkflowRouterTests(unittest.TestCase):
             router_env = compose["services"][colour]["environment"]
             for key in ("OPENCODE_API_KEY", "OPENCODE_ZEN_API_KEY", "OPENCODE_GO_API_KEY", "MODEL_API_KEY"):
                 self.assertIn(f"{key}=${{{key}:-}}", router_env)
-        self.assertNotIn("environment", compose["services"]["codex-router"])
+        # The front's only env is the home-network token its Caddyfile checks.
+        self.assertEqual(["LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}"],
+                         compose["services"]["codex-router"]["environment"])
 
         deploy_script = DEPLOY_SCRIPT.read_text(encoding="utf-8")
         router_section = deploy_script.split("# ---- codex-router ----", 1)[1].split("# ---- pluggable modules", 1)[0]
