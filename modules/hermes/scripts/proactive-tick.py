@@ -60,6 +60,7 @@ HOME = os.environ.get("HERMES_HOME", "/opt/data")
 DB = os.path.join(os.environ.get("MNEMOSYNE_DATA_DIR") or os.path.join(HOME, "mnemosyne", "data"), "mnemosyne.db")
 STATE = os.path.join(HOME, "proactive-tick", "state.json")
 NOTIFY_PAGE = os.path.join(HOME, "home", "wiki", "concepts", "notify-preferences.md")
+STATE_DB = os.path.join(HOME, "state.db")
 NOTEPAD = os.path.join(HOME, "cron", "notepad.db")
 JOBS = os.path.join(HOME, "cron", "jobs.json")
 PATCH_GLOB = os.path.join(HOME, "installs/*/environments/*/venv/lib/python3*/site-packages/mnemosyne_hermes/__init__.py")
@@ -267,6 +268,9 @@ def tasks_source(today, seen, cursors):
 
 
 PERSONA_HOUR = 18
+NIGHTLY_HOUR = 7
+NIGHTLY_SINCE_HOUR = 2
+NIGHTLY_MARKER = "Nightly maintenance"
 PERSONA_SOUL = os.path.join(os.environ.get("PERSONA_DIR", "/workspace/friday-persona"), "SOUL.md")
 
 
@@ -281,6 +285,43 @@ def persona_source(today, seen, cursors):
             or not os.path.exists(PERSONA_SOUL)):
         return []
     return [(key, "slot: you may send one short message of your own today (step 10)")]
+
+
+def nightly_source(today, seen, cursors):
+    """Alert once a day when the nightly maintenance run never reached Friday.
+
+    A session counts as the nightly when it is an API-server session started
+    at or after 02:00 SGT today and its first user message starts with the
+    nightly marker. Session start is sessions.started_at (epoch seconds);
+    the first prompt is the lowest messages.id with role 'user'. Never
+    filter on created_source: it has been NULL on API-server sessions since
+    2026-11-08. A NULL first-message content, or a session with no user
+    rows, never counts as the nightly and never raises.
+    A missing state.db means Hermes has no session record yet, so the source
+    stays silent (like read_slots and followups_source for a missing
+    database); a present-but-unreadable database raises, so main() reports
+    the source failure instead of alerting on a dead database.
+    """
+    key = "nightly:missed"
+    if seen.get(key) == today.isoformat() or datetime.datetime.now(SGT).hour < NIGHTLY_HOUR:
+        return []
+    since = int(datetime.datetime.combine(today, datetime.time(NIGHTLY_SINCE_HOUR), SGT).timestamp())
+    if not os.path.exists(STATE_DB):
+        return []
+    conn = sqlite3.connect(f"file:{STATE_DB}?mode=ro", uri=True, timeout=10)
+    try:
+        sessions = conn.execute(
+            "SELECT id FROM sessions WHERE source = 'api_server' AND started_at >= ?", (since,)).fetchall()
+        for (session_id,) in sessions:
+            row = conn.execute(
+                "SELECT content FROM messages WHERE session_id = ? AND role = 'user' ORDER BY id ASC LIMIT 1",
+                (session_id,)).fetchone()
+            content = row[0] if row else None
+            if content and content.lstrip().startswith(NIGHTLY_MARKER):
+                return []
+    finally:
+        conn.close()
+    return [(key, "ALERT: The nightly maintenance run did not reach Friday today")]
 
 
 def own_job_id():
@@ -316,7 +357,7 @@ def followups_source(today, seen, cursors):
     return items
 
 
-SOURCES = {"goals": goals_source, "patch": patch_source, "mail": mail_source, "calendar": calendar_source,
+SOURCES = {"goals": goals_source, "patch": patch_source, "nightly": nightly_source, "mail": mail_source, "calendar": calendar_source,
            "tasks": tasks_source, "persona": persona_source, "followups": followups_source}
 
 
