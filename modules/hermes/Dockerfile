@@ -18,6 +18,9 @@ RUN chmod 0755 /usr/local/bin/pdftext
 # IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-gnutls does the DTLS).
 COPY scripts/ikea.py /usr/local/bin/ikea
 RUN chmod 0755 /usr/local/bin/ikea
+# Wake-on-LAN to the PC, unicast to its saved IP (container broadcasts never reach the LAN).
+COPY scripts/wol.py /usr/local/bin/wol
+RUN chmod 0755 /usr/local/bin/wol
 # `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
 # from the seeded scripts directory, so they are wrappers rather than copies.
 RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
