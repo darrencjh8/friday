@@ -86,25 +86,38 @@ class LiveMessagesTest(unittest.TestCase):
         h.run()
         h.outbox.flush()
 
-    def test_a_clean_booking_is_silent_but_its_offer_is_sent_once(self):
+    def test_a_booking_sends_the_tracker_message_and_offer_once(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {
             "status": "processed", "action": "insert", "messages": ["S$5.00 at Alpha Cafe, logged"],
             "mapping_candidate": {"id": "ABCD1234", "descriptor": "ALPHA CAFE", "payee": "Alpha Cafe"}}})
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
         self.run_all(h)
         self.run_all(h)
-        # A booking that needs nothing is not a message; the offer asks something, on Telegram.
-        self.assertEqual(self.dots.sent, [])
+        # The booking goes to Dots; the offer stays on Telegram, the only place /remember_ is handled.
+        self.assertEqual(self.dots.sent, ["S$5.00 at Alpha Cafe, logged"])
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertIn("/remember_abcd1234", self.telegram.sent[0])
         self.assertNotIn("Alpha Cafe, logged", self.telegram.sent[0])
 
-    def test_a_clean_portfolio_booking_is_silent(self):
+    def test_a_portfolio_booking_is_confirmed(self):
         tracker = FakeTracker({"http://portfolio.test/process/portfolio": {
             "status": "processed", "action": "completed", "messages": ["Bought 1 ALPHA, logged"]}})
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("portfolio"), tracker)
         self.run_all(h)
+        self.assertEqual(self.dots.sent, ["Bought 1 ALPHA, logged"])
+
+    def silent_for(self, status):
+        tracker = FakeTracker({"http://expense.test/process/transaction": {
+            "status": status, "messages": ["Already booked earlier"]}})
+        h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
+        self.run_all(h)
         self.assertEqual(self.dots.sent + self.telegram.sent, [])
+
+    def test_mail_already_booked_stays_silent(self):
+        self.silent_for("duplicate")
+
+    def test_skipped_mail_stays_silent(self):
+        self.silent_for("skipped")
 
     def test_a_booking_that_needs_the_owner_is_sent(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {
