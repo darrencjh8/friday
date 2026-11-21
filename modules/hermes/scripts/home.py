@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Friday's smart home: every light and plug, whichever system it belongs to.
 
-  home list [--cached]        devices: name, type (light, plug), on, system
+  home list [--cached]        devices: name, type (light, plug, blinds), on, system
   home on|off <name>...       exact names, or a unique part of one each
 
 Systems today: IKEA TRÅDFRI (`ikea`, paired once with `ikea pair`) and Tuya / Smart Life

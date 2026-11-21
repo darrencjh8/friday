@@ -25,6 +25,11 @@ CONFIG = os.environ.get("TUYA_CONFIG", "/opt/data/tuya.json")
 LIGHTS = {"dj", "dd", "dc", "xdd", "fwd", "tgq", "fsd", "gyd", "sxd", "tyndj"}
 # The data point that switches a device, by its code in the cloud's mapping, most specific first.
 SWITCH_CODES = ("switch_led", "switch", "switch_1")
+# Blinds and curtains (category cl) move by a `control` data point: open, stop, close. Friday's
+# on is open and off is close. ponytail: their state is the last command they report, so blinds
+# stopped half-way, or reporting `stop`, read as closed; percent_state would give the position.
+BLINDS = "cl"
+BLINDS_CODE = "control"
 VERSIONS = (3.3, 3.4, 3.5, 3.1)
 REGIONS = ("us", "us-e", "eu", "eu-w", "in", "sg", "cn")
 
@@ -55,12 +60,18 @@ def save(cfg):
 def switch_dp(category, mapping):
     """The data point that turns the device on and off, or None for a device without one."""
     codes = {str(v.get("code")): str(dp) for dp, v in (mapping or {}).items() if isinstance(v, dict)}
-    for code in SWITCH_CODES:
+    for code in (*SWITCH_CODES, BLINDS_CODE):
         if code in codes:
             return codes[code]
     if mapping:
         return None  # a sensor, a remote: nothing to switch
     return "20" if category in LIGHTS else "1"  # no mapping from the cloud: Tuya's usual ones
+
+
+def _type(category, mapping, dp):
+    if category == BLINDS or (mapping or {}).get(dp, {}).get("code") == BLINDS_CODE:
+        return "blinds"
+    return "light" if category in LIGHTS else "plug"
 
 
 def setup(region, access_id, secret):
@@ -93,7 +104,7 @@ def setup(region, access_id, secret):
             "id": raw["id"],
             "name": name,
             "key": raw["key"],
-            "type": "light" if raw.get("category") in LIGHTS else "plug",
+            "type": _type(raw.get("category"), raw.get("mapping"), dp),
             "dp": dp,
             "ip": old.get("ip"),
             "version": old.get("version"),
@@ -130,7 +141,10 @@ def _state(device):
     if not device.get("ip"):
         return False
     reply = _device(device).status()
-    return bool(reply.get("dps", {}).get(device["dp"])) if _answered(reply) else False
+    if not _answered(reply):
+        return False
+    value = reply.get("dps", {}).get(device["dp"])
+    return value == "open" if device["type"] == "blinds" else bool(value)
 
 
 def devices(cfg):
@@ -147,7 +161,8 @@ def set_on(cfg, device, on):
         raise TuyaError("unknown device: run `tuya setup` again")
     if not saved.get("ip"):
         raise TuyaError(f"no address yet: run `tuya ip \"{saved['name']}\" <ip>`")
-    if not _answered(_device(saved).set_value(saved["dp"], bool(on))):
+    value = ("open" if on else "close") if saved["type"] == "blinds" else bool(on)
+    if not _answered(_device(saved).set_value(saved["dp"], value)):
         raise TuyaError("did not answer")
 
 

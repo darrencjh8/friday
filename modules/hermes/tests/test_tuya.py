@@ -18,6 +18,8 @@ CLOUD = [
     {"id": "bulb1", "name": "Bed Lamp", "key": "k2", "category": "dj",
      "mapping": {"20": {"code": "switch_led"}, "22": {"code": "bright_value_v2"}}},
     {"id": "door1", "name": "Door Sensor", "key": "k3", "category": "mcs", "mapping": {"1": {"code": "doorcontact_state"}}},
+    {"id": "blind1", "name": "Bedroom Blinds", "key": "k4", "category": "cl",
+     "mapping": {"1": {"code": "control"}, "2": {"code": "percent_control"}}},
     {"id": "ir1", "name": "Aircon", "key": "", "category": "infrared_ac", "mapping": {}},
 ]
 
@@ -56,7 +58,7 @@ class TuyaTest(unittest.TestCase):
 
     def test_setup_saves_switchable_devices_with_their_switch(self):
         found, skipped = tuya.setup("sg", "id", "secret")
-        self.assertEqual([(d["name"], d["type"], d["dp"]) for d in found], [("Desk Fan", "plug", "1"), ("Bed Lamp", "light", "20")])
+        self.assertEqual([(d["name"], d["type"], d["dp"]) for d in found], [("Desk Fan", "plug", "1"), ("Bed Lamp", "light", "20"), ("Bedroom Blinds", "blinds", "1")])
         self.assertEqual(skipped, [("Door Sensor", "no on/off switch Friday knows (category mcs, data points: doorcontact_state)"),
                                    ("Aircon", "no local key: a virtual device, or one only the cloud controls")])
         self.assertEqual(os.stat(tuya.CONFIG).st_mode & 0o777, 0o600)
@@ -83,11 +85,22 @@ class TuyaTest(unittest.TestCase):
         tuya.set_ip(tuya.load(), "Desk Fan", "192.0.2.5")
         cfg = tuya.load()
         found = tuya.devices(cfg)
-        self.assertEqual([(d["name"], d["on"]) for d in found], [("Desk Fan", True), ("Bed Lamp", False)])
+        self.assertEqual([(d["name"], d["on"]) for d in found], [("Desk Fan", True), ("Bed Lamp", False), ("Bedroom Blinds", False)])
         tuya.set_on(cfg, found[0], False)
         self.assertEqual(FakeDevice.sent, [("plug1", "1", False)])
         with self.assertRaisesRegex(tuya.TuyaError, 'no address yet: run `tuya ip "Bed Lamp" <ip>`'):
             tuya.set_on(cfg, found[1], True)
+
+    def test_blinds_open_and_close(self):
+        tuya.setup("sg", "id", "secret")
+        FakeDevice.answers = {"192.0.2.8": (3.3, {"1": "open"})}
+        tuya.set_ip(tuya.load(), "blinds", "192.0.2.8")
+        cfg = tuya.load()
+        blinds = next(d for d in tuya.devices(cfg) if d["type"] == "blinds")
+        self.assertTrue(blinds["on"])
+        tuya.set_on(cfg, blinds, False)
+        tuya.set_on(cfg, blinds, True)
+        self.assertEqual(FakeDevice.sent, [("blind1", "1", "close"), ("blind1", "1", "open")])
 
     def test_not_set_up(self):
         with self.assertRaisesRegex(tuya.TuyaError, "tuya setup"):
