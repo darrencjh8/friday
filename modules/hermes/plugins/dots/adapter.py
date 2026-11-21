@@ -316,12 +316,12 @@ def _run_cli(args: list[str]) -> tuple[bool, str]:
 def _home(frame: dict[str, Any]) -> dict[str, Any]:
     """Friday desktop's smart-home switches, straight to friday's `home` CLI, no agent turn.
 
-    {"op": "list"} answers {"devices": [{name, type, on}]}; {"op": "switch", "names": [...],
+    {"op": "list", "fresh"?: bool} answers {"devices": [{name, type, on}]}; {"op": "switch", "names": [...],
     "on": bool} switches each and answers {"switched": [...]}; a failure answers {"error": "..."}.
     """
     if frame.get("op") == "list":
-        # The last list, instantly (the CLI lists afresh when it has none); switching refreshes it.
-        ok, out = _run_cli(["home", "list", "--cached"])
+        # The last list, instantly (the CLI lists afresh when it has none, or on "fresh").
+        ok, out = _run_cli(["home", "list"] + ([] if frame.get("fresh") else ["--cached"]))
         if not ok:
             return {"error": out}
         try:
