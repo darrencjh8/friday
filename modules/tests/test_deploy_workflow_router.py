@@ -130,8 +130,9 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         workflow = ROUTER_CI_WORKFLOW.read_text(encoding="utf-8")
         config = yaml.safe_load(workflow)
         unit_job = config["jobs"]["test"]
-        self.assertIn("live-providers", config["jobs"])
-        live_job = config["jobs"]["live-providers"]
+        # codex-router#501 removed the live provider smoke test, so the workflow
+        # runs the unit job only; a job calling the deleted script fails every run.
+        self.assertEqual(set(config["jobs"]), {"test"})
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("repository_dispatch:", workflow)
         self.assertIn("repository: darrencjh8/codex-router", workflow)
@@ -141,25 +142,8 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         self.assertIn('python -m unittest discover -s tests -p "test_*.py"', workflow)
         self.assertIn("bash tests/test_docker.sh", workflow)
         self.assertNotIn("environment", unit_job)
-        self.assertEqual(live_job["environment"], "darren-prod")
-        self.assertEqual(live_job["if"], "github.ref == 'refs/heads/main'")
         self.assertNotIn("OPENCODE_API_KEY", workflow)
-        self.assertIn("ref: main", workflow)
-
-    def test_external_provider_smoke_uses_trusted_router_main(self):
-        workflow = yaml.safe_load(ROUTER_CI_WORKFLOW.read_text(encoding="utf-8"))
-        live_steps = {step["name"]: step for step in workflow["jobs"]["live-providers"]["steps"] if "name" in step}
-        checkout = live_steps["Check out trusted Codex Router smoke tests"]["with"]
-        self.assertEqual(checkout["repository"], "darrencjh8/codex-router")
-        self.assertEqual(checkout["ref"], "main")
-        self.assertEqual(checkout["path"], "trusted-router")
-        smoke = live_steps["Smoke-test auto-thinking external providers"]
-        self.assertEqual(smoke["working-directory"], "trusted-router")
-        self.assertEqual(
-            set(smoke["env"]),
-            {"DEEPSEEK_API_KEY"},
-        )
-        self.assertIn("python tests/test_provider_smoke_live.py", smoke["run"])
+        self.assertNotIn("DEEPSEEK_API_KEY", workflow)
 
     def test_code_reviewer_escalates_instead_of_dropping_tier(self):
         reviewer = yaml.safe_load((Path(__file__).parents[1] / "hermes/profiles/code-reviewer/config.yaml").read_text(encoding="utf-8"))
