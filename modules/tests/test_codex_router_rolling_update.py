@@ -192,7 +192,7 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
         # A stock caddy image, so nothing here to build and no router env to
         # pass: only the home-network token its Caddyfile checks.
         self.assertNotIn("build", front)
-        self.assertEqual(["CODEX_ROUTER_LAN_TOKEN=${CODEX_ROUTER_LAN_TOKEN:-}"], front["environment"])
+        self.assertEqual(["LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}"], front["environment"])
         # Pinned on purpose: deploy.sh only runs `compose up -d`, so a floating
         # tag would keep using whatever caddy image is already local, and 2.11.6
         # cut HTTP/1.1 POST streams off 60s after the body was read (caddy #8103).
@@ -281,7 +281,7 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
         # window has to outlast a colour swap, and the health interval has to be
         # short relative to a roll.
         # (The proxy's own directives: the token guard before it is checked by
-        # test_router_lan_token.py.)
+        # test_router_lan_key.py.)
         start = lines.index(proxy[0]) + 1
         directives = [line.split() for line in lines[start:] if line != "}"]
         self.assertEqual(

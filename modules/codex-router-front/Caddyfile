@@ -10,13 +10,14 @@
 	# can reach it. Docker networks (Hermes and the other modules), the host
 	# itself and Tailscale serve (which proxies from 127.0.0.1) arrive from
 	# loopback or a Docker bridge and pass as before; any other caller must send
-	# the LAN token. An unset token matches nothing ("Bearer " is never a sent
-	# value), so the LAN is refused rather than let in.
+	# the router's master key (the one the manager's hop edits use). An unset
+	# key matches nothing ("Bearer " is never a sent value), so the LAN is
+	# refused rather than let in.
 	@lan_without_token {
 		not remote_ip 127.0.0.0/8 172.16.0.0/12
-		not header Authorization "Bearer {$CODEX_ROUTER_LAN_TOKEN}"
+		not header Authorization "Bearer {$LITELLM_MASTER_KEY}"
 	}
-	respond @lan_without_token "codex-router: send the LAN token as a Bearer token" 401
+	respond @lan_without_token "codex-router: send the router key as a Bearer token" 401
 
 	reverse_proxy codex-router-a:4100 codex-router-b:4100 {
 		lb_policy first
