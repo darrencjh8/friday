@@ -18,7 +18,7 @@ ROOT = Path(__file__).parents[2]
 class TestRouterLanToken(unittest.TestCase):
     def test_caddyfile_refuses_lan_without_token(self):
         caddy = (ROOT / "modules/codex-router-front/Caddyfile").read_text(encoding="utf-8")
-        self.assertIn("not remote_ip 127.0.0.0/8 172.16.0.0/12", caddy)
+        self.assertIn("not remote_ip 127.0.0.0/8 172.16.0.0/12 100.64.0.0/10", caddy)
         self.assertIn('not header Authorization "Bearer {$LITELLM_MASTER_KEY}"', caddy)
         self.assertIn("respond @lan_without_token", caddy)
         # The guard must come before the proxy, or caddy would never reach it first.

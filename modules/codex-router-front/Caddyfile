@@ -8,13 +8,14 @@
 :4100 {
 	# 4100 is published on every interface, so anything on the home network
 	# can reach it. Docker networks (Hermes and the other modules), the host
-	# itself and Tailscale serve (which proxies from 127.0.0.1) arrive from
-	# loopback or a Docker bridge and pass as before; any other caller must send
-	# the router's master key (the one the manager's hop edits use). An unset
-	# key matches nothing ("Bearer " is never a sent value), so the LAN is
-	# refused rather than let in.
+	# itself via localhost and Tailscale serve (which proxies from 127.0.0.1)
+	# arrive from loopback or a Docker bridge, and tailnet devices calling the
+	# port directly from a Tailscale address (100.64.0.0/10); those pass as
+	# before. Any other caller must send the router's master key (the one the
+	# manager's hop edits use). An unset key matches nothing ("Bearer " is
+	# never a sent value), so the LAN is refused rather than let in.
 	@lan_without_token {
-		not remote_ip 127.0.0.0/8 172.16.0.0/12
+		not remote_ip 127.0.0.0/8 172.16.0.0/12 100.64.0.0/10
 		not header Authorization "Bearer {$LITELLM_MASTER_KEY}"
 	}
 	respond @lan_without_token "codex-router: send the router key as a Bearer token" 401
