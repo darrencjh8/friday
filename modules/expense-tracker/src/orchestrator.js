@@ -166,7 +166,15 @@ export class LLMClient {
                     : toolChoice || "auto";
             }
             if (route.provider === "deepseek") {
-                if (reasoning !== "disabled" && (reasoning === "adaptive" || !toolChoice || toolChoice === "auto")) {
+                // Thinking mode rejects a history whose tool-call turns lack
+                // their reasoning_content ("must be passed back", #265); turns
+                // that came from the router never carry one, so this call
+                // goes without thinking.
+                const reasoningLost = messages.some((m) =>
+                    m.role === "assistant" && m.tool_calls && !m.reasoning_content);
+                if (reasoningLost) {
+                    kwargs.thinking = { type: "disabled" };
+                } else if (reasoning !== "disabled" &&(reasoning === "adaptive" || !toolChoice || toolChoice === "auto")) {
                     // This route rejects any other `thinking.type` with
                     // `400 ... unknown variant`, and the captured production
                     // error names its accepted set as `adaptive`, `enabled`,
@@ -2233,6 +2241,8 @@ export class AgentOrchestrator {
                         tool_calls: msg.tool_calls,
                     };
                     if (!assistantMsg.content) delete assistantMsg.content;
+                    // DeepSeek thinking mode needs it passed back (#265).
+                    if (msg.reasoning_content) assistantMsg.reasoning_content = msg.reasoning_content;
                     messages.push(assistantMsg);
 
                     for (const tc of msg.tool_calls) {
