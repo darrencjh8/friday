@@ -18,6 +18,10 @@ x-codex-router-color: &codex-router-color
     image: modules-codex-router:local
     environment:
         - CODEX_ROUTER_AUTH_PASSWORD=${CODEX_ROUTER_AUTH_PASSWORD}
+        # The manager's write key (hop edits), also what the front asks home
+        # network callers for. Unset, the router keeps its generated key in
+        # /app/state/master_key and the front refuses the home network.
+        - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
         - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
         # External provider keys: discovery skips a provider whose key is
         # absent, so an unset value simply leaves those models unpublished.
@@ -255,6 +259,10 @@ services:
         image: caddy:2.11.7-alpine
         ports:
             - "0.0.0.0:4100:4100"
+        # The router's master key, which callers on the home network must send
+        # (see the Caddyfile); Docker, host and Tailscale callers need none.
+        environment:
+            - LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}
         # The directory, not the Caddyfile itself: a checkout that replaces the
         # file's inode would leave a bind-mounted file pointing at the old one,
         # so `caddy reload` would keep serving the configuration it booted with.

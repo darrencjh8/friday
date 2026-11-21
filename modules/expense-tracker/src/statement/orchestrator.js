@@ -234,15 +234,14 @@ export class StatementProcessor {
       }
     }
 
+    // Nothing owed and nothing to reconcile needs nothing from the owner, so
+    // there is no message; the outcome is still journaled in `details`.
     const zeroDue = zeroDueSummary(raw, emailText);
     if (zeroDue) {
       const notice =
         `Statement email arrived: ${zeroDue.amount} due` +
         (zeroDue.dueDate ? `, due date ${zeroDue.dueDate}` : "") +
         ". No PDF attached, nothing to reconcile.";
-      if (!(await this._tools.executeTool("notify_user", { message: notice }))) {
-        return { action: "error", details: "zero-due statement notice not delivered" };
-      }
       await this._ensureEmailRead();
       return { action: "completed", details: notice };
     }

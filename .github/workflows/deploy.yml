@@ -203,6 +203,7 @@ jobs:
                   REMINDERS_EDIT_TOKEN: ${{ secrets.REMINDERS_EDIT_TOKEN }}
                   BRAVE_SEARCH_API_KEY: ${{ secrets.BRAVE_SEARCH_API_KEY }}
                   CODEX_ROUTER_AUTH_PASSWORD: ${{ secrets.CODEX_ROUTER_AUTH_PASSWORD }}
+                  LITELLM_MASTER_KEY: ${{ secrets.LITELLM_MASTER_KEY }}
                   # GitHub secret MUSE_API_KEY maps to the runtime MODEL_API_KEY
                   # name the upstream meta-ai provider reads.
                   MODEL_API_KEY: ${{ secrets.MUSE_API_KEY }}

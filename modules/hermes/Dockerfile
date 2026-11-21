@@ -3,6 +3,7 @@ FROM nousresearch/hermes-agent:stable@sha256:adb7890916de63245523492be8f68f9d209
 # "Ensure Hermes container tooling" step in .github/workflows/deploy.yml, so
 # rebuilding this image does not reinstall them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    libcoap3-bin \
     poppler-utils \
     qpdf \
     sysstat \
@@ -14,6 +15,12 @@ RUN chmod 0755 /usr/local/bin/gtasks
 # PDF text with OCR for scanned pages (#266).
 COPY scripts/pdftext.py /usr/local/bin/pdftext
 RUN chmod 0755 /usr/local/bin/pdftext
+# IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-gnutls does the DTLS).
+COPY scripts/ikea.py /usr/local/bin/ikea
+RUN chmod 0755 /usr/local/bin/ikea
+# Wake-on-LAN to the PC, unicast to its saved IP (container broadcasts never reach the LAN).
+COPY scripts/wol.py /usr/local/bin/wol
+RUN chmod 0755 /usr/local/bin/wol
 # `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
 # from the seeded scripts directory, so they are wrappers rather than copies.
 RUN for cli in google:google_login gmail:gmail gcal:gcal; do \

@@ -189,9 +189,10 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
     def test_front_publishes_4100_and_colors_do_not(self):
         front = self.services["codex-router"]
         self.assertIn("0.0.0.0:4100:4100", front["ports"])
-        # A stock caddy image, so nothing here to build and no router env to pass.
+        # A stock caddy image, so nothing here to build and no router env to
+        # pass: only the home-network token its Caddyfile checks.
         self.assertNotIn("build", front)
-        self.assertNotIn("environment", front)
+        self.assertEqual(["LITELLM_MASTER_KEY=${LITELLM_MASTER_KEY:-}"], front["environment"])
         # Pinned on purpose: deploy.sh only runs `compose up -d`, so a floating
         # tag would keep using whatever caddy image is already local, and 2.11.6
         # cut HTTP/1.1 POST streams off 60s after the body was read (caddy #8103).
@@ -268,9 +269,10 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
         self.assertEqual("}", lines[-1])
         proxy = [line for line in lines if line.startswith("reverse_proxy ")]
         self.assertEqual(1, len(proxy))
-        # Exactly one site block and one nested proxy block, and no TLS automation
-        # in front of a listener the compose network already terminates.
-        self.assertEqual([":4100 {", proxy[0]], [line for line in lines if line.endswith("{")])
+        # Exactly one site block, the home-network token matcher and one nested
+        # proxy block, and no TLS automation in front of a listener the compose
+        # network already terminates.
+        self.assertEqual([":4100 {", "@lan_without_token {", proxy[0]], [line for line in lines if line.endswith("{")])
         self.assertNotIn("auto_https", text)
         self.assertIn("codex-router-a:4100 codex-router-b:4100", proxy[0])
 
@@ -278,11 +280,10 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
         # values are exactly the ones the front's behaviour depends on: the retry
         # window has to outlast a colour swap, and the health interval has to be
         # short relative to a roll.
-        directives = [
-            line.split()
-            for line in lines[1:]
-            if not line.startswith("reverse_proxy ") and line != "}"
-        ]
+        # (The proxy's own directives: the token guard before it is checked by
+        # test_router_lan_key.py.)
+        start = lines.index(proxy[0]) + 1
+        directives = [line.split() for line in lines[start:] if line != "}"]
         self.assertEqual(
             [[name, value] for name, value in EXPECTED_DIRECTIVES.items()],
             directives,

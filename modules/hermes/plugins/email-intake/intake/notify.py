@@ -1,10 +1,11 @@
 """Owner messages for live email intake (issue #783, cutover PR 2).
 
 One message per email, queued in the intake journal and delivered once:
-the tracker's own words for a booking (plus its learning offer), a review
-request with /replay commands for uncertain mail, a blocked notice for a
-password-protected statement, a notify rule's message, and a failure notice
-once retries are spent. Shadow mode queues nothing.
+the tracker's own words when a booking or statement needs the owner (a clean
+booking is silent), its learning offer, a review request with /replay
+commands for uncertain mail, a blocked notice for a password-protected
+statement, a notify rule's message, and a failure notice once retries are
+spent. Shadow mode queues nothing.
 
 Messages that carry a tap command (/remember_, /forget_, /replay_) go
 straight to the Bot API sendMessage, as expense-tracker's learning offers
@@ -63,10 +64,17 @@ def blocked_text(domain, subject):
             f'("{_subject(subject)}"). It stays unread.')
 
 
+# A transaction or portfolio leg that ended like this needs nothing from the
+# owner, so its "logged" confirmation is not sent. A statement summary still is.
+ROUTINE_STATUSES = ("processed", "duplicate", "skipped")
+
+
 def result_text(records, domain, subject):
     """One message for an email whose legs all ended; None when there is nothing to say."""
     lines, failures = [], []
     for record in records:
+        if record.get("_kind") != "statement" and record.get("_status") in ROUTINE_STATUSES:
+            continue
         lines.extend(str(m) for m in (record.get("messages") or []) if str(m).strip())
         if record.get("_status") in ("failed", "invalid"):
             failures.append(record.get("reason") or record.get("action") or "error")

@@ -20,9 +20,10 @@ field, counts as on, and live waits.
 3. These Actions settings exist (names only):
    `HERMES_WEBHOOK_SECRET`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_HOME_CHANNEL`,
    `BWS_ACCESS_TOKEN`, `BWS_PROJECT`. Without the webhook secret intake only
-   classifies; without the Telegram pair it books but sends no message. Booking
-   results, failures and blocked notices go to Dots through the `notify` webhook;
-   only messages with `/remember_`, `/forget_` or `/replay_` commands use Telegram.
+   classifies; without the Telegram pair it books but sends no message. Holds,
+   statement summaries, failures and blocked notices go to Dots through the
+   `notify` webhook; a clean transaction or portfolio booking sends no message.
+   Only messages with `/remember_`, `/forget_` or `/replay_` commands use Telegram.
 
 ## Go
 

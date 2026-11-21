@@ -20,10 +20,13 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
+import subprocess
 import threading
 import time
+import urllib.request
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -192,6 +195,189 @@ def _reply_fields(frame: dict[str, Any]) -> dict[str, Any]:
                 "sender": "user" if quote.get("sender") == "user" else "agent",
             }
     return fields
+
+
+def _pc_context(frame: dict[str, Any]) -> str:
+    """What Friday desktop says was in front when the question was asked, as a note for the agent.
+
+    Only the agent sees it: the stored and echoed message keeps the user's own words. Each part
+    is optional and capped, and anything that is not a string is ignored.
+    """
+    ctx = frame.get("context")
+    if not isinstance(ctx, dict):
+        return ""
+
+    def part(key: str, cap: int) -> str:
+        value = ctx.get(key)
+        return value.strip()[:cap] if isinstance(value, str) else ""
+
+    app, title, clipboard = part("app", 100), part("title", 300), part("clipboard", 4000)
+    lines = []
+    if app or title:
+        lines.append(f"In front on the PC when asked: {app or 'an app'}" + (f', window "{title}"' if title else ""))
+    if clipboard:
+        lines.append(f"Copied on the PC:\n{clipboard}")
+    if not lines:
+        return ""
+    return "\n\n[Context from Friday desktop, not typed by the user]\n" + "\n".join(lines)
+
+
+# Friday desktop's spoken requests: open an app on the PC, or ask Friday. Jev (TypeSafe's
+# decision model, already used by the expense tracker and the PII gate) picks one option.
+JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
+JEV_MODEL = "jev-latest"
+INTENT_ASK = "ASK FRIDAY"
+INTENT_MISSING = "NO SUCH APP"
+INTENT_MAX_APPS = 253  # System One takes at most 255 options, with the two above
+INTENT_MIN_CONFIDENCE = 0.65
+INTENT_MIN_MARGIN = 0.3
+
+
+def _intent_question(apps: list[str]) -> dict[str, Any]:
+    criteria: dict[str, Any] = {name: None for name in apps}
+    criteria[INTENT_ASK] = ("not a request to open a program: a question, a task, a reminder, a message to send, "
+                            "or anything else for the assistant to answer or do")
+    criteria[INTENT_MISSING] = "a request to open a program, but none of the listed apps is that program"
+    return {"intent": {
+        "type": "choice",
+        "instructions": (
+            "Someone spoke this sentence to the assistant on their Windows PC. If they want a program on the PC "
+            "opened, started, launched or brought up, including by what it does (\"I want to listen to music\" "
+            "for a music app), answer the listed app that is that program. If they want a program opened but "
+            f"none of the listed apps is it, answer {INTENT_MISSING}. Anything else is {INTENT_ASK}."
+        ),
+        "criteria": criteria,
+    }}
+
+
+def _intent_apps(apps: Any) -> list[str]:
+    """Distinct non-empty app names, in the order given (most used first), capped for Jev."""
+    names: list[str] = []
+    for name in apps if isinstance(apps, list) else []:
+        if isinstance(name, str) and name.strip() and name.strip() not in names and name.strip() not in (INTENT_ASK, INTENT_MISSING):
+            names.append(name.strip()[:200])
+    return names[:INTENT_MAX_APPS]
+
+
+def _jev_intent(text: str, apps: list[str], key: str) -> dict[str, Any]:
+    """Jev's pick for a spoken request: {"app": name} | {"missing": True} | {"ask": True}.
+
+    A weak or unusable answer is "ask": Friday is the safe default. Blocking (urllib); run it
+    in a thread.
+    """
+    if not key or not text:
+        return {"ask": True, "reason": "unavailable"}
+    body = json.dumps({"model": JEV_MODEL, "state": f"Spoken request: {text[:500]}",
+                       "questions": _intent_question(apps)}).encode()
+    request = urllib.request.Request(os.environ.get("JEV_ENDPOINT") or JEV_ENDPOINT, data=body,
+                                     headers={"Content-Type": "application/json", "Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(request, timeout=8) as response:
+            answer = json.load(response)["answers"]["intent"]
+        choice = answer.get("choice")
+        probs = sorted((answer.get("probabilities") or {}).values(), reverse=True)
+        margin = (probs[0] - probs[1]) if len(probs) > 1 else 0.0
+        confidence = float(answer.get("confidence") or 0)
+    except Exception as e:  # noqa: BLE001 - any failure means "ask Friday"
+        logger.warning("[dots] intent: Jev failed: %s", type(e).__name__)
+        return {"ask": True, "reason": "unavailable"}
+    if confidence < INTENT_MIN_CONFIDENCE or margin < INTENT_MIN_MARGIN:
+        return {"ask": True, "reason": "unsure"}
+    if choice == INTENT_MISSING:
+        return {"missing": True}
+    if choice in apps:
+        return {"app": choice}
+    return {"ask": True}
+
+
+# Friday desktop's maths fallback: a spoken sum its calculator can't do goes to the model router's
+# thinking pool, the same router Hermes itself talks to (modules/hermes/config.yaml in friday).
+SOLVE_URL = "http://codex-router:4100/v1"
+SOLVE_MODEL = "auto-thinking"
+SOLVE_INSTRUCTIONS = (
+    "You answer a maths question someone asked out loud. Work it out carefully, then reply with one short "
+    "sentence to be read aloud that gives the result: digits, at most 4 decimal places, no working, no markdown."
+)
+
+
+def _run_cli(args: list[str]) -> tuple[bool, str]:
+    """Runs one of the host's CLIs (friday's `ikea`, `wol`); (ok, stdout or the error line)."""
+    try:
+        done = subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
+    except FileNotFoundError:
+        return False, f"{args[0]} is not installed on this server"
+    except subprocess.TimeoutExpired:
+        return False, f"{args[0]} timed out"
+    if done.returncode:
+        return False, (done.stderr.strip().splitlines() or [f"{args[0]} failed"])[-1]
+    return True, done.stdout
+
+
+def _home(frame: dict[str, Any]) -> dict[str, Any]:
+    """Friday desktop's smart-home switches, straight to friday's `ikea` CLI, no agent turn.
+
+    {"op": "list"} answers {"devices": [{name, type, on}]}; {"op": "switch", "names": [...],
+    "on": bool} switches each and answers {"switched": [...]}; a failure answers {"error": "..."}.
+    """
+    if frame.get("op") == "list":
+        ok, out = _run_cli(["ikea", "list"])
+        if not ok:
+            return {"error": out}
+        try:
+            return {"devices": [{"name": d["name"], "type": d["type"], "on": d["on"]} for d in json.loads(out)]}
+        except (ValueError, KeyError, TypeError):
+            return {"error": "unexpected device list"}
+    names = [str(n) for n in (frame.get("names") or []) if str(n).strip()][:20]
+    if frame.get("op") != "switch" or not names:
+        return {"error": "unknown home request"}
+    switched = []
+    for name in names:
+        ok, out = _run_cli(["ikea", "on" if frame.get("on") else "off", name])
+        if not ok:
+            return {"error": out, "switched": switched}
+        switched.append(name)
+    return {"switched": switched}
+
+
+# The last wake-on-LAN sent through the gateway: when (epoch s) and by whom ("phone", "friday").
+# In memory only: it matters for minutes, and a gateway restart in between just loses one autoplay.
+_WOKEN: dict[str, Any] = {"at": 0.0, "by": ""}
+
+
+def _wake(by: str) -> dict[str, Any]:
+    """Wakes the PC (friday's `wol` CLI) and remembers it, so the PC can tell the phone woke it."""
+    ok, out = _run_cli(["wol"])
+    if not ok:
+        return {"error": out}
+    _WOKEN.update(at=time.time(), by=by)
+    return {"woken": True}
+
+
+def _woken() -> dict[str, Any]:
+    """How long ago, and by whom, the PC was last woken through the gateway (none: never)."""
+    if not _WOKEN["at"]:
+        return {}
+    return {"ago_s": round(time.time() - _WOKEN["at"]), "by": _WOKEN["by"]}
+
+
+def _solve(text: str) -> str:
+    """The router's thinking model on a maths question; "" when it fails. Blocking (urllib); run it in a thread."""
+    if not text:
+        return ""
+    base = (os.environ.get("DOTS_SOLVE_URL") or SOLVE_URL).rstrip("/")
+    body = json.dumps({"model": os.environ.get("DOTS_SOLVE_MODEL") or SOLVE_MODEL, "instructions": SOLVE_INSTRUCTIONS,
+                       "input": text[:500], "stream": False}).encode()
+    request = urllib.request.Request(f"{base}/responses", data=body,
+                                     headers={"Content-Type": "application/json", "Authorization": "Bearer local"})
+    try:
+        with urllib.request.urlopen(request, timeout=110) as response:
+            output = json.load(response).get("output") or []
+    except Exception as e:  # noqa: BLE001 - any failure means "ask Friday"
+        logger.warning("[dots] solve: router failed: %s", type(e).__name__)
+        return ""
+    parts = [str(part.get("text") or "").strip() for item in output if isinstance(item, dict) and item.get("type") == "message"
+             for part in item.get("content") or [] if isinstance(part, dict) and part.get("type") == "output_text"]
+    return " ".join(p for p in parts if p)[:500]
 
 
 def _token(extra: Optional[dict] = None) -> str:
@@ -664,6 +850,8 @@ class DotsAdapter(BasePlatformAdapter):
         # browser's web token (None for the phone, which holds DOTS_TOKEN).
         self._clients: dict["web.WebSocketResponse", dict[str, Any]] = {}
         self._activities: dict[str, str] = {}  # chat -> idle | thinking | typing
+        # chat -> (when the owner's message arrived, whether a reply has been sent yet): "[dots] timing:" log lines.
+        self._timing: dict[str, tuple[float, bool]] = {}
         self._approvals: dict[str, str] = {}  # approval_id -> session_key
         self._turns: dict[str, str] = {}  # chat -> id of the user message being answered
         self._tool_started: dict[str, float] = {}  # tool event id -> monotonic start
@@ -924,6 +1112,17 @@ class DotsAdapter(BasePlatformAdapter):
             self._finish_takeover(str(frame.get("id") or ""), str(frame.get("note") or ""))
         elif kind == "activity_get":
             await self._push(await self._activity_snapshot(), ws)
+        elif kind == "intent":
+            # Jev takes a second or more: answer in the background, not holding up this socket.
+            asyncio.ensure_future(self._on_intent(frame, ws))
+        elif kind == "solve":
+            asyncio.ensure_future(self._on_solve(frame, ws))
+        elif kind == "home":
+            asyncio.ensure_future(self._on_home(frame, ws))
+        elif kind == "wake":
+            asyncio.ensure_future(self._on_wake(frame, ws))
+        elif kind == "woken":
+            await self._push({"type": "woken", "id": str(frame.get("id") or ""), **_woken()}, ws)
         elif kind == "usage_get":
             await self._push(await self._usage_frame(frame), ws)
         elif kind == "cron_action":
@@ -1051,12 +1250,43 @@ class DotsAdapter(BasePlatformAdapter):
         await self._push({"type": "dot_deleted", "id": dot_id})
         await self._push_dots()
 
+    async def _on_intent(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday desktop asks whether a spoken sentence opens one of its apps (see _jev_intent)."""
+        text = str(frame.get("text") or "").strip()
+        started = time.monotonic()
+        result = await asyncio.to_thread(_jev_intent, text, _intent_apps(frame.get("apps")), os.environ.get("JEV_API_KEY", ""))
+        logger.info("[dots] timing: intent answered %s by Jev in %d ms", next(iter(result), "?"), (time.monotonic() - started) * 1000)
+        await self._push({"type": "intent", "id": str(frame.get("id") or ""), **result}, ws)
+
+    async def _on_solve(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday desktop's maths its calculator can't do (see _solve); an empty answer means "ask Friday"."""
+        started = time.monotonic()
+        answer = await asyncio.to_thread(_solve, str(frame.get("text") or "").strip())
+        logger.info("[dots] timing: solve %s in %d ms", "answered" if answer else "failed", (time.monotonic() - started) * 1000)
+        await self._push({"type": "solve", "id": str(frame.get("id") or ""), "answer": answer}, ws)
+
+    async def _on_home(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday desktop switches lights and plugs itself (see _home): no agent turn, well under a second."""
+        started = time.monotonic()
+        result = await asyncio.to_thread(_home, frame)
+        logger.info("[dots] timing: home %s %s in %d ms", frame.get("op"), "failed" if "error" in result else "done", (time.monotonic() - started) * 1000)
+        await self._push({"type": "home", "id": str(frame.get("id") or ""), **result}, ws)
+
+    async def _on_wake(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """The phone (home Wi-Fi joined) or the desktop asks to wake the PC (see _wake)."""
+        by = "phone" if frame.get("by") == "phone" else "app"
+        result = await asyncio.to_thread(_wake, by)
+        logger.info("[dots] wake from %s: %s", by, result.get("error") or "sent")
+        await self._push({"type": "wake", "id": str(frame.get("id") or ""), **result}, ws)
+
     async def _on_user_message(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         client_id = str(frame.get("client_id") or uuid.uuid4())
         text = str(frame.get("text") or "").strip()
         if not text or await self._is_duplicate(client_id, ws):
             return
         chat = self._chat_of(frame)
+        self._timing[chat] = (time.monotonic(), False)
+        logger.info("[dots] timing: message received in %s (%d chars)", chat, len(text))
         speakers = self._room_speakers(chat, frame.get("room"))
         event = self._history.add({
             "type": "message", "id": uuid.uuid4().hex, "role": "user", "text": text, "ts": _now_ms(), "final": True, "chat": chat,
@@ -1072,8 +1302,20 @@ class DotsAdapter(BasePlatformAdapter):
             self._rooms[chat] = asyncio.ensure_future(self._run_room(chat, event, speakers, rounds))
             return
         await self.handle_message(MessageEvent(
-            text=text, message_type=MessageType.TEXT, source=self._source(chat, event["id"]), message_id=event["id"],
-            raw_message=frame, timestamp=datetime.now(tz=UTC), channel_prompt=self._channel_prompt(chat)))
+            text=text + _pc_context(frame), message_type=MessageType.TEXT, source=self._source(chat, event["id"]),
+            message_id=event["id"], raw_message=frame, timestamp=datetime.now(tz=UTC), channel_prompt=self._channel_prompt(chat)))
+        self._log_timing(chat, "handed to the agent")
+
+    def _log_timing(self, chat: str, step: str, *, reply: bool = False, done: bool = False) -> None:
+        """"[dots] timing: <step> after <ms> since the owner's message in <chat> arrived", once per step kind."""
+        started, replied = self._timing.get(chat, (0.0, False))
+        if not started or (reply and replied):
+            return
+        logger.info("[dots] timing: %s in %s after %d ms", step, chat, (time.monotonic() - started) * 1000)
+        if done:
+            self._timing.pop(chat, None)
+        elif reply:
+            self._timing[chat] = (started, True)
 
     # -- Group room (sub-dots invited into a conversation) ---------------------------------------
 
@@ -1699,6 +1941,7 @@ class DotsAdapter(BasePlatformAdapter):
         chat = self._known(event.source.chat_id if event.source else None)
         # Room turns are synthetic messages: their turn stays the owner's question, nothing to mark read.
         if event.message_id and event.message_id not in self._room_waiters:
+            self._log_timing(chat, "agent started")
             self._turns[chat] = event.message_id
             await self._push({"type": "read", "id": event.message_id})
         await self._set_activity(chat, "thinking")
@@ -1787,6 +2030,7 @@ class DotsAdapter(BasePlatformAdapter):
             "text": content[:MAX_MESSAGE_LENGTH], "ts": _now_ms(), "final": True,
         })
         await self._push(event)
+        self._log_timing(chat, "first reply sent", reply=True)
         if not self._room_parts(chat):  # a debate would ring once per speaker: only its conclusion notifies
             self._notify("message", event["id"], content, chat)
         if self._activity_of(chat) != "idle":
@@ -1800,6 +2044,7 @@ class DotsAdapter(BasePlatformAdapter):
         # A room speaker's last edit is not the end of the debate: its room keeps "typing" until the next one.
         await self._set_activity(chat, "idle" if finalize and not self._room_parts(chat) else "typing")
         await self._push({"type": "edit", "id": message_id, "text": content[:MAX_MESSAGE_LENGTH], "final": finalize})
+        self._log_timing(chat, "reply finished" if finalize else "first reply sent", reply=not finalize, done=finalize)
         return SendResult(success=True, message_id=message_id)
 
     async def _send_exec_approval_prompt(self, prompt) -> SendResult:

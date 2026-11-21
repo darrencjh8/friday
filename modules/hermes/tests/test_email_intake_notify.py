@@ -86,18 +86,39 @@ class LiveMessagesTest(unittest.TestCase):
         h.run()
         h.outbox.flush()
 
-    def test_a_booking_sends_the_tracker_message_and_offer_once(self):
+    def test_a_clean_booking_is_silent_but_its_offer_is_sent_once(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {
             "status": "processed", "action": "insert", "messages": ["S$5.00 at Alpha Cafe, logged"],
             "mapping_candidate": {"id": "ABCD1234", "descriptor": "ALPHA CAFE", "payee": "Alpha Cafe"}}})
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
         self.run_all(h)
         self.run_all(h)
-        # The booking goes to Dots; the offer stays on Telegram, the only place /remember_ is handled.
-        self.assertEqual(self.dots.sent, ["S$5.00 at Alpha Cafe, logged"])
+        # A booking that needs nothing is not a message; the offer asks something, on Telegram.
+        self.assertEqual(self.dots.sent, [])
         self.assertEqual(len(self.telegram.sent), 1)
         self.assertIn("/remember_abcd1234", self.telegram.sent[0])
         self.assertNotIn("Alpha Cafe, logged", self.telegram.sent[0])
+
+    def test_a_clean_portfolio_booking_is_silent(self):
+        tracker = FakeTracker({"http://portfolio.test/process/portfolio": {
+            "status": "processed", "action": "completed", "messages": ["Bought 1 ALPHA, logged"]}})
+        h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("portfolio"), tracker)
+        self.run_all(h)
+        self.assertEqual(self.dots.sent + self.telegram.sent, [])
+
+    def test_a_booking_that_needs_the_owner_is_sent(self):
+        tracker = FakeTracker({"http://expense.test/process/transaction": {
+            "status": "needs_confirmation", "action": "notified", "messages": ["Held: transfer not booked"]}})
+        h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
+        self.run_all(h)
+        self.assertEqual(self.dots.sent, ["Held: transfer not booked"])
+
+    def test_a_statement_summary_is_still_sent(self):
+        tracker = FakeTracker({"http://expense.test/process/statement": {
+            "status": "processed", "action": "completed", "messages": ["Statement: 2 outliers booked"]}})
+        h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(subtype="statement"), tracker)
+        self.run_all(h)
+        self.assertEqual(self.dots.sent, ["Statement: 2 outliers booked"])
 
     def test_a_silent_duplicate_sends_nothing(self):
         tracker = FakeTracker({"http://expense.test/process/transaction": {"status": "duplicate", "messages": []}})
@@ -142,7 +163,9 @@ class LiveMessagesTest(unittest.TestCase):
 
     def test_a_crash_after_booking_still_marks_read_and_reports_next_run(self):
         imap = StoringImap({"INBOX": [(5, make_mail())]})
-        h = self.harness(imap, good_answer())
+        tracker = FakeTracker({"http://expense.test/process/transaction": {
+            "status": "needs_confirmation", "action": "notified", "messages": ["Held"]}})
+        h = self.harness(imap, good_answer(), tracker)
         real = h.journal.queue_notification
         calls = []
 

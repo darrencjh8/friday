@@ -74,7 +74,7 @@ friday/                          # Umbrella repository root (product name: Frida
 │   │   ├── 50-seed-defaults              # Seeds skills/profiles/cron into the container
 │   │   ├── SOUL.md.template              # Agent persona template
 │   │   ├── SLACK.md                      # Slack app setup + manifest instructions
-│   │   ├── skills/                       # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, image-gen, skill-merge-approval, spec-auditor
+│   │   ├── skills/                       # expense-tracker, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, hermes-troubleshooting, ikea, image-gen, skill-merge-approval, spec-auditor, wol
 │   │   ├── profiles/                     # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                      # Skill reconciler, Slack manifest generator
 │   │   └── tests/                        # Shell-based contract tests
@@ -197,6 +197,7 @@ The production server runs host-level services alongside Docker. `chrome-daemon.
 | Service | Port | Purpose |
 |---------|------|---------|
 | `chrome-daemon` | CDP :9222 | Chromium (headed, Xvfb :99) for Perchance browser automation (template: `chrome-daemon.service`) |
+| `cdp-forward` | 172.17.0.1:9223 | Forwards CDP to the containers on the Docker bridge address only, never the home network: DevTools has no authentication (template: `cdp-forward.service`) |
 
 ### Internal Networking
 
