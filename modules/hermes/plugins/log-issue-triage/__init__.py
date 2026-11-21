@@ -27,6 +27,10 @@ _COMPONENT_REPOS = {
     "actual-api": _MAIN_REPO,
 }
 _COMPONENTS = tuple(_COMPONENT_REPOS)
+# Hermes only raises issues. They go to the private board repo for Muse to pick
+# up (friday-persona#4); code is still fetched from _COMPONENT_REPOS.
+_ISSUE_REPO = os.environ.get("TRIAGE_ISSUE_REPO") or "darrencjh8/friday-persona"
+_ISSUE_LABELS = ["--label", "agent:friday", "--label", "status:ready"]
 _SNAPSHOT_ROOT = Path("/opt/data/log-issue-triage/snapshots")
 _STATE_ROOT = Path("/opt/data/log-issue-triage/state")
 _COLLECTION_DIR = "collections"
@@ -450,7 +454,7 @@ def _search_issues(args):
     query = str(args.get("query", "")).strip()
     if not query or len(query) > 200:
         return {"status": "invalid_query"}
-    repo = _COMPONENT_REPOS[component]
+    repo = _ISSUE_REPO
     result = _run([
         "gh", "issue", "list", "--repo", repo, "--state", "all", "--limit", "100",
         "--search", query, "--json", "number,title,state,url",
@@ -485,7 +489,7 @@ def _publish_once(args):
         return {"status": "invalid_issue", "detail": "title/body is empty or exceeds size limits"}
     if _SECRET_RE.search(title) or _SECRET_RE.search(body):
         return {"status": "blocked", "detail": "issue title/body contains content matched by the sensitive-data filter"}
-    repo = _COMPONENT_REPOS[component]
+    repo = _ISSUE_REPO
     marker_search = _run([
         "gh", "issue", "list", "--repo", repo, "--state", "all", "--limit", "1000",
         "--search", f"{proof['reproduction_id']} in:body", "--json", "number,title,url",
@@ -516,13 +520,13 @@ def _publish_once(args):
         f"\n\nReproducer command: `{proof['command']}`\n\n"
         "```text\n" + proof.get("public_stdout", "") + "\n```"
     )
-    body += evidence
+    body += evidence + f"\n\nCode repository: `{_COMPONENT_REPOS[component]}`"
     if len(body) > 12000 or _SECRET_RE.search(body):
         return {"status": "blocked", "detail": "verified reproduction evidence exceeds limits or sensitive-data checks"}
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix="triage-issue-", delete=True) as body_file:
         body_file.write(body)
         body_file.flush()
-        result = _run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body-file", body_file.name], timeout=60)
+        result = _run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body-file", body_file.name, *_ISSUE_LABELS], timeout=60)
     if not result["ok"]:
         return {"status": "publish_failed", "detail": result["stderr"]}
     url = result["stdout"].strip().splitlines()[-1] if result["stdout"].strip() else ""
@@ -547,7 +551,7 @@ def _publish_cron_failure(args):
     finding = _CRON_FINDINGS.get(finding_id)
     if not finding:
         return {"status": "blocked", "detail": "use a finding ID returned by the current cron health check"}
-    repo = _MAIN_REPO
+    repo = _ISSUE_REPO
     title = f"[cron] {finding['job_name']}: {finding['kind']}"
     body = (
         "## Scheduler health finding\n\n"
@@ -575,7 +579,7 @@ def _publish_cron_failure(args):
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", prefix="triage-cron-", delete=True) as body_file:
         body_file.write(body)
         body_file.flush()
-        result = _run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body-file", body_file.name], timeout=60)
+        result = _run(["gh", "issue", "create", "--repo", repo, "--title", title, "--body-file", body_file.name, *_ISSUE_LABELS], timeout=60)
     if not result["ok"]:
         return {"status": "publish_failed", "detail": result.get("stderr", "")}
     url = result.get("stdout", "").strip().splitlines()[-1] if result.get("stdout", "").strip() else ""
