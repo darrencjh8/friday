@@ -18,6 +18,7 @@ import asyncio
 import base64
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -300,10 +301,12 @@ SOLVE_INSTRUCTIONS = (
 )
 
 
-def _run_cli(args: list[str]) -> tuple[bool, str]:
-    """Runs one of the host's CLIs (friday's `home`, `wol`); (ok, stdout or the error line)."""
+def _run_cli(args: list[str], stdin: str = "", timeout: float = 30) -> tuple[bool, str]:
+    """Runs one of the host's CLIs (friday's `home`, `wol`); (ok, stdout or the error line).
+
+    `stdin` answers the CLI's prompts (keys and tokens go there, never in the arguments)."""
     try:
-        done = subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
+        done = subprocess.run(args, input=stdin, capture_output=True, text=True, timeout=timeout, check=False)
     except FileNotFoundError:
         return False, f"{args[0]} is not installed on this server"
     except subprocess.TimeoutExpired:
@@ -328,11 +331,78 @@ def _home(frame: dict[str, Any]) -> dict[str, Any]:
             return {"devices": [{"name": d["name"], "type": d["type"], "on": d["on"]} for d in json.loads(out)]}
         except (ValueError, KeyError, TypeError):
             return {"error": "unexpected device list"}
+    if frame.get("op") in _SETUP_OPS:
+        return _home_setup(frame)
     names = [str(n) for n in (frame.get("names") or []) if str(n).strip()][:20]
     if frame.get("op") != "switch" or not names:
         return {"error": "unknown home request"}
     ok, out = _run_cli(["home", "on" if frame.get("on") else "off", *names])
     return {"switched": names} if ok else {"error": out}
+
+
+# Friday desktop's smart-home setup (the Home plugin's settings): each op runs one fixed command of
+# friday's system CLIs. Keys and tokens reach the CLI on stdin, never in its arguments or the log.
+_SYSTEMS = ("tuya", "broadlink", "xiaomi")
+_TUYA_REGIONS = ("us", "us-e", "eu", "eu-w", "in", "sg", "cn")
+_SETUP_OPS = ("systems", "tuya_setup", "tuya_ip", "broadlink_add", "broadlink_learn", "broadlink_forget",
+              "xiaomi_add", "xiaomi_forget")
+BROADLINK_LEARN_S = 30
+
+
+def _describe(system: str) -> str:
+    ok, out = _run_cli([system, "list"])
+    if not ok:
+        return out.removeprefix(f"{system}: ")
+    try:
+        devices = json.loads(out)
+        return ", ".join(
+            f"{d['name']} ({', '.join(d.get('buttons') or [d['type'], d.get('ip') or 'no address'])})" for d in devices
+        ) or "no devices"
+    except (ValueError, TypeError, KeyError):
+        return "unexpected device list"
+
+
+def _home_setup(frame: dict[str, Any]) -> dict[str, Any]:
+    """Answers {"message": text for the settings page} or {"error": ...}. "systems" describes each system's
+    devices (names, types, addresses, learned buttons; never keys or codes)."""
+    op = frame["op"]
+    if op == "systems":
+        return {"message": "\n".join(f"{system.capitalize()}: {_describe(system)}" for system in _SYSTEMS)}
+    field = lambda key: str(frame.get(key) or "").strip()  # noqa: E731
+    name, ip, light = field("name"), field("ip"), ["light"] if frame.get("light") else []
+    if name and (len(name) > 64 or not name.isprintable()):
+        return {"error": "a name is up to 64 characters"}
+    if ip:
+        try:
+            ipaddress.ip_address(ip)
+        except ValueError:
+            return {"error": f"{ip} is not an IP address"}
+    needed = {"tuya_setup": ("access_id", "secret"), "tuya_ip": ("name", "ip"), "broadlink_add": ("ip",),
+              "broadlink_learn": ("name", "button"), "broadlink_forget": ("name",), "xiaomi_add": ("name", "ip", "token"),
+              "xiaomi_forget": ("name",)}[op]
+    missing = [k for k in needed if not field(k)]
+    if missing:
+        return {"error": f"missing {', '.join(missing)}"}
+    args, stdin, timeout = [], "", 30.0
+    if op == "tuya_setup":
+        region = field("region") or "sg"
+        if region not in _TUYA_REGIONS:
+            return {"error": f"unknown data center {region}"}
+        args, stdin, timeout = ["tuya", "setup"], f"{region}\n{field('access_id')}\n{field('secret')}\n", 60.0
+    elif op == "tuya_ip":
+        args = ["tuya", "ip", name, ip]
+    elif op == "broadlink_add":
+        args = ["broadlink", "add", ip]
+    elif op == "broadlink_learn":
+        if field("button") not in ("on", "off", "power"):
+            return {"error": "the button is on, off or power"}
+        args, timeout = ["broadlink", "learn", name, field("button"), *light], BROADLINK_LEARN_S + 15.0
+    elif op == "xiaomi_add":
+        args, stdin = ["xiaomi", "add", name, ip, *light], field("token") + "\n"
+    else:
+        args = [op.split("_")[0], "forget", name]
+    ok, out = _run_cli(args, stdin, timeout)
+    return {"message": out.strip()} if ok else {"error": out}
 
 
 # The last wake-on-LAN sent through the gateway: when (epoch s) and by whom ("phone", "friday").

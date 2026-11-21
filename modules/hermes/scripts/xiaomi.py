@@ -148,6 +148,13 @@ def detect(device):
 # -- Config and the `home` interface.
 
 
+def ask(prompt, hidden=False):
+    """A prompt in a terminal; without one (Friday's app sends the answers on stdin), just the next line."""
+    if not sys.stdin.isatty():
+        return sys.stdin.readline().strip()
+    return (getpass.getpass(prompt) if hidden else input(prompt)).strip()
+
+
 def load():
     try:
         with open(CONFIG) as f:
@@ -224,7 +231,7 @@ def pick(found, name):
 
 def main(argv):
     if len(argv) in (3, 4) and argv[0] == "add" and argv[3:] in ([], ["light"]):
-        token = getpass.getpass(f"Token of {argv[1]}: ")
+        token = ask(f"Token of {argv[1]}: ", hidden=True)
         device = add(argv[1], argv[2], token, "light" if argv[3:] else "plug")
         print(f"{device['name']}: {device['ip']} ({device['protocol']})")
     elif argv == ["list"]:
