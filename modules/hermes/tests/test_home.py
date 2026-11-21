@@ -106,7 +106,8 @@ class HomeTest(unittest.TestCase):
 
 class BackendTest(unittest.TestCase):
     def test_every_system_script_loads_and_is_skipped_until_set_up(self):
-        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, IKEA_CONFIG=f"{d}/i.json", TUYA_CONFIG=f"{d}/t.json"):
+        with tempfile.TemporaryDirectory() as d, patch.dict(os.environ, IKEA_CONFIG=f"{d}/i.json", TUYA_CONFIG=f"{d}/t.json",
+                                                              BROADLINK_CONFIG=f"{d}/b.json", XIAOMI_CONFIG=f"{d}/x.json"):
             for make in home.SYSTEMS:
                 system = make()
                 self.assertFalse(system.ready(), system.name)

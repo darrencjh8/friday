@@ -156,8 +156,9 @@ jobs:
                   python-version: "3.12"
             # Several tests below parse Hermes YAML. setup-python provisions a
             # pristine interpreter, so PyYAML must be installed explicitly.
-            - name: Install PyYAML
-              run: python -m pip install --quiet PyYAML
+            # The Xiaomi CLI test encrypts with cryptography, as the image's home venv does.
+            - name: Install PyYAML and cryptography
+              run: python -m pip install --quiet PyYAML cryptography
             - name: Lint bash scripts
               run: |
                   sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
@@ -183,6 +184,10 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_home.py
             - name: Test Tuya CLI
               run: python -m unittest modules/hermes/tests/test_tuya.py
+            - name: Test Broadlink CLI
+              run: python -m unittest modules/hermes/tests/test_broadlink_rm.py
+            - name: Test Xiaomi CLI
+              run: python -m unittest modules/hermes/tests/test_xiaomi.py
             - name: Test wake-on-LAN CLI
               run: python -m unittest modules/hermes/tests/test_wol.py
             - name: Test mnemosyne-vacuum script
