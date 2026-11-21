@@ -1857,6 +1857,44 @@ describe("DeepSeekClient", () => {
 });
 
 describe("LLMClient truncation and reasoning-disabled handling", () => {
+    const toolCallTurn = (extra = {}) => ({
+        role: "assistant",
+        tool_calls: [{ id: "c1", type: "function", function: { name: "fetch_accounts", arguments: "{}" } }],
+        ...extra,
+    });
+
+    it("turns thinking off on the deepseek route when a tool-call turn lost its reasoning_content (#265)", async () => {
+        const client = new LLMClient(makeConfig());
+        const createMock = vi.fn().mockResolvedValue({
+            choices: [{ message: { content: "{}" }, finish_reason: "stop" }],
+        });
+        client._client.chat.completions.create = createMock;
+
+        await client.chat([
+            { role: "user", content: "hi" },
+            toolCallTurn(),
+            { role: "tool", tool_call_id: "c1", content: "[]" },
+        ]);
+
+        expect(createMock.mock.calls[0][0].thinking).toEqual({ type: "disabled" });
+    });
+
+    it("keeps adaptive thinking when every tool-call turn carries its reasoning_content (#265)", async () => {
+        const client = new LLMClient(makeConfig());
+        const createMock = vi.fn().mockResolvedValue({
+            choices: [{ message: { content: "{}" }, finish_reason: "stop" }],
+        });
+        client._client.chat.completions.create = createMock;
+
+        await client.chat([
+            { role: "user", content: "hi" },
+            toolCallTurn({ reasoning_content: "think" }),
+            { role: "tool", tool_call_id: "c1", content: "[]" },
+        ]);
+
+        expect(createMock.mock.calls[0][0].thinking).toEqual({ type: "adaptive" });
+    });
+
     it("reasoning: 'disabled' actually suppresses adaptive thinking on the deepseek route with no explicit toolChoice", async () => {
         const config = makeConfig();
         const client = new LLMClient(config);

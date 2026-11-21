@@ -249,6 +249,16 @@ export class StatementProcessor {
     const messages = this._buildMessages(emailText);
     const toolSchemas = this._tools.getToolSchemas();
 
+    // The summary notify follows a recorded statement or a prior-record hit
+    // (the prompt's two closing paths). Once it is sent the owner has the
+    // outcome, so a later failure must not report the run as failed (#265).
+    let reconciled = false;
+    let summary = null;
+    const afterSummary = (problem) => {
+      logger.warn({ event: "statement_failed_after_summary", error: problem });
+      return { action: "completed", details: `${summary}\n(after the summary: ${problem})` };
+    };
+
     try {
       for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
         const response = await this._llm.chat(messages, toolSchemas);
@@ -256,14 +266,19 @@ export class StatementProcessor {
         const finishReason = choice.finish_reason;
         const message = choice.message || {};
 
-        if (message.content) {
-          messages.push({
-            role: "assistant",
-            content: message.content,
-          });
+        // One assistant message per turn, with its reasoning_content: the
+        // DeepSeek fallback rejects a history that drops it (#265).
+        const toolCalls = message.tool_calls;
+        if (message.content || toolCalls) {
+          const assistantMsg = { role: "assistant" };
+          if (message.content) assistantMsg.content = message.content;
+          if (toolCalls) assistantMsg.tool_calls = toolCalls;
+          if (message.reasoning_content) {
+            assistantMsg.reasoning_content = message.reasoning_content;
+          }
+          messages.push(assistantMsg);
         }
 
-        const toolCalls = message.tool_calls;
         if (!toolCalls) {
           if (finishReason === "stop") {
             const result = {
@@ -279,14 +294,6 @@ export class StatementProcessor {
           };
         }
 
-        const assistantMsg = {
-          role: "assistant",
-          content: message.content,
-          tool_calls: toolCalls,
-        };
-        if (!assistantMsg.content) delete assistantMsg.content;
-        messages.push(assistantMsg);
-
         for (const tc of toolCalls) {
           const func = tc.function || {};
           const name = func.name || "";
@@ -296,6 +303,16 @@ export class StatementProcessor {
           } catch {}
 
           const result = await this._tools.executeTool(name, args);
+          // A recorded statement, or a prior record for this period, both
+          // come back with the journal row id.
+          if (
+            (name === "record_statement" || name === "fetch_statement_history") &&
+            result && result.id != null
+          ) {
+            reconciled = true;
+          } else if (name === "notify_user" && reconciled && summary === null) {
+            summary = String(args.message || "");
+          }
           messages.push({
             role: "tool",
             tool_call_id: tc.id || "",
@@ -315,6 +332,10 @@ export class StatementProcessor {
         }
       }
 
+      if (summary !== null) {
+        await this._ensureEmailRead();
+        return afterSummary("max tool iterations exceeded");
+      }
       const notified = await this._tools.executeTool("notify_user", {
         message:
           "Statement processing exceeded maximum iterations — may be too large or malformed.",
@@ -332,6 +353,10 @@ export class StatementProcessor {
         details: "Max tool iterations exceeded",
       };
     } catch (e) {
+      if (summary !== null) {
+        await this._ensureEmailRead();
+        return afterSummary(String(e).slice(0, 200));
+      }
       logger.error({
         event: "statement_processing_failed",
         error: e.message,
