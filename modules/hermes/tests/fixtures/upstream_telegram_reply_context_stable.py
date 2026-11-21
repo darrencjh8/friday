@@ -1,22 +1,33 @@
+# Trimmed copy of the upstream TelegramAdapter._reply_context from the pinned
+# nousresearch/hermes-agent:stable image. Helper functions are stubs.
+
+
+def expand_quote_link_entities(quote, reply_to_message):
+    return getattr(quote, "text", None)
+
+
+def expand_link_entities(msg):
+    return msg.text or msg.caption or None
+
+
+def rich_message_text(msg):
+    return None
+
+
 class TelegramAdapter:
-    def __init__(self):
-        self._rich_text = ""
-
-    def _extract_rich_reply_text(self, reply_to_message):
-        return self._rich_text or None
-
     def _reply_context(self, message):
-        """Return reply context with Telegram's native partial quote first."""
+        """``(reply_to_id, reply_to_text)`` for the replied-to message: Telegram's native partial quote
+        first, then text/caption (hidden link URLs inlined), rich echo, then the sent index."""
         if not message.reply_to_message:
             return None, None
         reply_to_id = str(message.reply_to_message.message_id)
         quote = getattr(message, "quote", None)
-        quote_text = getattr(quote, "text", None) if quote is not None else None
+        quote_text = expand_quote_link_entities(quote, message.reply_to_message) if quote is not None else None
         if quote_text:
             return reply_to_id, quote_text
-        reply_to_text = message.reply_to_message.text or message.reply_to_message.caption or None
+        reply_to_text = expand_link_entities(message.reply_to_message) or None
         if not reply_to_text:
-            reply_to_text = self._extract_rich_reply_text(message.reply_to_message)
+            reply_to_text = rich_message_text(message.reply_to_message) or None
         if not reply_to_text:
             try:
                 from gateway import rich_sent_store

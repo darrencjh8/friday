@@ -9,9 +9,9 @@ STORE = "/opt/hermes/gateway/rich_sent_store.py"
 ADAPTER_MARKER = "# openclaw-patch: prefer cached Telegram rich reply source"
 STORE_MARKER = "# openclaw-patch: long Telegram proposal reply context"
 
-OLD_REPLY_BLOCK = '''        reply_to_text = message.reply_to_message.text or message.reply_to_message.caption or None
+OLD_REPLY_BLOCK = '''        reply_to_text = expand_link_entities(message.reply_to_message) or None
         if not reply_to_text:
-            reply_to_text = self._extract_rich_reply_text(message.reply_to_message)
+            reply_to_text = rich_message_text(message.reply_to_message) or None
         if not reply_to_text:
             try:
                 from gateway import rich_sent_store
@@ -35,9 +35,9 @@ NEW_REPLY_BLOCK = f'''{ADAPTER_MARKER}
         except Exception:
             reply_to_text = None
         if not reply_to_text:
-            reply_to_text = message.reply_to_message.text or message.reply_to_message.caption or None
+            reply_to_text = expand_link_entities(message.reply_to_message) or None
         if not reply_to_text:
-            reply_to_text = self._extract_rich_reply_text(message.reply_to_message)
+            reply_to_text = rich_message_text(message.reply_to_message) or None
         return reply_to_id, reply_to_text
 '''
 
