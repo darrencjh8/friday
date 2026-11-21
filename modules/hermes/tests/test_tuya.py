@@ -1,4 +1,6 @@
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import sys
@@ -101,6 +103,13 @@ class TuyaTest(unittest.TestCase):
         tuya.set_on(cfg, blinds, False)
         tuya.set_on(cfg, blinds, True)
         self.assertEqual(FakeDevice.sent, [("blind1", "1", "close"), ("blind1", "1", "open")])
+
+    def test_setup_from_the_app_reads_stdin_without_prompts(self):
+        out = io.StringIO()
+        with patch.object(sys, "stdin", io.StringIO("us\nid\nsecret\n")), contextlib.redirect_stdout(out):
+            self.assertEqual(tuya.main(["setup"]), 0)
+        self.assertTrue(out.getvalue().startswith("3 devices saved"), out.getvalue())
+        self.assertNotIn("Access", out.getvalue())
 
     def test_not_set_up(self):
         with self.assertRaisesRegex(tuya.TuyaError, "tuya setup"):

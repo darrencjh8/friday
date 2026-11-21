@@ -38,6 +38,13 @@ class TuyaError(Exception):
     pass
 
 
+def ask(prompt, hidden=False):
+    """A prompt in a terminal; without one (Friday's app sends the answers on stdin), just the next line."""
+    if not sys.stdin.isatty():
+        return sys.stdin.readline().strip()
+    return (getpass.getpass(prompt) if hidden else input(prompt)).strip()
+
+
 def load():
     try:
         with open(CONFIG) as f:
@@ -180,13 +187,13 @@ def pick(found, name):
 
 def main(argv):
     if argv == ["setup"]:
-        region = input(f"Data center ({'/'.join(REGIONS)}) [sg]: ").strip() or "sg"
+        region = ask(f"Data center ({'/'.join(REGIONS)}) [sg]: ") or "sg"
         if region not in REGIONS:
             raise TuyaError(f"unknown data center {region!r}")
-        access_id = input("Access ID: ").strip()
-        secret = getpass.getpass("Access Secret: ").strip()
+        access_id = ask("Access ID: ")
+        secret = ask("Access Secret: ", hidden=True)
         if not access_id or not secret:
-            raise TuyaError("both the Access ID and the Access Secret are needed")
+            raise TuyaError("both the Access ID and the Access Secret are needed (in a terminal, run it with `docker exec -it`)")
         found, skipped = setup(region, access_id, secret)
         print(f"{len(found)} devices saved; give each its address with `tuya ip \"<name>\" <ip>`:")
         for d in found:
