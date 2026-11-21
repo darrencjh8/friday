@@ -24,6 +24,7 @@ import secrets
 import socket
 import sys
 import threading
+import time
 import urllib.parse
 import urllib.request
 
@@ -196,7 +197,9 @@ def _client_env():
 
 def _save_token(data):
     os.makedirs(_config_dir(), exist_ok=True)
-    tmp = _token_path() + ".tmp"
+    # One temp file per process: jobs that refresh at the same moment must not
+    # write into each other's file and leave token.json half-written.
+    tmp = "%s.%d.tmp" % (_token_path(), os.getpid())
     with open(tmp, "w") as fh:
         json.dump(data, fh)
     os.chmod(tmp, 0o600)
@@ -204,11 +207,16 @@ def _save_token(data):
 
 
 def _load_token():
-    try:
-        with open(_token_path()) as fh:
-            return json.load(fh)
-    except (OSError, ValueError):
-        return None
+    # A second read covers another job replacing the file mid-read, which
+    # would otherwise be reported as an expired login.
+    for attempt in range(2):
+        try:
+            with open(_token_path()) as fh:
+                return json.load(fh)
+        except (OSError, ValueError):
+            if attempt == 0:
+                time.sleep(0.2)
+    return None
 
 
 def _post_token(payload):
