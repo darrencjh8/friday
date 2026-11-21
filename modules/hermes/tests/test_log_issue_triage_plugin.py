@@ -256,13 +256,14 @@ class LogIssueTriagePluginTest(unittest.TestCase):
             "observed_at": "2026-10-09T00:00:00+00:00", "schedule": {"kind": "cron", "expr": "0 * * * *"},
         }
         triage._CRON_FINDINGS[finding["finding_id"]] = finding
-        url = "https://github.com/darrencjh8/friday/issues/913"
+        url = "https://github.com/darrencjh8/friday-persona/issues/913"
         captured = {}
         def fake_run(args, **kwargs):
             if args[:3] == ["gh", "issue", "list"]:
                 return {"ok": True, "returncode": 0, "stdout": "[]", "stderr": ""}
             if args[:3] == ["gh", "issue", "create"]:
-                captured["body"] = Path(args[-1]).read_text(encoding="utf-8")
+                captured["body"] = Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8")
+                captured["create"] = args
                 return {"ok": True, "returncode": 0, "stdout": url + "\n", "stderr": ""}
             if args[:3] == ["gh", "issue", "view"]:
                 return {"ok": True, "returncode": 0, "stdout": json.dumps({
@@ -274,6 +275,8 @@ class LogIssueTriagePluginTest(unittest.TestCase):
             result = triage._publish_cron_failure({"finding_id": finding["finding_id"]})
         self.assertEqual(result["status"], "verified")
         self.assertIn(finding["finding_id"], captured["body"])
+        self.assertEqual(captured["create"][4], "darrencjh8/friday-persona")
+        self.assertEqual(captured["create"][-4:], ["--label", "agent:friday", "--label", "status:ready"])
 
         snapshot = {"component": "hermes", "collection_errors": ["docker log failure"], "truncated": True}
         with patch.object(triage, "_run", return_value={"ok": True, "stdout": "", "stderr": ""}):
@@ -493,12 +496,13 @@ class LogIssueTriagePluginTest(unittest.TestCase):
             "command": "python -m unittest -v tests.test_regression", "stdout": "test_bug (...) ... FAIL\nRan 1 test in 0.01s\nFAILED (failures=1)",
             "public_stdout": "FAIL: test_bug (tests.test_regression.TestCase.test_bug)\nRan 1 test in 0.01s\nFAILED (failures=1)",
         }
-        url = "https://github.com/darrencjh8/friday/issues/812"
+        url = "https://github.com/darrencjh8/friday-persona/issues/812"
         issue_body = (
             "Sanitized evidence\n\nReproduction evidence ID: `proof` (revision `" + "a" * 40
             + "`, image `sha256:" + "b" * 64 + "`).\n\n"
             "Reproducer command: `python -m unittest -v tests.test_regression`\n\n"
             "```text\n" + "FAIL: test_bug (tests.test_regression.TestCase.test_bug)\nRan 1 test in 0.01s\nFAILED (failures=1)" + "\n```"
+            "\n\nCode repository: `darrencjh8/friday`"
         )
         responses = [
             {"ok": True, "returncode": 0, "stdout": "[]", "stderr": ""},
@@ -514,10 +518,12 @@ class LogIssueTriagePluginTest(unittest.TestCase):
                 "title": "Defect", "body": "Sanitized evidence",
             })
         self.assertEqual(result, {
-            "status": "verified", "repository": "darrencjh8/friday",
+            "status": "verified", "repository": "darrencjh8/friday-persona",
             "number": 812, "url": url,
         })
-        self.assertEqual(run.call_args_list[2].args[0][:3], ["gh", "issue", "create"])
+        create = run.call_args_list[2].args[0]
+        self.assertEqual(create[:5], ["gh", "issue", "create", "--repo", "darrencjh8/friday-persona"])
+        self.assertEqual(create[-4:], ["--label", "agent:friday", "--label", "status:ready"])
         self.assertEqual(run.call_args_list[3].args[0][:3], ["gh", "issue", "view"])
 
     def test_publication_stops_on_exact_title_duplicate(self):
@@ -572,7 +578,8 @@ class ActualApiCoverageTest(unittest.TestCase):
         collect = (PLUGIN_PATH.parents[2] / "scripts/log-issue-triage-collect.py").read_text(encoding="utf-8")
         self.assertRegex(collect, r"ALLOWED_COMPONENTS = \{[^}]*\"actual-api\"")
         seed = (PLUGIN_PATH.parents[2] / "50-seed-defaults").read_text(encoding="utf-8")
-        self.assertIn("expense-tracker/portfolio-tracker/actual-api to `darrencjh8/friday`", seed)
+        self.assertIn("expense-tracker/portfolio-tracker/actual-api code is `darrencjh8/friday`", seed)
+        self.assertIn("File every issue in the private `darrencjh8/friday-persona`", seed)
 
 
 if __name__ == "__main__":
