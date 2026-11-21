@@ -1,0 +1,142 @@
+# Plan: retry transient fetch failures in the portfolio sync legs (friday #286)
+
+QUESTIONS
+q: Retry the whole leg function (pullFromOneDrive / pushToOneDrive / pullFlexXml) up to 3 attempts on transient errors only, mirroring getAccessToken's existing loop — or retry each individual fetch inside them? | assumption: whole leg function; the legs are idempotent (GETs; the PUT is a full-file replace with conflictBehavior=replace) and the per-site loop already exists as precedent in getAccessToken.
+q: Does the IBKR Flex query cover a multi-day window, so a missed day's trades are re-imported by the next successful run — or is it a single-day query, making a missed day permanently lost? | assumption: multi-day window (the standing daily statement query); the implementation confirms the query's period from the IBKR configuration and says so in the PR; if it is single-day, the plan is revised before building.
+q: When the pull fails, should the sync still push the local file (current behavior — risks overwriting a newer remote file) or skip the push? | assumption: unchanged — push still runs; the retry removes the observed trigger, and skipping the push would leave the Actual Budget balance updates unsaved for the day. Changing push gating is a separate decision, not this fix.
+q: Should the shell script (portfolio-sync.sh) also retry the whole sync once? | assumption: no — the retry belongs in the service legs where the failure is; a shell-level retry would re-run the whole sync including a second push.
+q: Retry delays — reuse the existing shapes (getAccessToken: 2s, 4s; fetchBudget: 1s, 2s, 4s)? | a: 3 attempts total with 1s then 2s delays (the fetchBudget shape, shortest of the two); worst case about 3s per leg, negligible against the 300s curl budget and the 86s the incident run took.
+
+## Goal
+
+Stop a transient external-network blip from failing the daily
+`finance-portfolio-sync` run. The 2026-11-20 14:30 SGT run failed with exit
+1 because the OneDrive pull and the IBKR flex pull both failed with the bare
+Node message `fetch failed`, and neither leg retried. After this change a
+blip lasting under a couple of minutes is absorbed by bounded retries, and
+if the legs still fail, the error names the underlying cause instead of the
+bare `fetch failed`.
+
+## Fact-checks (verified 2026-11-21 in a fresh clone at HEAD 78863e7)
+
+- Issue #286, live state: OPEN, `in-progress` label, picked-up comment from
+  friday-museai present. Failure `execution_failed`, observed
+  2026-11-20T10:31:05Z, job `finance-portfolio-sync` (`aee1c123bb29`),
+  schedule `30 14 * * *`. Script exit 1; stderr shows the sync triggered at
+  06:30:44Z, HTTP 200 at 06:32:10Z, `sync complete`, then `ERROR: a sync
+  step failed`; stdout shows `pull: error (fetch failed)` and `flex_pull:
+  error (fetch failed)`, `push: ok (uploaded)`, `taxonomy_export:
+  completed`, all four sync targets `unchanged (delta=0)`.
+- The cron: `README.md:80` and `modules/hermes/50-seed-defaults:1151-1216`
+  seed `finance-portfolio-sync` (`30 14 * * *`), which runs
+  `modules/hermes/scripts/portfolio-sync.sh` as a zero-token `POST
+  http://portfolio-tracker:8081/tools/pp-sync-all`.
+- The script (`modules/hermes/scripts/portfolio-sync.sh`) curls the endpoint
+  (`--max-time 300`), parses the JSON body, prints one line per leg, and
+  exits 1 when any leg printed an error line — correct per #81 (Hermes
+  judges a no_agent script cron by its exit code alone). HTTP was 200, so
+  the exit 1 came from the two error legs, not the transport. No change
+  needed in the script.
+- `fetch failed` is Node's undici `TypeError` message for a network-level
+  failure (DNS, connect, TLS, reset). Both failing legs use global `fetch`:
+  pull goes `PpClient.pull()` (`modules/portfolio-tracker/src/java_bridge.js:343`)
+  → `pullFromOneDrive()` (`src/onedrive.js:77`) → `fetch` to
+  login.microsoftonline.com / graph.microsoft.com / the download URL; flex
+  pull goes `pullFlexXml()` (`src/ibkr_flex.js:48`) → `fetch` to
+  ndcdyn.interactivebrokers.com. Both legs return only `e.message`, dropping
+  `e.cause` (which carries e.g. `getaddrinfo ENOTFOUND`), so the log cannot
+  say which hop failed or why.
+- Timing evidence the outage was transient: the pull ran ~06:30:44Z and the
+  push — which also needs a Microsoft token fetch plus a Graph PUT —
+  succeeded ~06:32:10Z; the Actual Budget fetches over the internal Docker
+  network (`actual-api:3000`) succeeded and the targets computed. External
+  fetches failed, internal worked, and the external path recovered within
+  about 86 seconds.
+- Retry gaps, read from the code: `getAccessToken` already retries 3 times
+  with 2s/4s backoff (`src/onedrive.js:37-72`), but the Graph
+  resolve/children/download fetches in `pullFromOneDrive` and the
+  resolve/upload fetches in `pushToOneDrive` have no retry, and
+  `pullFlexXml` has no retry at all. `fetchBudget` in `src/tools.js:931`
+  retries 3 times with `2 ** attempt` second backoff — the shape to copy.
+- What the failure cost that day: the flex import never ran (no XML), so the
+  prior day's IBKR trades/dividends were not imported that day; the AB
+  balances were unchanged (delta=0), so the push of the local file changed
+  nothing. The scheduler health finding fired correctly — #286 exists
+  because the signal worked, not because the signal is broken.
+- Callers of the three functions, so the fix lands everywhere at once:
+  `pullFromOneDrive` / `pushToOneDrive` are called from
+  `tools.js:_computeSyncAll` (the cron path), `tools.js:701,712` (the MCP
+  onedrive tools), `mcp-server.js:301,307,349,379`, and
+  `java_bridge.js:171,345,425` (pull, corruption-recovery pull, push);
+  `pullFlexXml` is called from `tools.js:891` only.
+- Existing tests that stub `fetch` the same way the new tests do:
+  `modules/portfolio-tracker/tests/onedrive.test.js` (fs mocks, token/Graph/
+  download stubs), `tests/onedrive-legs.test.js` (M1–M4 leg rendering, the
+  flex `skipped` sentinel, a stubbed failing `fetch`), and
+  `tests/loan-sync-147.test.js` (mocks `pullFlexXml`).
+
+## Change
+
+1. `modules/portfolio-tracker/src/ibkr_flex.js` — `pullFlexXml`: wrap the
+   two fetch steps in up to 3 attempts total (delays 1s, then 2s), retrying
+   only transient errors: a network `TypeError` (`fetch failed`), a timeout
+   abort, or HTTP 429 / 5xx. Never retry the not-configured sentinel
+   (`NOT_CONFIGURED_ERROR`), an IBKR `<Status>Fail</Status>` response (e.g.
+   error 1012, token expired), or HTTP 4xx. On final failure, include the
+   underlying cause in the returned error: `fetch failed (<cause message>)`
+   when `e.cause` is present, so the next incident names the hop and the
+   reason.
+2. `modules/portfolio-tracker/src/onedrive.js` — `pullFromOneDrive` and
+   `pushToOneDrive`: the same 3-attempt transient-only retry around the
+   whole function body, with the same cause-surfacing in the returned
+   `error`. The GETs are idempotent and the PUT is a full-file replace
+   (`conflictBehavior=replace`), so retrying the whole leg is safe.
+   `getAccessToken`'s existing 3-attempt retry is left unchanged.
+3. No change to `tools.js`, `portfolio-sync.sh`, `50-seed-defaults`, or the
+   cron schedule. No change to the shell parser's leg rendering — it prints
+   `detail`/`error` verbatim, so the richer message flows through
+   unchanged, and the `ONEDRIVE_RELOGGED` re-login path (which keys off
+   `Token HTTP 400` / `OneDrive refresh token not found`) is unaffected
+   because 4xx is never retried and its message wording is unchanged.
+4. No new dependency, no config change, no credential handling. Worst-case
+   added latency is about 3s per leg.
+
+## Tests
+
+- New file `modules/portfolio-tracker/tests/sync-retry-286.test.js` (already
+  written as the RED control; see below): 6 tests —
+  `sync.retry.286.flex.pull.retries.transient.fetch.failure`,
+  `sync.retry.286.onedrive.pull.retries.transient.fetch.failure`,
+  `sync.retry.286.onedrive.push.retries.transient.fetch.failure`,
+  `sync.retry.286.fetch.error.names.underlying.cause`,
+  `sync.retry.286.flex.pull.does.not.retry.expired.token`,
+  `sync.retry.286.onedrive.pull.does.not.retry.http.400`.
+  The first four fail at base; the last two are guards that pass at base
+  and pin the never-retry boundary.
+- RED control, recorded in the dev-loop run (phase `REPRODUCED`, base
+  78863e7): `cd modules/portfolio-tracker && npm install --ignore-scripts
+  --no-audit --no-fund --loglevel=error && npx vitest run
+  tests/sync-retry-286.test.js -t
+  sync.retry.286.flex.pull.retries.transient.fetch.failure` — exits 1 at
+  base, must exit 0 at HEAD. The `npm install` is needed because the
+  throwaway worktree has no `node_modules`; `--ignore-scripts` is required
+  because the better-sqlite3 native build fails in this environment, and
+  `TMPDIR` must point off `/tmp` (a 512M tmpfs that fills with the worktree
+  plus `node_modules`). The full file (all 6 tests) is run at the tests
+  gate; the existing `onedrive.test.js` and `onedrive-legs.test.js` files
+  are run alongside to confirm no regression.
+- No live-service verification is possible from this VM (no host access;
+  `portfolio-tracker:8081` and IBKR are production): the fix is verified by
+  the stubbed-`fetch` tests above, not a live run. The next daily 14:30
+  SGT run is the live confirmation; a repeat of the incident would now show
+  the retry succeeding (or the cause in the error line).
+
+## Out of scope (considered and rejected)
+
+- Shell-level retry in `portfolio-sync.sh`: the retry belongs in the service
+  legs where the failure is; a shell retry would re-run the whole sync
+  including a second push.
+- Changing push-after-failed-pull gating (QUESTIONS q3): separate decision.
+- Changing `getAccessToken`'s retry policy: it already retries, and its
+  4xx retry is harmless (3 quick attempts, then a clear `Token HTTP 400`).
+- Alerting changes: the scheduler health finding worked — it filed #286.
