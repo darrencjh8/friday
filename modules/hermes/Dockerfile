@@ -15,10 +15,20 @@ RUN chmod 0755 /usr/local/bin/gtasks
 # PDF text with OCR for scanned pages (#266).
 COPY scripts/pdftext.py /usr/local/bin/pdftext
 RUN chmod 0755 /usr/local/bin/pdftext
-# IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-gnutls does the DTLS).
-COPY scripts/ikea.py /usr/local/bin/ikea
-COPY scripts/home.py /usr/local/bin/home
-RUN chmod 0755 /usr/local/bin/ikea /usr/local/bin/home
+# Smart home: `home` over every system's own CLI, IKEA TRÅDFRI (libcoap3-bin's
+# coap-client-gnutls does the DTLS) and Tuya (tinytuya). They share their own venv,
+# like codex-router's, since the Hermes venv is sealed; `home` loads the others as
+# modules from /opt/home-cli, so all of them run on that venv's Python.
+COPY requirements-home.txt /tmp/requirements-home.txt
+COPY scripts/home.py scripts/ikea.py scripts/tuya.py /opt/home-cli/
+RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')" \
+    && "$uv_bin" venv /opt/home-venv --python /usr/bin/python3 \
+    && "$uv_bin" pip install --no-cache --python /opt/home-venv/bin/python --requirement /tmp/requirements-home.txt \
+    && rm /tmp/requirements-home.txt \
+    && for cli in home ikea tuya; do \
+        printf '#!/bin/sh\nexec /opt/home-venv/bin/python /opt/home-cli/%s.py "$@"\n' "$cli" > "/usr/local/bin/$cli"; \
+        chmod 0755 "/usr/local/bin/$cli"; \
+    done
 # Wake-on-LAN to the PC, unicast to its saved IP (container broadcasts never reach the LAN).
 COPY scripts/wol.py /usr/local/bin/wol
 RUN chmod 0755 /usr/local/bin/wol

@@ -4,8 +4,8 @@
   home list [--cached]        devices: name, type (light, plug), on, system
   home on|off <name>...       exact names, or a unique part of one each
 
-Systems today: IKEA TRÅDFRI (`ikea`, paired once with `ikea pair`). A system that is not set
-up is skipped. `--cached` answers from the last list (instantly; the on/off states may be
+Systems today: IKEA TRÅDFRI (`ikea`, paired once with `ikea pair`) and Tuya / Smart Life
+(`tuya`, once with `tuya setup` and `tuya ip`). A system that is not set up is skipped. `--cached` answers from the last list (instantly; the on/off states may be
 stale), listing afresh only when there is none. Switching uses the last list too, so it is
 one call per device, all at once; a name it doesn't know lists afresh first.
 """
@@ -36,17 +36,18 @@ def _backend(name):
     raise HomeError(f"{name} is not installed")
 
 
-class Ikea:
-    name = "ikea"
+class Backend:
+    """A system's CLI script used as a module: load(), devices(cfg), set_on(cfg, device, on)."""
 
-    def __init__(self):
-        self.mod = _backend("ikea")
+    def __init__(self, name, error):
+        self.name, self._error = name, error
+        self.mod = _backend(name)
 
     def ready(self):
         try:
             self.cfg = self.mod.load()
             return True
-        except self.mod.IkeaError:
+        except self.error():
             return False
 
     def devices(self):
@@ -56,17 +57,21 @@ class Ikea:
         self.mod.set_on(self.cfg, device, on)
 
     def error(self):
-        return self.mod.IkeaError
+        return getattr(self.mod, self._error)
 
 
-# Add a system here: a class with name, ready(), devices(), set_on(device, on), error().
-SYSTEMS = (Ikea,)
+# Add a system here: its script next to this one, with load(), devices(cfg), set_on(cfg,
+# device, on) and an error class.
+SYSTEMS = (
+    lambda: Backend("ikea", "IkeaError"),
+    lambda: Backend("tuya", "TuyaError"),
+)
 
 
 def systems():
     ready = [s for s in (cls() for cls in SYSTEMS) if s.ready()]
     if not ready:
-        raise HomeError("no smart home system set up yet (IKEA: `ikea pair <gateway-ip>`)")
+        raise HomeError("no smart home system set up yet (IKEA: `ikea pair <gateway-ip>`, Tuya: `tuya setup`)")
     return {s.name: s for s in ready}
 
 
