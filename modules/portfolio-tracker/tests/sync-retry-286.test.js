@@ -11,11 +11,14 @@
  * never retries. The OneDrive pull/push tests fail the same way, and the
  * cause test fails because the error string drops Node's underlying cause.
  * The 503/timeout tests fail because the transient classifier does not
- * exist at base. 12 fail / 3 pass at base; the 3 passes are the never-retry
- * guards. Retry tests pass short `retryDelays` ([10, 20] ms) so they run
- * in milliseconds against the 30s/60s production defaults. The token test
- * asserts elapsed time: at base getAccessToken ignores the injected delays
- * and sleeps 2000ms+4000ms, so it takes ~6s and fails the <1000ms bound.
+ * exist at base. 14 fail / 4 pass at base; the 4 passes are the three
+ * never-retry guards plus the shared-budget guard test, which passes at
+ * base only because getAccessToken's internal 2s retry succeeds on the
+ * second token attempt (~2s, vs ~20ms with the fix). Retry tests pass
+ * short `retryDelays` ([10, 20] ms) so they run in milliseconds against
+ * the 30s/60s production defaults. The token test asserts elapsed time:
+ * at base getAccessToken ignores the injected delays and sleeps
+ * 2000ms+4000ms, so it takes ~6s and fails the <1000ms bound.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -393,6 +396,80 @@ describe("sync.retry.286", () => {
             // Attempt 1, one 20ms sleep, attempt 2, then the guard stops it:
             // elapsed (~20ms) + next delay (40ms) exceeds the 45ms budget.
             expect(global.fetch).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.does.not.retry.token.http.400",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            // Refresh token revoked/expired: the token endpoint returns 400.
+            global.fetch.mockResolvedValueOnce({
+                ok: false,
+                status: 400,
+                json: async () => ({
+                    error: "invalid_grant",
+                    error_description: "AADSTS70008: The refresh token has expired.",
+                }),
+            });
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            expect(res.success).toBe(false);
+            expect(res.error).toContain("Token HTTP 400");
+            // At base getAccessToken retries every error unconditionally and
+            // calls fetch 3 times; with the classifier it fails after 1.
+            expect(global.fetch).toHaveBeenCalledTimes(1);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.error.names.underlying.cause",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockRejectedValue(
+                    transientFetchFailure("read ECONNRESET"),
+                );
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            expect(res.success).toBe(false);
+            // At base the error is the bare "fetch failed".
+            expect(res.error).toContain("ECONNRESET");
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.token.and.graph.share.one.budget",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [20, 40],
+                retryBudgetMs: 35,
+            });
+            expect(res.success).toBe(false);
+            // Token fails once then succeeds (~20ms in); the Graph resolve
+            // then fails once and would succeed on retry — but the two loops
+            // share one 35ms clock, so elapsed (~20ms) + next delay (20ms)
+            // exceeds the budget and the leg stops: token x2, resolve x1.
+            // With a fresh clock per loop the leg would succeed (5 calls).
+            expect(global.fetch).toHaveBeenCalledTimes(3);
         },
     );
 });

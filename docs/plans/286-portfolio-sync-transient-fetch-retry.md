@@ -5,7 +5,7 @@ q: Retry the Graph/download (pull) and resolve/upload (push) fetches with the to
 q: Does the IBKR Flex query cover a multi-day window, so a missed day's trades are re-imported by the next successful run — or is it a single-day query, making a missed day permanently lost? | assumption: multi-day window (the standing daily statement query); the implementation confirms the query's period from the IBKR configuration and says so in the PR; if it is single-day, the plan is revised before building.
 q: When the pull fails, should the sync still push the local file (current behavior — risks overwriting a newer remote file) or skip the push? | assumption: unchanged — push still runs; the retry removes the observed trigger, and skipping the push would leave the Actual Budget balance updates unsaved for the day. Changing push gating is a separate decision, not this fix.
 q: Should the shell script (portfolio-sync.sh) also retry the whole sync once? | assumption: no — the retry belongs in the service legs where the failure is; a shell-level retry would re-run the whole sync including a second push.
-q: Retry delays — reuse the existing shapes (getAccessToken: 2s, 4s; fetchBudget: 1s, 2s, 4s)? | a: No — 3 attempts total with 30s then 60s delays (attempts at t=0, 30s, 90s), spanning the observed recovery of up to about 86 seconds; worst case about 90s per leg, and all three legs failing fully is about 270s plus the AB/taxonomy steps, approaching curl's 300s budget — delays must not grow beyond 30s/60s without revisiting that budget. Tests inject short delays via the retryDelays option so the suite stays fast.
+q: Retry delays — reuse the existing shapes (getAccessToken: 2s, 4s; fetchBudget: 1s, 2s, 4s)? | a: No — 3 attempts total with 30s then 60s delays (attempts at t=0, 30s, 90s), spanning the observed recovery of up to about 86 seconds; the 90s is per LEG, shared across the leg's token and Graph loops on one elapsed clock, so a fully degraded run is ~270s plus AB/taxonomy — inside curl's 300s budget but tight. Delays must not grow beyond 30s/60s without revisiting that budget. Tests inject short delays via the retryDelays option so the suite stays fast.
 
 ## Goal
 
@@ -115,13 +115,15 @@ bare `fetch failed`.
    `ibkr_flex.js` needs a module-local `sleep` helper for the retry delays
    (`onedrive.js` already has one at the bottom of the file).
 
-   Elapsed guard (each retry loop measures elapsed from its own start):
-   before each retry sleep, stop retrying when elapsed + next delay exceeds
-   90s. When attempts fail fast (the incident's mode) the full 90s window
-   is preserved (attempts at t=0, 30s, 90s); when a fetch hangs to its
-   timeout, the loop stops burning the curl budget instead. The guard
-   budget is an option, `retryBudgetMs` (default 90000), so tests can pin
-   it with a small value.
+   Elapsed guard (one clock per leg, shared across the leg's loops): before
+   each retry sleep, stop retrying when the leg's elapsed time + next delay
+   exceeds retryBudgetMs (default 90000). The clock starts when the leg
+   starts, so the token and Graph loops in one OneDrive leg share a single
+   90s window however the failure lands across them. When attempts fail
+   fast (the incident's mode) the full 90s window is preserved per leg
+   (attempts at t=0, 30s, 90s); when a fetch hangs to its timeout, the loop
+   stops burning the curl budget instead. The guard budget is an option,
+   `retryBudgetMs` (default 90000), so tests can pin it with a small value.
 2. `modules/portfolio-tracker/src/onedrive.js` — `pullFromOneDrive` and
    `pushToOneDrive`: the same 3-attempt transient-only retry (delays 30s,
    then 60s, same classifier, same 90s elapsed guard), with the same
@@ -133,7 +135,14 @@ bare `fetch failed`.
    `retryDelays` through — so a transient failure at
    `login.microsoftonline.com` gets the same 30s/60s backoff instead of
    failing the leg in ~6s, and the token is frozen after first success
-   (no re-exchange per attempt). The loop retries only the Graph
+   (no re-exchange per attempt). The token loop applies the same
+   `isTransientFetchError` classifier before sleeping: an HTTP 4xx
+   (`Token HTTP 400`) fails immediately after one call, so the
+   `ONEDRIVE_RELOGGED` re-login signal is not delayed — at base a 400
+   cost 3 calls in ~6s; with the fix it costs 1 call in ~0s. The token
+   and Graph loops share one elapsed clock for the leg (started when the
+   leg starts), so the leg's total retry window is 90s however the
+   failure lands across the two loops. The loop retries only the Graph
    resolve/children/download fetches (pull) and the resolve/upload fetches
    (push). The GETs are idempotent and the PUT is a full-file replace
    (`conflictBehavior=replace`), so retrying those fetches is safe.
@@ -148,17 +157,21 @@ bare `fetch failed`.
    `detail`/`error` verbatim, so the richer message flows through
    unchanged, and the `ONEDRIVE_RELOGGED` re-login path (which keys off
    `Token HTTP 400` / `OneDrive refresh token not found`) is unaffected
-   because 4xx is never retried and its message wording is unchanged.
+   because 4xx is never retried — including in the token loop, where the
+   classifier applies before sleeping — and its message wording is
+   unchanged; the signal now arrives after 1 token call instead of 3.
 4. No new dependency, no config change, no credential handling. Worst-case
    latency, corrected to count the per-attempt timeouts as well as the
    delays (the earlier draft counted delays only): when attempts fail fast
-   (the incident's mode) each leg takes about 90s, so a fully degraded run
-   is about 270s plus the healthy AB/taxonomy steps (~10–30s) — inside
-   curl's 300s budget, but tight; if a future run ever hits the curl
-   timeout, raising `--max-time` in `portfolio-sync.sh` is the fix, not
-   longer delays. When fetches hang to their timeouts, the 90s elapsed
-   guard caps each loop: flex at most ~150s, pull at most ~160s (token
-   loop ~60s + Graph loop ~100s), push at most ~110s. A simultaneous hang
+   (the incident's mode) each leg takes about 90s — the OneDrive legs
+   share one 90s window across their token and Graph loops — so a fully
+   degraded run is about 270s plus the healthy AB/taxonomy steps
+   (~10–30s) — inside curl's 300s budget, but tight; if a future run
+   ever hits the curl timeout, raising `--max-time` in
+   `portfolio-sync.sh` is the fix, not longer delays. When fetches hang
+   to their timeouts, the 90s elapsed guard caps each leg: flex at most
+   ~150s, pull at most ~160s (token loop ~60s + one Graph attempt ~100s),
+   push at most ~100s (token loop ~60s + one Graph attempt ~40s). A simultaneous hang
    of every remote still exceeds 300s — the run then fails, which is the
    correct outcome for a total outage; the guard's job is to keep a single
    hanging leg from burning the whole budget and orphaning the push.
@@ -168,7 +181,7 @@ bare `fetch failed`.
 ## Tests
 
 - New file `modules/portfolio-tracker/tests/sync-retry-286.test.js` (already
-  written as the RED control; see below): 15 tests —
+  written as the RED control; see below): 18 tests —
   `sync.retry.286.flex.pull.retries.transient.fetch.failure`,
   `sync.retry.286.onedrive.pull.retries.transient.fetch.failure`,
   `sync.retry.286.onedrive.push.retries.transient.fetch.failure`,
@@ -183,25 +196,46 @@ bare `fetch failed`.
   `sync.retry.286.onedrive.pull.retries.download.failure`,
   `sync.retry.286.onedrive.push.retries.upload.failure`,
   `sync.retry.286.onedrive.pull.retries.token.fetch.with.leg.delays`,
-  `sync.retry.286.flex.pull.stops.retrying.after.elapsed.budget`.
-  The first twelve fail at base (the retry/cause tests, the three
-  second-fetch tests, the token-delay test, and the elapsed-guard test);
-  the three never-retry guards pass at base and pin the boundary. Every
-  retry test passes `retryDelays: [10, 20]` so it runs in milliseconds
-  against the 30s/60s production defaults. The second-fetch tests pin the
-  retry surface a partial implementation would miss: the flex test returns
-  a `ReferenceCode` first, fails the `GetStatement` fetch, then succeeds
-  on the retry (which restarts from `SendRequest`, 4 fetch calls total);
-  the pull test fails the download (503) after a good resolve; the push
-  test fails the upload PUT after a good resolve. The token test mocks the
-  token fetch failing twice then succeeding and asserts the whole leg
-  finishes in under 1000ms — at base `getAccessToken` ignores the injected
-  delays and sleeps 2000ms+4000ms, so it fails there and passes once the
-  leg's delays reach the token fetch (margins: ~6000ms at base vs ~30ms
-  with the fix, threshold 1000ms). The guard test passes
+  `sync.retry.286.flex.pull.stops.retrying.after.elapsed.budget`,
+  `sync.retry.286.onedrive.pull.does.not.retry.token.http.400`,
+  `sync.retry.286.onedrive.pull.error.names.underlying.cause`,
+  `sync.retry.286.onedrive.pull.token.and.graph.share.one.budget`.
+  The first fourteen fail at base (the retry/cause tests, the three
+  second-fetch tests, the token-delay test, the elapsed-guard test, and
+  the two new OneDrive cause/token-400 tests); the three never-retry
+  guards pass at base and pin the boundary, and the shared-budget guard
+  test passes at base (slowly, ~2s via `getAccessToken`'s internal
+  retry) and at HEAD (fast, via the shared clock) — it pins the design,
+  not a RED behaviour. Every retry test passes `retryDelays: [10, 20]`
+  so it runs in milliseconds against the 30s/60s production defaults.
+  The second-fetch tests pin the retry surface a partial implementation
+  would miss: the flex test returns a `ReferenceCode` first, fails the
+  `GetStatement` fetch, then succeeds on the retry (which restarts from
+  `SendRequest`, 4 fetch calls total); the pull test fails the download
+  (503) after a good resolve; the push test fails the upload PUT after a
+  good resolve. The token test mocks the token fetch failing twice then
+  succeeding and asserts the whole leg finishes in under 1000ms — at
+  base `getAccessToken` ignores the injected delays and sleeps
+  2000ms+4000ms, so it fails there and passes once the leg's delays
+  reach the token fetch (margins: ~6000ms at base vs ~30ms with the
+  fix, threshold 1000ms). The guard test passes
   `retryDelays: [20, 40], retryBudgetMs: 45` with a permanently failing
   fetch and asserts exactly 2 fetch calls: attempt 1, one 20ms sleep,
   attempt 2, then the guard stops it (elapsed ~20ms + 40ms delay > 45ms).
+  The token-400 test mocks the token endpoint returning HTTP 400 and
+  asserts the pull fails with an error containing `Token HTTP 400` after
+  exactly 1 fetch call — at base `getAccessToken` retries unconditionally
+  and calls fetch 3 times. The OneDrive cause test mocks the download
+  throwing `TypeError("fetch failed")` with cause `read ECONNRESET` on
+  every attempt and asserts the returned error contains `ECONNRESET` —
+  at base the error is the bare `fetch failed`. The shared-budget test
+  passes `retryDelays: [20, 40], retryBudgetMs: 35`: the token fetch
+  fails once then succeeds (~20ms in), the Graph resolve then fails once
+  and would succeed on retry — with one clock per leg the Graph loop
+  sees elapsed ~20ms + 20ms delay > 35ms and stops, so the leg fails
+  after exactly 3 fetch calls (token ×2, resolve ×1); with a fresh
+  clock per loop the Graph loop would retry and the leg would succeed
+  (5 calls).
 - RED control, recorded in the dev-loop run (phase `REPRODUCED`, base
   78863e7): `cd modules/portfolio-tracker && npm install --ignore-scripts
   --no-audit --no-fund --loglevel=error && npx vitest run
@@ -211,7 +245,7 @@ bare `fetch failed`.
   throwaway worktree has no `node_modules`; `--ignore-scripts` is required
   because the better-sqlite3 native build fails in this environment, and
   `TMPDIR` must point off `/tmp` (a 512M tmpfs that fills with the worktree
-  plus `node_modules`). The full file (all 15 tests) is run at the tests
+  plus `node_modules`). The full file (all 18 tests) is run at the tests
   gate; the existing `onedrive.test.js` and `onedrive-legs.test.js` files
   are run alongside to confirm no regression.
 - No live-service verification is possible from this VM (no host access;
@@ -226,6 +260,9 @@ bare `fetch failed`.
   legs where the failure is; a shell retry would re-run the whole sync
   including a second push.
 - Changing push-after-failed-pull gating (QUESTIONS q3): separate decision.
-- Changing `getAccessToken`'s retry policy: it already retries, and its
-  4xx retry is harmless (3 quick attempts, then a clear `Token HTTP 400`).
+- Changing `getAccessToken`'s default retry delays: its `[2000, 4000]`
+  default is preserved for existing callers such as `uploadBackup`;
+  only the leg calls pass the longer delays through, and the token loop
+  now applies the transient classifier so a 4xx fails after one call
+  (see Change §2).
 - Alerting changes: the scheduler health finding worked — it filed #286.
