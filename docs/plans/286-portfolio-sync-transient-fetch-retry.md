@@ -5,7 +5,7 @@ q: Retry the whole leg function (pullFromOneDrive / pushToOneDrive / pullFlexXml
 q: Does the IBKR Flex query cover a multi-day window, so a missed day's trades are re-imported by the next successful run — or is it a single-day query, making a missed day permanently lost? | assumption: multi-day window (the standing daily statement query); the implementation confirms the query's period from the IBKR configuration and says so in the PR; if it is single-day, the plan is revised before building.
 q: When the pull fails, should the sync still push the local file (current behavior — risks overwriting a newer remote file) or skip the push? | assumption: unchanged — push still runs; the retry removes the observed trigger, and skipping the push would leave the Actual Budget balance updates unsaved for the day. Changing push gating is a separate decision, not this fix.
 q: Should the shell script (portfolio-sync.sh) also retry the whole sync once? | assumption: no — the retry belongs in the service legs where the failure is; a shell-level retry would re-run the whole sync including a second push.
-q: Retry delays — reuse the existing shapes (getAccessToken: 2s, 4s; fetchBudget: 1s, 2s, 4s)? | a: 3 attempts total with 1s then 2s delays (the fetchBudget shape, shortest of the two); worst case about 3s per leg, negligible against the 300s curl budget and the 86s the incident run took.
+q: Retry delays — reuse the existing shapes (getAccessToken: 2s, 4s; fetchBudget: 1s, 2s, 4s)? | a: No — 3 attempts total with 30s then 60s delays (attempts at t=0, 30s, 90s), spanning the observed recovery of up to about 86 seconds; worst case about 90s per leg, and all three legs failing fully is about 270s plus the AB/taxonomy steps, approaching curl's 300s budget — delays must not grow beyond 30s/60s without revisiting that budget. Tests inject short delays via the retryDelays option so the suite stays fast.
 
 ## Goal
 
@@ -13,7 +13,7 @@ Stop a transient external-network blip from failing the daily
 `finance-portfolio-sync` run. The 2026-11-20 14:30 SGT run failed with exit
 1 because the OneDrive pull and the IBKR flex pull both failed with the bare
 Node message `fetch failed`, and neither leg retried. After this change a
-blip lasting under a couple of minutes is absorbed by bounded retries, and
+blip lasting up to about 90 seconds is absorbed by bounded retries, and
 if the legs still fail, the error names the underlying cause instead of the
 bare `fetch failed`.
 
@@ -56,8 +56,11 @@ bare `fetch failed`.
   with 2s/4s backoff (`src/onedrive.js:37-72`), but the Graph
   resolve/children/download fetches in `pullFromOneDrive` and the
   resolve/upload fetches in `pushToOneDrive` have no retry, and
-  `pullFlexXml` has no retry at all. `fetchBudget` in `src/tools.js:931`
+  `pullFlexXml` has no retry at all. `fetchBudget` in `src/tools.js:943`
   retries 3 times with `2 ** attempt` second backoff — the shape to copy.
+  The timeouts are `AbortSignal.timeout` (30s in `ibkr_flex.js:75,127`,
+  10–60s in `onedrive.js`), whose abort error is a `TimeoutError`
+  (`The operation timed out`), distinct from the network `TypeError`.
 - What the failure cost that day: the flex import never ran (no XML), so the
   prior day's IBKR trades/dividends were not imported that day; the AB
   balances were unchanged (delta=0), so the push of the local file changed
@@ -78,19 +81,45 @@ bare `fetch failed`.
 ## Change
 
 1. `modules/portfolio-tracker/src/ibkr_flex.js` — `pullFlexXml`: wrap the
-   two fetch steps in up to 3 attempts total (delays 1s, then 2s), retrying
-   only transient errors: a network `TypeError` (`fetch failed`), a timeout
-   abort, or HTTP 429 / 5xx. Never retry the not-configured sentinel
-   (`NOT_CONFIGURED_ERROR`), an IBKR `<Status>Fail</Status>` response (e.g.
-   error 1012, token expired), or HTTP 4xx. On final failure, include the
-   underlying cause in the returned error: `fetch failed (<cause message>)`
-   when `e.cause` is present, so the next incident names the hop and the
-   reason.
+   two fetch steps in up to 3 attempts total (delays 30s, then 60s), retrying
+   only transient errors (see the classifier below). A retry restarts from
+   step 1 (`SendRequest`), not from the `GetStatement` step, because a
+   reference code may be single-use. Never retry the not-configured
+   sentinel (`NOT_CONFIGURED_ERROR`), an IBKR `<Status>Fail</Status>`
+   response (e.g. error 1012, token expired), or HTTP 4xx. On final
+   failure, include the underlying cause in the returned error:
+   `fetch failed (<cause message>)` when `e.cause` is present, so the next
+   incident names the hop and the reason. Signature:
+   `pullFlexXml({ retryDelays = [30000, 60000] } = {})`; existing callers
+   pass no arguments and get the defaults.
+
+   Transient classifier (one small `isTransientFetchError(e)` predicate,
+   written identically in both modules — the repo hand-rolls per-site retry
+   loops, so no shared module is introduced for one predicate): retry when
+   any of these holds, otherwise do not retry —
+   - `e` is a `TypeError` with message `fetch failed` (undici network
+     failure: DNS, connect, TLS, reset), or
+   - `e.name === "TimeoutError"` (an `AbortSignal.timeout` abort — the
+     timeouts are 30s in `ibkr_flex.js:75,127` and 10–60s in `onedrive.js`,
+     and the abort error is a `TimeoutError`, not a `TypeError`), or
+   - `e.message` matches `/HTTP (429|5\d\d)/` (an HTTP 429 or 5xx thrown as
+     `... HTTP <status> ...`).
+   Never retry HTTP 4xx, IBKR `<Status>Fail</Status>` responses (returned,
+   not thrown), `Not configured`, `Portfolio.portfolio not found`, or
+   local-file errors.
 2. `modules/portfolio-tracker/src/onedrive.js` — `pullFromOneDrive` and
-   `pushToOneDrive`: the same 3-attempt transient-only retry around the
-   whole function body, with the same cause-surfacing in the returned
-   `error`. The GETs are idempotent and the PUT is a full-file replace
-   (`conflictBehavior=replace`), so retrying the whole leg is safe.
+   `pushToOneDrive`: the same 3-attempt transient-only retry (delays 30s,
+   then 60s, same classifier), with the same cause-surfacing in the
+   returned `error`. The access token is fetched ONCE, before the retry
+   loop: `getAccessToken` has its own 3-attempt retry internally, and
+   re-fetching it per attempt would repeat the token exchange and misalign
+   the Graph/download sequence. The loop retries only the Graph
+   resolve/children/download fetches (pull) and the resolve/upload fetches
+   (push). The GETs are idempotent and the PUT is a full-file replace
+   (`conflictBehavior=replace`), so retrying those fetches is safe.
+   Signatures: `pullFromOneDrive(localPath, { retryDelays = [30000, 60000]
+   } = {})` and `pushToOneDrive(localPath, { retryDelays = [30000, 60000]
+   } = {})`; existing callers pass at most the path and get the defaults.
    `getAccessToken`'s existing 3-attempt retry is left unchanged.
 3. No change to `tools.js`, `portfolio-sync.sh`, `50-seed-defaults`, or the
    cron schedule. No change to the shell parser's leg rendering — it prints
@@ -99,20 +128,31 @@ bare `fetch failed`.
    `Token HTTP 400` / `OneDrive refresh token not found`) is unaffected
    because 4xx is never retried and its message wording is unchanged.
 4. No new dependency, no config change, no credential handling. Worst-case
-   added latency is about 3s per leg.
+   added latency is about 90s per leg; all three legs failing fully is
+   about 270s plus the AB/taxonomy steps, approaching curl's 300s budget —
+   delays must not grow beyond 30s/60s without revisiting that budget.
+   Tests inject short delays (`retryDelays: [10, 20]`) so the suite stays
+   fast; production uses the `[30000, 60000]` defaults.
 
 ## Tests
 
 - New file `modules/portfolio-tracker/tests/sync-retry-286.test.js` (already
-  written as the RED control; see below): 6 tests —
+  written as the RED control; see below): 10 tests —
   `sync.retry.286.flex.pull.retries.transient.fetch.failure`,
   `sync.retry.286.onedrive.pull.retries.transient.fetch.failure`,
   `sync.retry.286.onedrive.push.retries.transient.fetch.failure`,
   `sync.retry.286.fetch.error.names.underlying.cause`,
+  `sync.retry.286.flex.pull.retries.http.503`,
+  `sync.retry.286.flex.pull.does.not.retry.http.400`,
+  `sync.retry.286.flex.pull.retries.timeout.abort`,
+  `sync.retry.286.onedrive.pull.retries.http.503`,
   `sync.retry.286.flex.pull.does.not.retry.expired.token`,
   `sync.retry.286.onedrive.pull.does.not.retry.http.400`.
-  The first four fail at base; the last two are guards that pass at base
-  and pin the never-retry boundary.
+  The first seven fail at base (the three transient-retry tests, the cause
+  test, and the three new retry tests — flex 503, flex timeout, onedrive
+  503); the three never-retry guards pass at base and pin the boundary.
+  Every retry test passes `retryDelays: [10, 20]` so it runs
+  in milliseconds against the 30s/60s production defaults.
 - RED control, recorded in the dev-loop run (phase `REPRODUCED`, base
   78863e7): `cd modules/portfolio-tracker && npm install --ignore-scripts
   --no-audit --no-fund --loglevel=error && npx vitest run
@@ -122,7 +162,7 @@ bare `fetch failed`.
   throwaway worktree has no `node_modules`; `--ignore-scripts` is required
   because the better-sqlite3 native build fails in this environment, and
   `TMPDIR` must point off `/tmp` (a 512M tmpfs that fills with the worktree
-  plus `node_modules`). The full file (all 6 tests) is run at the tests
+  plus `node_modules`). The full file (all 10 tests) is run at the tests
   gate; the existing `onedrive.test.js` and `onedrive-legs.test.js` files
   are run alongside to confirm no regression.
 - No live-service verification is possible from this VM (no host access;

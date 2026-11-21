@@ -10,6 +10,10 @@
  * The RED control is the flex test: at base it fails because pullFlexXml
  * never retries. The OneDrive pull/push tests fail the same way, and the
  * cause test fails because the error string drops Node's underlying cause.
+ * The 503/timeout tests fail because the transient classifier does not
+ * exist at base. 7 fail / 3 pass at base; the 3 passes are the never-retry
+ * guards. Retry tests pass short `retryDelays` ([10, 20] ms) so they run
+ * in milliseconds against the 30s/60s production defaults.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -104,7 +108,64 @@ describe("sync.retry.286", () => {
                     text: async () =>
                         "<FlexStatementResponse><Status>Success</Status><FlexStatements><FlexStatement/></FlexStatements></FlexStatementResponse>",
                 });
-            const res = await pullFlexXml();
+            const res = await pullFlexXml({ retryDelays: [10, 20] });
+            expect(res.success).toBe(true);
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it(
+        "sync.retry.286.flex.pull.retries.http.503",
+        { timeout: 20000 },
+        async () => {
+            const { pullFlexXml } = await import("../src/ibkr_flex.js");
+            global.fetch
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 503,
+                    text: async () => "",
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: async () =>
+                        "<FlexStatementResponse><Status>Success</Status><FlexStatements><FlexStatement/></FlexStatements></FlexStatementResponse>",
+                });
+            const res = await pullFlexXml({ retryDelays: [10, 20] });
+            expect(res.success).toBe(true);
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+        },
+    );
+
+    it("sync.retry.286.flex.pull.does.not.retry.http.400", async () => {
+        const { pullFlexXml } = await import("../src/ibkr_flex.js");
+        global.fetch.mockResolvedValue({
+            ok: false,
+            status: 400,
+            text: async () => "",
+        });
+        const res = await pullFlexXml({ retryDelays: [10, 20] });
+        expect(res.success).toBe(false);
+        expect(res.error).toContain("HTTP 400");
+        expect(global.fetch).toHaveBeenCalledTimes(1);
+    });
+
+    it(
+        "sync.retry.286.flex.pull.retries.timeout.abort",
+        { timeout: 20000 },
+        async () => {
+            const { pullFlexXml } = await import("../src/ibkr_flex.js");
+            const timeoutError = Object.assign(
+                new Error("The operation timed out"),
+                { name: "TimeoutError" },
+            );
+            global.fetch
+                .mockRejectedValueOnce(timeoutError)
+                .mockResolvedValueOnce({
+                    ok: true,
+                    text: async () =>
+                        "<FlexStatementResponse><Status>Success</Status><FlexStatements><FlexStatement/></FlexStatements></FlexStatementResponse>",
+                });
+            const res = await pullFlexXml({ retryDelays: [10, 20] });
             expect(res.success).toBe(true);
             expect(global.fetch).toHaveBeenCalledTimes(2);
         },
@@ -122,7 +183,28 @@ describe("sync.retry.286", () => {
                     mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
                 )
                 .mockResolvedValueOnce(mockDownload());
-            const res = await pullFromOneDrive();
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            expect(res.success).toBe(true);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.retries.http.503",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce({ ok: false, status: 503 })
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
             expect(res.success).toBe(true);
         },
     );
@@ -142,7 +224,9 @@ describe("sync.retry.286", () => {
                     ok: true,
                     json: async () => ({ name: "Portfolio.portfolio" }),
                 });
-            const res = await pushToOneDrive();
+            const res = await pushToOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
             expect(res.success).toBe(true);
         },
     );
@@ -157,7 +241,7 @@ describe("sync.retry.286", () => {
                     "getaddrinfo ENOTFOUND ndcdyn.interactivebrokers.com",
                 ),
             );
-            const res = await pullFlexXml();
+            const res = await pullFlexXml({ retryDelays: [10, 20] });
             expect(res.success).toBe(false);
             expect(res.error).toContain("ENOTFOUND");
         },
