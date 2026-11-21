@@ -23,6 +23,7 @@ import logging
 import os
 import re
 import secrets
+import subprocess
 import threading
 import time
 import urllib.request
@@ -297,6 +298,66 @@ SOLVE_INSTRUCTIONS = (
     "You answer a maths question someone asked out loud. Work it out carefully, then reply with one short "
     "sentence to be read aloud that gives the result: digits, at most 4 decimal places, no working, no markdown."
 )
+
+
+def _run_cli(args: list[str]) -> tuple[bool, str]:
+    """Runs one of the host's CLIs (friday's `ikea`, `wol`); (ok, stdout or the error line)."""
+    try:
+        done = subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
+    except FileNotFoundError:
+        return False, f"{args[0]} is not installed on this server"
+    except subprocess.TimeoutExpired:
+        return False, f"{args[0]} timed out"
+    if done.returncode:
+        return False, (done.stderr.strip().splitlines() or [f"{args[0]} failed"])[-1]
+    return True, done.stdout
+
+
+def _home(frame: dict[str, Any]) -> dict[str, Any]:
+    """Friday desktop's smart-home switches, straight to friday's `ikea` CLI, no agent turn.
+
+    {"op": "list"} answers {"devices": [{name, type, on}]}; {"op": "switch", "names": [...],
+    "on": bool} switches each and answers {"switched": [...]}; a failure answers {"error": "..."}.
+    """
+    if frame.get("op") == "list":
+        ok, out = _run_cli(["ikea", "list"])
+        if not ok:
+            return {"error": out}
+        try:
+            return {"devices": [{"name": d["name"], "type": d["type"], "on": d["on"]} for d in json.loads(out)]}
+        except (ValueError, KeyError, TypeError):
+            return {"error": "unexpected device list"}
+    names = [str(n) for n in (frame.get("names") or []) if str(n).strip()][:20]
+    if frame.get("op") != "switch" or not names:
+        return {"error": "unknown home request"}
+    switched = []
+    for name in names:
+        ok, out = _run_cli(["ikea", "on" if frame.get("on") else "off", name])
+        if not ok:
+            return {"error": out, "switched": switched}
+        switched.append(name)
+    return {"switched": switched}
+
+
+# The last wake-on-LAN sent through the gateway: when (epoch s) and by whom ("phone", "friday").
+# In memory only: it matters for minutes, and a gateway restart in between just loses one autoplay.
+_WOKEN: dict[str, Any] = {"at": 0.0, "by": ""}
+
+
+def _wake(by: str) -> dict[str, Any]:
+    """Wakes the PC (friday's `wol` CLI) and remembers it, so the PC can tell the phone woke it."""
+    ok, out = _run_cli(["wol"])
+    if not ok:
+        return {"error": out}
+    _WOKEN.update(at=time.time(), by=by)
+    return {"woken": True}
+
+
+def _woken() -> dict[str, Any]:
+    """How long ago, and by whom, the PC was last woken through the gateway (none: never)."""
+    if not _WOKEN["at"]:
+        return {}
+    return {"ago_s": round(time.time() - _WOKEN["at"]), "by": _WOKEN["by"]}
 
 
 def _solve(text: str) -> str:
@@ -1056,6 +1117,12 @@ class DotsAdapter(BasePlatformAdapter):
             asyncio.ensure_future(self._on_intent(frame, ws))
         elif kind == "solve":
             asyncio.ensure_future(self._on_solve(frame, ws))
+        elif kind == "home":
+            asyncio.ensure_future(self._on_home(frame, ws))
+        elif kind == "wake":
+            asyncio.ensure_future(self._on_wake(frame, ws))
+        elif kind == "woken":
+            await self._push({"type": "woken", "id": str(frame.get("id") or ""), **_woken()}, ws)
         elif kind == "usage_get":
             await self._push(await self._usage_frame(frame), ws)
         elif kind == "cron_action":
@@ -1197,6 +1264,20 @@ class DotsAdapter(BasePlatformAdapter):
         answer = await asyncio.to_thread(_solve, str(frame.get("text") or "").strip())
         logger.info("[dots] timing: solve %s in %d ms", "answered" if answer else "failed", (time.monotonic() - started) * 1000)
         await self._push({"type": "solve", "id": str(frame.get("id") or ""), "answer": answer}, ws)
+
+    async def _on_home(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday desktop switches lights and plugs itself (see _home): no agent turn, well under a second."""
+        started = time.monotonic()
+        result = await asyncio.to_thread(_home, frame)
+        logger.info("[dots] timing: home %s %s in %d ms", frame.get("op"), "failed" if "error" in result else "done", (time.monotonic() - started) * 1000)
+        await self._push({"type": "home", "id": str(frame.get("id") or ""), **result}, ws)
+
+    async def _on_wake(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """The phone (home Wi-Fi joined) or the desktop asks to wake the PC (see _wake)."""
+        by = "phone" if frame.get("by") == "phone" else "app"
+        result = await asyncio.to_thread(_wake, by)
+        logger.info("[dots] wake from %s: %s", by, result.get("error") or "sent")
+        await self._push({"type": "wake", "id": str(frame.get("id") or ""), **result}, ws)
 
     async def _on_user_message(self, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
         client_id = str(frame.get("client_id") or uuid.uuid4())
