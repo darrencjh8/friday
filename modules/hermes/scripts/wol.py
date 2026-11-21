@@ -35,7 +35,7 @@ def parse(ip, mac):
     if address.version != 4 or not address.is_private or address.is_loopback:
         raise WolError(f"not a home network IPv4 address: {ip}")
     if not MAC.match(mac.strip()):
-        raise WolError(f"not a MAC address: {mac!r} (like 98-8D-46-93-3E-4C)")
+        raise WolError(f"not a MAC address: {mac!r} (like AA-BB-CC-DD-EE-FF)")
     return str(address), re.sub(r"[:-]", "", mac.strip()).upper()
 
 
