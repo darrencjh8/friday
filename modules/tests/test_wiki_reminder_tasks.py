@@ -30,6 +30,16 @@ class WikiReminderTaskTests(unittest.TestCase):
                 self.assertIn(name, prompt)
         self.assertIn("recurring-payments.md", tick)
 
+    def test_status_is_checked_live_not_copied_from_the_wiki(self):
+        text = SEED.read_text(encoding="utf-8")
+        due = text.split('"name": "wiki-due-reminders"')[0].rsplit("PROMPT = ", 1)[1]
+        self.assertIn("Status comes from the live sources, never from the wiki", due)
+        self.assertIn("gmail list --query", due)
+        self.assertIn("gcal events --days", due)
+        self.assertIn("Never write a status into the wiki", due)
+        seed = text.split("# Seed wiki-due-reminders cron job")[1].split("PYEOF")[1]
+        self.assertIn('"gmail-readonly", "gcal-readonly"', seed)
+
 
 if __name__ == "__main__":
     unittest.main()
