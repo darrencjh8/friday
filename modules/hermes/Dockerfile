@@ -16,18 +16,18 @@ RUN chmod 0755 /usr/local/bin/gtasks
 COPY scripts/pdftext.py /usr/local/bin/pdftext
 RUN chmod 0755 /usr/local/bin/pdftext
 # Smart home: `home` over every system's own CLI, IKEA TRÅDFRI (libcoap3-bin's
-# coap-client-gnutls does the DTLS), Tuya (tinytuya) and Broadlink RM infrared
-# (python-broadlink; the script is broadlink_rm.py so it does not shadow the
+# coap-client-gnutls does the DTLS), Tuya (tinytuya), Xiaomi (miio over
+# cryptography) and Broadlink RM infrared (python-broadlink; the script is broadlink_rm.py so it does not shadow the
 # library, the command is still `broadlink`). They share their own venv,
 # like codex-router's, since the Hermes venv is sealed; `home` loads the others as
 # modules from /opt/home-cli, so all of them run on that venv's Python.
 COPY requirements-home.txt /tmp/requirements-home.txt
-COPY scripts/home.py scripts/ikea.py scripts/tuya.py scripts/broadlink_rm.py /opt/home-cli/
+COPY scripts/home.py scripts/ikea.py scripts/tuya.py scripts/broadlink_rm.py scripts/xiaomi.py /opt/home-cli/
 RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')" \
     && "$uv_bin" venv /opt/home-venv --python /usr/bin/python3 \
     && "$uv_bin" pip install --no-cache --python /opt/home-venv/bin/python --requirement /tmp/requirements-home.txt \
     && rm /tmp/requirements-home.txt \
-    && for cli in home ikea tuya broadlink:broadlink_rm; do \
+    && for cli in home ikea tuya xiaomi broadlink:broadlink_rm; do \
         printf '#!/bin/sh\nexec /opt/home-venv/bin/python /opt/home-cli/%s.py "$@"\n' "${cli#*:}" > "/usr/local/bin/${cli%%:*}"; \
         chmod 0755 "/usr/local/bin/${cli%%:*}"; \
     done

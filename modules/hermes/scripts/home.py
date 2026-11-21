@@ -6,8 +6,8 @@
 
 Systems today: IKEA TRÅDFRI (`ikea`, paired once with `ikea pair`) and Tuya / Smart Life
 (`tuya`, once with `tuya setup` and `tuya ip`), and infrared appliances through a Broadlink
-RM (`broadlink`, `broadlink add` then `broadlink learn` per button). A system that is not set
-up is skipped. `--cached` answers from the last list (instantly; the on/off states may be
+RM (`broadlink`, `broadlink add` then `broadlink learn` per button), and Xiaomi / Mi Home
+(`xiaomi`, `xiaomi add` per device with its token). A system that is not set up is skipped. `--cached` answers from the last list (instantly; the on/off states may be
 stale), listing afresh only when there is none. Switching uses the last list too, so it is
 one call per device, all at once; a name it doesn't know lists afresh first.
 """
@@ -69,13 +69,14 @@ SYSTEMS = (
     lambda: Backend("tuya", "TuyaError"),
     # Not broadlink.py: run as a script, that name would shadow the broadlink library.
     lambda: Backend("broadlink", "BroadlinkError", "broadlink_rm"),
+    lambda: Backend("xiaomi", "XiaomiError"),
 )
 
 
 def systems():
     ready = [s for s in (cls() for cls in SYSTEMS) if s.ready()]
     if not ready:
-        raise HomeError("no smart home system set up yet (IKEA: `ikea pair <gateway-ip>`, Tuya: `tuya setup`, Broadlink: `broadlink add <ip>`)")
+        raise HomeError("no smart home system set up yet (IKEA: `ikea pair <gateway-ip>`, Tuya: `tuya setup`, Broadlink: `broadlink add <ip>`, Xiaomi: `xiaomi add <name> <ip>`)")
     return {s.name: s for s in ready}
 
 
