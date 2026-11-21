@@ -11,9 +11,11 @@
  * never retries. The OneDrive pull/push tests fail the same way, and the
  * cause test fails because the error string drops Node's underlying cause.
  * The 503/timeout tests fail because the transient classifier does not
- * exist at base. 7 fail / 3 pass at base; the 3 passes are the never-retry
+ * exist at base. 12 fail / 3 pass at base; the 3 passes are the never-retry
  * guards. Retry tests pass short `retryDelays` ([10, 20] ms) so they run
- * in milliseconds against the 30s/60s production defaults.
+ * in milliseconds against the 30s/60s production defaults. The token test
+ * asserts elapsed time: at base getAccessToken ignores the injected delays
+ * and sleeps 2000ms+4000ms, so it takes ~6s and fails the <1000ms bound.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
@@ -275,4 +277,122 @@ describe("sync.retry.286", () => {
         // Token fetch + one resolve attempt, no retry of the 400.
         expect(global.fetch).toHaveBeenCalledTimes(2);
     });
+
+    it(
+        "sync.retry.286.flex.pull.retries.getstatement.after.referencecode",
+        { timeout: 20000 },
+        async () => {
+            const { pullFlexXml } = await import("../src/ibkr_flex.js");
+            const refResponse = {
+                ok: true,
+                text: async () =>
+                    "<FlexStatementResponse><Status>Success</Status><ReferenceCode>123456</ReferenceCode><Url>https://gdcdyn.interactivebrokers.com/AccountManagement/FlexWebService/GetStatement</Url></FlexStatementResponse>",
+            };
+            const statementResponse = {
+                ok: true,
+                text: async () =>
+                    "<FlexStatementResponse><Status>Success</Status><FlexStatements><FlexStatement/></FlexStatements></FlexStatementResponse>",
+            };
+            global.fetch
+                .mockResolvedValueOnce(refResponse)
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockResolvedValueOnce(refResponse)
+                .mockResolvedValueOnce(statementResponse);
+            const res = await pullFlexXml({ retryDelays: [10, 20] });
+            expect(res.success).toBe(true);
+            // SendRequest, GetStatement (fails), SendRequest again, GetStatement.
+            expect(global.fetch).toHaveBeenCalledTimes(4);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.retries.download.failure",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce({ ok: false, status: 503 })
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            expect(res.success).toBe(true);
+            expect(global.fetch).toHaveBeenCalledTimes(5);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.push.retries.upload.failure",
+        { timeout: 20000 },
+        async () => {
+            const { pushToOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce({
+                    ok: true,
+                    json: async () => ({ name: "Portfolio.portfolio" }),
+                });
+            const res = await pushToOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            expect(res.success).toBe(true);
+            expect(global.fetch).toHaveBeenCalledTimes(5);
+        },
+    );
+
+    it(
+        "sync.retry.286.onedrive.pull.retries.token.fetch.with.leg.delays",
+        { timeout: 20000 },
+        async () => {
+            const { pullFromOneDrive } = await import("../src/onedrive.js");
+            global.fetch
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockRejectedValueOnce(transientFetchFailure())
+                .mockResolvedValueOnce(mockTokenResponse())
+                .mockResolvedValueOnce(
+                    mockGraphItem("https://dl.example.com/Portfolio.portfolio"),
+                )
+                .mockResolvedValueOnce(mockDownload());
+            const started = performance.now();
+            const res = await pullFromOneDrive(undefined, {
+                retryDelays: [10, 20],
+            });
+            const elapsedMs = performance.now() - started;
+            expect(res.success).toBe(true);
+            // At base getAccessToken ignores the injected delays and sleeps
+            // 2000ms+4000ms, so this takes ~6s; with the fix it takes ~30ms.
+            expect(elapsedMs).toBeLessThan(1000);
+        },
+    );
+
+    it(
+        "sync.retry.286.flex.pull.stops.retrying.after.elapsed.budget",
+        { timeout: 20000 },
+        async () => {
+            const { pullFlexXml } = await import("../src/ibkr_flex.js");
+            global.fetch.mockRejectedValue(transientFetchFailure());
+            const res = await pullFlexXml({
+                retryDelays: [20, 40],
+                retryBudgetMs: 45,
+            });
+            expect(res.success).toBe(false);
+            // Attempt 1, one 20ms sleep, attempt 2, then the guard stops it:
+            // elapsed (~20ms) + next delay (40ms) exceeds the 45ms budget.
+            expect(global.fetch).toHaveBeenCalledTimes(2);
+        },
+    );
 });
