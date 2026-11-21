@@ -18,6 +18,7 @@ CLOUD = [
     {"id": "bulb1", "name": "Bed Lamp", "key": "k2", "category": "dj",
      "mapping": {"20": {"code": "switch_led"}, "22": {"code": "bright_value_v2"}}},
     {"id": "door1", "name": "Door Sensor", "key": "k3", "category": "mcs", "mapping": {"1": {"code": "doorcontact_state"}}},
+    {"id": "ir1", "name": "Aircon", "key": "", "category": "infrared_ac", "mapping": {}},
 ]
 
 
@@ -54,8 +55,10 @@ class TuyaTest(unittest.TestCase):
             self.addCleanup(p.stop)
 
     def test_setup_saves_switchable_devices_with_their_switch(self):
-        found = tuya.setup("sg", "id", "secret")
+        found, skipped = tuya.setup("sg", "id", "secret")
         self.assertEqual([(d["name"], d["type"], d["dp"]) for d in found], [("Desk Fan", "plug", "1"), ("Bed Lamp", "light", "20")])
+        self.assertEqual(skipped, [("Door Sensor", "no on/off switch Friday knows (category mcs, data points: doorcontact_state)"),
+                                   ("Aircon", "no local key: a virtual device, or one only the cloud controls")])
         self.assertEqual(os.stat(tuya.CONFIG).st_mode & 0o777, 0o600)
         self.assertNotIn("secret", Path(tuya.CONFIG).read_text())
 
