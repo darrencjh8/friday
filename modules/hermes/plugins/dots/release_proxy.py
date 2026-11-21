@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 _REPO = re.compile(r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$")
 _ASSET_ID = re.compile(r"^[1-9][0-9]*$")
 _MAX_ASSET_BYTES = 128 * 1024 * 1024
+_DESKTOP_TAG = re.compile(r"^desktop-v([0-9]+)\.([0-9]+)\.([0-9]+)$")
+_MAX_SIGNATURE_BYTES = 4096
 # Where github-auth.sh logs gh in as the GitHub App (it pins HOME=/opt/data/home).
 _GH_CONFIG_DIR = "/opt/data/home/.config/gh"
 
@@ -56,9 +58,12 @@ class ReleaseProxy:
         asset = next((item for item in (release or {}).get("assets", []) if str(item["id"]) == str(asset_id)), None)
         if asset is None:
             raise ReleaseProxyError("release asset not found")
+        return self._download(asset)
+
+    def _download(self, asset):
         try:
             payload = self._api(
-                f"repos/{self.repo}/releases/assets/{asset_id}",
+                f"repos/{self.repo}/releases/assets/{asset['id']}",
                 accept="application/octet-stream",
             )
         except ReleaseProxyError:
@@ -66,6 +71,51 @@ class ReleaseProxy:
         if len(payload) != asset["size"]:
             raise ReleaseProxyError("release asset size mismatch")
         return payload
+
+    def latest_desktop(self):
+        """The newest desktop-v* release with a signed installer: what the Windows app's updater needs.
+        Desktop releases are never GitHub's "latest" (that stays the APK), so pick by tag version."""
+        try:
+            releases = json.loads(self._api(f"repos/{self.repo}/releases?per_page=30"))
+        except (ReleaseProxyError, json.JSONDecodeError):
+            raise ReleaseProxyError("desktop releases unavailable") from None
+        if not isinstance(releases, list):
+            raise ReleaseProxyError("invalid releases response")
+        candidates = []
+        for release in releases:
+            match = _DESKTOP_TAG.fullmatch(str(release.get("tag_name", ""))) if isinstance(release, dict) else None
+            if match and not release.get("draft") and not release.get("prerelease"):
+                candidates.append((tuple(int(part) for part in match.groups()), release))
+        if not candidates:
+            return None
+        version, release = max(candidates, key=lambda item: item[0])
+        assets = release.get("assets") or []
+        exe = next((item for item in assets if str(item.get("name", "")).endswith("-setup.exe")), None)
+        sig = exe and next((item for item in assets if item.get("name") == f"{exe['name']}.sig"), None)
+        if sig is None:
+            return None  # an unsigned build: nothing the updater could verify
+        for item, cap in ((exe, _MAX_ASSET_BYTES), (sig, _MAX_SIGNATURE_BYTES)):
+            if not isinstance(item.get("id"), int) or not isinstance(item.get("size"), int) or not 0 < item["size"] <= cap:
+                raise ReleaseProxyError("invalid release asset metadata")
+        try:
+            signature = self._api(f"repos/{self.repo}/releases/assets/{sig['id']}", accept="application/octet-stream")
+        except ReleaseProxyError:
+            raise ReleaseProxyError("desktop signature unavailable") from None
+        return {
+            "version": ".".join(str(part) for part in version),
+            "pub_date": release.get("published_at") or "",
+            "signature": signature.decode("ascii", errors="replace").strip(),
+            "asset": {"id": exe["id"], "name": exe["name"], "size": exe["size"]},
+        }
+
+    def desktop_asset(self, asset_id):
+        """Only the newest desktop installer can be downloaded through here."""
+        if not _ASSET_ID.fullmatch(str(asset_id)):
+            raise ReleaseProxyError("invalid release asset")
+        desktop = self.latest_desktop()
+        if desktop is None or str(desktop["asset"]["id"]) != str(asset_id):
+            raise ReleaseProxyError("release asset not found")
+        return self._download(desktop["asset"])
 
     @staticmethod
     def _api(endpoint, accept=None):

@@ -52,6 +52,8 @@ class DotsPlatformWiringTest(unittest.TestCase):
         adapter = (PLUGIN / "adapter.py").read_text(encoding="utf-8")
         self.assertIn('app.router.add_get("/dots/releases/latest", self._handle_release_latest)', adapter)
         self.assertIn('app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)', adapter)
+        self.assertIn('app.router.add_get("/dots/desktop/latest", self._handle_desktop_latest)', adapter)
+        self.assertIn('app.router.add_get("/dots/desktop/assets/{asset_id}", self._handle_desktop_asset)', adapter)
         self.assertIn("and self._authorized(request)", adapter)
 
     def test_deploy_passes_the_token_secret(self):

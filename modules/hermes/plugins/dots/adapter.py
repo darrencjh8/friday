@@ -889,6 +889,8 @@ class DotsAdapter(BasePlatformAdapter):
         app.router.add_post(SEND_PATH, self._handle_local_send)
         app.router.add_get("/dots/releases/latest", self._handle_release_latest)
         app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)
+        app.router.add_get("/dots/desktop/latest", self._handle_desktop_latest)
+        app.router.add_get("/dots/desktop/assets/{asset_id}", self._handle_desktop_asset)
         app.router.add_get("/dots/health", lambda _req: web.json_response({"ok": True, "agent_id": self._agent_id}))
         self._runner = web.AppRunner(app, access_log=None)
         await self._runner.setup()
@@ -1007,6 +1009,43 @@ class DotsAdapter(BasePlatformAdapter):
             return web.json_response({"error": "unauthorized"}, status=401)
         try:
             payload = await asyncio.to_thread(ReleaseProxy(self._update_repo).asset, request.match_info["asset_id"])
+        except ReleaseProxyError:
+            return web.json_response({"error": "release_asset_unavailable"}, status=404)
+        return web.Response(body=payload, content_type="application/octet-stream", headers={"Cache-Control": "no-store"})
+
+    def _desktop_request_allowed(self, request: "web.Request") -> bool:
+        """The Windows app's updater: the master token or a live web token (the bar pairs as a browser)."""
+        if not self._update_repo:
+            return False
+        header = request.headers.get("Authorization", "")
+        supplied = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        return self._authorized(request) or self._web_tokens.check(supplied) is not None
+
+    async def _handle_desktop_latest(self, request: "web.Request") -> "web.Response":
+        """A Tauri updater manifest for the newest signed desktop release; 204 when there is none."""
+        if not self._desktop_request_allowed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            desktop = await asyncio.to_thread(ReleaseProxy(self._update_repo).latest_desktop)
+        except ReleaseProxyError:
+            return web.json_response({"error": "release_unavailable"}, status=502)
+        if desktop is None:
+            return web.Response(status=204, headers={"Cache-Control": "no-store"})
+        # Tailscale serve fronts the gateway: the public host is the one the app asked for.
+        host = request.headers.get("X-Forwarded-Host") or request.host
+        url = f"https://{host}/dots/desktop/assets/{desktop['asset']['id']}"
+        manifest = {
+            "version": desktop["version"],
+            "pub_date": desktop["pub_date"],
+            "platforms": {"windows-x86_64": {"signature": desktop["signature"], "url": url}},
+        }
+        return web.json_response(manifest, headers={"Cache-Control": "no-store"})
+
+    async def _handle_desktop_asset(self, request: "web.Request") -> "web.Response":
+        if not self._desktop_request_allowed(request):
+            return web.json_response({"error": "unauthorized"}, status=401)
+        try:
+            payload = await asyncio.to_thread(ReleaseProxy(self._update_repo).desktop_asset, request.match_info["asset_id"])
         except ReleaseProxyError:
             return web.json_response({"error": "release_asset_unavailable"}, status=404)
         return web.Response(body=payload, content_type="application/octet-stream", headers={"Cache-Control": "no-store"})

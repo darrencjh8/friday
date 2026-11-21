@@ -11,7 +11,10 @@
 # `release: true` also publishes it. A pull request touching this file
 # builds main without publishing.
 #
-# The installer is unsigned: Windows SmartScreen asks once before running it.
+# The installer has no Authenticode signature: Windows SmartScreen asks once
+# before running it. With the TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) repo
+# secrets it carries an updater signature (.exe.sig), and installed apps
+# update themselves through Friday's gateway (/dots/desktop/latest).
 name: Hermes-Dots desktop release
 
 on:
@@ -160,13 +163,24 @@ jobs:
           echo "$UV_SHA256  uv.zip" | sha256sum -c -
           7z e uv.zip uv.exe -ouv -y
           rm uv.zip
+      # With the updater key (repo secrets), the build also signs the installer
+      # (.exe.sig), which the app's updater checks against the public key in
+      # tauri.conf.json before installing. Without it, an unsigned build that
+      # installed apps never pick up as an update.
       - name: Build the installer
         env:
           VERSION: ${{ needs.check.outputs.version }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          npx --yes "$TAURI_CLI" build --config "{\"version\":\"$VERSION\"}"
+          signed=false
+          [ -n "$TAURI_SIGNING_PRIVATE_KEY" ] && signed=true
+          npx --yes "$TAURI_CLI" build --config "{\"version\":\"$VERSION\",\"bundle\":{\"createUpdaterArtifacts\":$signed}}"
           mkdir -p ../../dist-desktop
           cp target/release/bundle/nsis/*.exe "../../dist-desktop/Friday-$VERSION-setup.exe"
+          if [ "$signed" = true ]; then
+            cp target/release/bundle/nsis/*.exe.sig "../../dist-desktop/Friday-$VERSION-setup.exe.sig"
+          fi
           (cd ../../dist-desktop && sha256sum -- *.exe > "Friday-$VERSION-setup.exe.sha256")
       - uses: actions/upload-artifact@v4
         with:
@@ -193,4 +207,4 @@ jobs:
             --target "$SHA" \
             --latest=false \
             --title "Friday for Windows $VERSION" \
-            --notes "Windows installer for Friday (Ctrl+Space), built from \`$SHA\`. Unsigned: Windows SmartScreen asks once (More info → Run anyway). See desktop/README.md for pairing and plugins."
+            --notes "Windows installer for Friday (Ctrl+Space), built from \`$SHA\`. Not Authenticode-signed: Windows SmartScreen asks once on a first install (More info → Run anyway); installed apps update themselves. See desktop/README.md for pairing and plugins."
