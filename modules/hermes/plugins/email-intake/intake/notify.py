@@ -1,8 +1,8 @@
 """Owner messages for live email intake (issue #783, cutover PR 2).
 
 One message per email, queued in the intake journal and delivered once:
-the tracker's own words when a booking or statement needs the owner (a clean
-booking is silent), its learning offer, a review request with /replay
+the tracker's own words for a new booking or a statement (mail already booked
+or skipped is silent), its learning offer, a review request with /replay
 commands for uncertain mail, a blocked notice for a password-protected
 statement, a notify rule's message, and a failure notice once retries are
 spent. Shadow mode queues nothing.
@@ -64,16 +64,16 @@ def blocked_text(domain, subject):
             f'("{_subject(subject)}"). It stays unread.')
 
 
-# A transaction or portfolio leg that ended like this needs nothing from the
-# owner, so its "logged" confirmation is not sent. A statement summary still is.
-ROUTINE_STATUSES = ("processed", "duplicate", "skipped")
+# Mail already booked earlier, or not a booking at all, needs nothing from the
+# owner, so it sends no message. A new booking is always confirmed.
+QUIET_STATUSES = ("duplicate", "skipped")
 
 
 def result_text(records, domain, subject):
     """One message for an email whose legs all ended; None when there is nothing to say."""
     lines, failures = [], []
     for record in records:
-        if record.get("_kind") != "statement" and record.get("_status") in ROUTINE_STATUSES:
+        if record.get("_status") in QUIET_STATUSES:
             continue
         lines.extend(str(m) for m in (record.get("messages") or []) if str(m).strip())
         if record.get("_status") in ("failed", "invalid"):
