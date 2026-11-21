@@ -64,6 +64,7 @@ def switch_dp(category, mapping):
 
 
 def setup(region, access_id, secret):
+    """Saves the switchable devices; returns them and the skipped ones, each with the reason."""
     import tinytuya
 
     cloud = tinytuya.Cloud(apiRegion=region, apiKey=access_id, apiSecret=secret)
@@ -76,15 +77,21 @@ def setup(region, access_id, secret):
         known = {d["id"]: d for d in load()["devices"]}
     except TuyaError:
         known = {}
-    devices = []
+    devices, skipped = [], []
     for raw in listed:
         dp = switch_dp(raw.get("category", ""), raw.get("mapping"))
-        if dp is None or not raw.get("key"):
+        name = raw.get("name") or raw["id"]
+        if not raw.get("key"):
+            skipped.append((name, "no local key: a virtual device, or one only the cloud controls"))
+            continue
+        if dp is None:
+            codes = sorted(str(v.get("code")) for v in raw["mapping"].values() if isinstance(v, dict))
+            skipped.append((name, f"no on/off switch Friday knows (category {raw.get('category')}, data points: {', '.join(codes)})"))
             continue
         old = known.get(raw["id"], {})
         devices.append({
             "id": raw["id"],
-            "name": raw.get("name") or raw["id"],
+            "name": name,
             "key": raw["key"],
             "type": "light" if raw.get("category") in LIGHTS else "plug",
             "dp": dp,
@@ -92,7 +99,7 @@ def setup(region, access_id, secret):
             "version": old.get("version"),
         })
     save({"devices": devices})
-    return devices
+    return devices, skipped
 
 
 def _device(device, version=None):
@@ -165,10 +172,16 @@ def main(argv):
         secret = getpass.getpass("Access Secret: ").strip()
         if not access_id or not secret:
             raise TuyaError("both the Access ID and the Access Secret are needed")
-        found = setup(region, access_id, secret)
+        found, skipped = setup(region, access_id, secret)
         print(f"{len(found)} devices saved; give each its address with `tuya ip \"<name>\" <ip>`:")
         for d in found:
             print(f"  {d['name']} ({d['type']}){': ' + d['ip'] if d['ip'] else ''}")
+        if skipped:
+            print(f"{len(skipped)} skipped:")
+            for name, reason in skipped:
+                print(f"  {name}: {reason}")
+        if not found and not skipped:
+            print("The cloud project lists no devices: link the Smart Life app to it, in the data center of the app account.")
     elif len(argv) == 3 and argv[0] == "ip":
         device = set_ip(load(), argv[1], argv[2])
         print(f"{device['name']}: {device['ip']} (protocol {device['version']})")
@@ -187,4 +200,7 @@ if __name__ == "__main__":
         sys.exit(main(sys.argv[1:]))
     except TuyaError as error:
         print(f"tuya: {error}", file=sys.stderr)
+        sys.exit(1)
+    except EOFError:
+        print("\ntuya: setup asks questions: run it with `docker exec -it`", file=sys.stderr)
         sys.exit(1)
