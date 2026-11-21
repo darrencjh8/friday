@@ -47,6 +47,47 @@ class ReleaseProxyTest(unittest.TestCase):
 
         self.assertEqual(run.call_count, 1)
 
+    def _desktop_releases(self):
+        return [
+            {"tag_name": "v0.2.0.54", "assets": [{"id": 1, "name": "Friday.apk", "size": 9}]},
+            {"tag_name": "desktop-v0.1.9", "published_at": "2026-11-20T00:00:00Z", "assets": [
+                {"id": 20, "name": "Friday-0.1.9-setup.exe", "size": 5},
+                {"id": 21, "name": "Friday-0.1.9-setup.exe.sig", "size": 3},
+            ]},
+            {"tag_name": "desktop-v0.1.10", "published_at": "2026-11-21T00:00:00Z", "assets": [
+                {"id": 30, "name": "Friday-0.1.10-setup.exe", "size": 5},
+                {"id": 31, "name": "Friday-0.1.10-setup.exe.sig", "size": 3},
+            ]},
+            {"tag_name": "desktop-v0.2.0", "draft": True, "assets": []},
+        ]
+
+    def test_latest_desktop_picks_newest_signed_installer_by_version(self):
+        responses = [
+            subprocess.CompletedProcess([], 0, json.dumps(self._desktop_releases()).encode(), b""),
+            subprocess.CompletedProcess([], 0, b"sig\n", b""),
+        ]
+        with patch("release_proxy.subprocess.run", side_effect=responses) as run:
+            desktop = ReleaseProxy("owner/repo").latest_desktop()
+
+        self.assertEqual(desktop["version"], "0.1.10")
+        self.assertEqual(desktop["signature"], "sig")
+        self.assertEqual(desktop["asset"], {"id": 30, "name": "Friday-0.1.10-setup.exe", "size": 5})
+        self.assertIn("repos/owner/repo/releases/assets/31", run.call_args.args[0])
+
+    def test_latest_desktop_is_none_for_an_unsigned_build(self):
+        releases = [{"tag_name": "desktop-v0.1.9", "assets": [{"id": 20, "name": "Friday-0.1.9-setup.exe", "size": 5}]}]
+        with patch("release_proxy.subprocess.run", return_value=subprocess.CompletedProcess([], 0, json.dumps(releases).encode(), b"")):
+            self.assertIsNone(ReleaseProxy("owner/repo").latest_desktop())
+
+    def test_desktop_download_only_allows_the_newest_installer(self):
+        listing = subprocess.CompletedProcess([], 0, json.dumps(self._desktop_releases()).encode(), b"")
+        sig = subprocess.CompletedProcess([], 0, b"sig", b"")
+        with patch("release_proxy.subprocess.run", side_effect=[listing, sig]):
+            with self.assertRaises(ReleaseProxyError):
+                ReleaseProxy("owner/repo").desktop_asset(20)
+        with patch("release_proxy.subprocess.run", side_effect=[listing, sig, subprocess.CompletedProcess([], 0, b"exe!!", b"")]):
+            self.assertEqual(ReleaseProxy("owner/repo").desktop_asset(30), b"exe!!")
+
     def test_repository_name_is_validated_before_calling_gh(self):
         with patch("release_proxy.subprocess.run") as run:
             with self.assertRaises(ReleaseProxyError):
