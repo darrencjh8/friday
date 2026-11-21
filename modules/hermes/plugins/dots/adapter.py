@@ -301,7 +301,7 @@ SOLVE_INSTRUCTIONS = (
 
 
 def _run_cli(args: list[str]) -> tuple[bool, str]:
-    """Runs one of the host's CLIs (friday's `ikea`, `wol`); (ok, stdout or the error line)."""
+    """Runs one of the host's CLIs (friday's `home`, `wol`); (ok, stdout or the error line)."""
     try:
         done = subprocess.run(args, capture_output=True, text=True, timeout=30, check=False)
     except FileNotFoundError:
@@ -314,13 +314,14 @@ def _run_cli(args: list[str]) -> tuple[bool, str]:
 
 
 def _home(frame: dict[str, Any]) -> dict[str, Any]:
-    """Friday desktop's smart-home switches, straight to friday's `ikea` CLI, no agent turn.
+    """Friday desktop's smart-home switches, straight to friday's `home` CLI, no agent turn.
 
     {"op": "list"} answers {"devices": [{name, type, on}]}; {"op": "switch", "names": [...],
     "on": bool} switches each and answers {"switched": [...]}; a failure answers {"error": "..."}.
     """
     if frame.get("op") == "list":
-        ok, out = _run_cli(["ikea", "list"])
+        # The last list, instantly (the CLI lists afresh when it has none); switching refreshes it.
+        ok, out = _run_cli(["home", "list", "--cached"])
         if not ok:
             return {"error": out}
         try:
@@ -330,13 +331,8 @@ def _home(frame: dict[str, Any]) -> dict[str, Any]:
     names = [str(n) for n in (frame.get("names") or []) if str(n).strip()][:20]
     if frame.get("op") != "switch" or not names:
         return {"error": "unknown home request"}
-    switched = []
-    for name in names:
-        ok, out = _run_cli(["ikea", "on" if frame.get("on") else "off", name])
-        if not ok:
-            return {"error": out, "switched": switched}
-        switched.append(name)
-    return {"switched": switched}
+    ok, out = _run_cli(["home", "on" if frame.get("on") else "off", *names])
+    return {"switched": names} if ok else {"error": out}
 
 
 # The last wake-on-LAN sent through the gateway: when (epoch s) and by whom ("phone", "friday").

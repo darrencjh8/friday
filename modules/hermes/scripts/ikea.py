@@ -18,6 +18,7 @@ import re
 import subprocess
 import sys
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 
 CONFIG = os.environ.get("IKEA_CONFIG", "/opt/data/ikea.json")
 # The gateway only offers PSK-AES128-CCM8, which the image's OpenSSL refuses at its default
@@ -76,9 +77,11 @@ def load():
 
 def devices(cfg):
     ids = coap("get", cfg["host"], "15001", cfg["identity"], cfg["key"])
+    # Each call is a DTLS handshake of about a second: ask for every device at once.
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        raws = list(pool.map(lambda i: coap("get", cfg["host"], f"15001/{i}", cfg["identity"], cfg["key"]), ids))
     found = []
-    for device_id in ids:
-        raw = coap("get", cfg["host"], f"15001/{device_id}", cfg["identity"], cfg["key"])
+    for device_id, raw in zip(ids, raws):
         kind = KINDS.get(raw.get("5750"))
         if kind is None:
             continue  # remotes, sensors, repeaters: nothing to switch
@@ -99,10 +102,15 @@ def pick(found, name):
     raise IkeaError(f"{'several' if partial else 'no'} devices match {name!r}: {names}")
 
 
-def switch(cfg, name, on):
-    device = pick(devices(cfg), name)
+def set_on(cfg, device, on):
+    """Switches a device from `devices` (no lookup: one gateway call)."""
     control = KINDS[2 if device["type"] == "light" else 3][1]
     coap("put", cfg["host"], f"15001/{device['id']}", cfg["identity"], cfg["key"], {control: [{"5850": int(on)}]})
+
+
+def switch(cfg, name, on):
+    device = pick(devices(cfg), name)
+    set_on(cfg, device, on)
     return device
 
 

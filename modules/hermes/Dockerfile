@@ -17,7 +17,8 @@ COPY scripts/pdftext.py /usr/local/bin/pdftext
 RUN chmod 0755 /usr/local/bin/pdftext
 # IKEA TRÅDFRI gateway on the LAN (libcoap3-bin's coap-client-gnutls does the DTLS).
 COPY scripts/ikea.py /usr/local/bin/ikea
-RUN chmod 0755 /usr/local/bin/ikea
+COPY scripts/home.py /usr/local/bin/home
+RUN chmod 0755 /usr/local/bin/ikea /usr/local/bin/home
 # Wake-on-LAN to the PC, unicast to its saved IP (container broadcasts never reach the LAN).
 COPY scripts/wol.py /usr/local/bin/wol
 RUN chmod 0755 /usr/local/bin/wol
