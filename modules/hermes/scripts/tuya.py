@@ -195,7 +195,7 @@ def main(argv):
         if not access_id or not secret:
             raise TuyaError("both the Access ID and the Access Secret are needed (in a terminal, run it with `docker exec -it`)")
         found, skipped = setup(region, access_id, secret)
-        print(f"{len(found)} devices saved; give each its address with `tuya ip \"<name>\" <ip>`:")
+        print(f"{len(found)} device{'' if len(found) == 1 else 's'} saved" + ("; give those without an address one with `tuya ip \"<name>\" <ip>`:" if any(not d['ip'] for d in found) else ":"))
         for d in found:
             print(f"  {d['name']} ({d['type']}){': ' + d['ip'] if d['ip'] else ''}")
         if skipped:

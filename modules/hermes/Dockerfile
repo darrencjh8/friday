@@ -22,7 +22,7 @@ RUN chmod 0755 /usr/local/bin/pdftext
 # like codex-router's, since the Hermes venv is sealed; `home` loads the others as
 # modules from /opt/home-cli, so all of them run on that venv's Python.
 COPY requirements-home.txt /tmp/requirements-home.txt
-COPY scripts/home.py scripts/ikea.py scripts/tuya.py scripts/broadlink_rm.py scripts/xiaomi.py /opt/home-cli/
+COPY scripts/home.py scripts/ikea.py scripts/tuya.py scripts/broadlink_rm.py scripts/xiaomi.py scripts/xiaomi_cloud.py /opt/home-cli/
 RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')" \
     && "$uv_bin" venv /opt/home-venv --python /usr/bin/python3 \
     && "$uv_bin" pip install --no-cache --python /opt/home-venv/bin/python --requirement /tmp/requirements-home.txt \

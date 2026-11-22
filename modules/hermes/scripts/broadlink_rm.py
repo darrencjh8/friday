@@ -157,7 +157,7 @@ def main(argv):
     if len(argv) == 2 and argv[0] == "add":
         print(f"RM at {argv[1]} saved ({add(argv[1])})")
     elif len(argv) in (3, 4) and argv[0] == "learn" and argv[3:] in ([], ["light"]):
-        print(f"Point the remote at the RM and press {argv[1]}'s {argv[2]} button (within {LEARN_SECONDS} s)…", flush=True)
+        print(f"Point the remote at the RM and press {argv[1]}'s {argv[2]} button (within {LEARN_SECONDS} s)…", file=sys.stderr, flush=True)
         device = learn(load(), argv[1], argv[2], "light" if argv[3:] else "plug")
         print(f"{device['name']}: learned {', '.join(sorted(device['codes']))}")
     elif argv == ["list"]:
