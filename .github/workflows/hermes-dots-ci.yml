@@ -131,6 +131,23 @@ jobs:
         with:
           workspaces: desktop/src-tauri
 
+      # The voice installer (desktop/voice) ships uv, which fetches Python,
+      # PyTorch and the speech models on the user's PC into the folder they
+      # choose. Pinned and checked here; never committed. tauri.conf.json
+      # lists uv/uv.exe as a resource, so cargo check needs it present.
+      # Copied from hermes-dots-desktop.yml.
+      - name: uv for the voice installer
+        shell: bash
+        working-directory: desktop/src-tauri
+        env:
+          UV_VERSION: '0.13.9'
+          UV_SHA256: 'edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb'
+        run: |
+          curl -fsSLo uv.zip "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-x86_64-pc-windows-msvc.zip"
+          echo "$UV_SHA256  uv.zip" | sha256sum -c -
+          7z e uv.zip uv.exe -ouv -y
+          rm uv.zip
+
       - name: Check the desktop Rust
         shell: bash
         working-directory: desktop/src-tauri
