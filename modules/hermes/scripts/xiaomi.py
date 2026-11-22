@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Switch Xiaomi (Mi Home) lights, plugs and appliances on the LAN, over the miio protocol.
 
-  xiaomi add "<name>" <ip> [light]    once per device; asks for its token (hidden)
+  xiaomi cloud-qr                     a QR code (JSON) to scan in the Mi Home app
+  xiaomi cloud-wait                   after the scan: adds every Wi-Fi device of the account
+  xiaomi add "<name>" <ip> [light]    one device by hand; asks for its token (hidden)
   xiaomi list                         devices with type, address and on/off state
   xiaomi forget "<name>"
 
-Each device answers only to its own 32-hex-digit token. Get the tokens once on a PC with the
-Xiaomi Cloud Tokens Extractor (it lists every device of the Mi Home account with its IP and
-token); Friday never logs in to the Xiaomi cloud. `add` checks the device answers and whether
-it speaks MIoT (power at service 2, property 1) or the older miio `set_power`. Saved in
-/opt/data/xiaomi.json (0600). Give each device a fixed address in the router.
+Each device answers only to its own 32-hex-digit token. The QR sign-in (xiaomi_cloud.py) reads
+every device's address and token from the Mi Home account once; Friday keeps no account
+login, only the devices. `add` checks the device answers and whether it speaks MIoT (power at
+service 2, property 1) or the older miio `set_power`. Saved in /opt/data/xiaomi.json (0600).
+Give each device a fixed address in the router.
 
 ponytail: MIoT power is assumed at siid 2 / piid 1, true for Xiaomi's plugs, lights and
 purifiers; a device keeping it elsewhere needs its spec (home.miot-spec.com) and an override.
@@ -174,19 +176,51 @@ def save(cfg):
     os.replace(tmp, CONFIG)
 
 
-def add(name, ip, token, kind="plug"):
+def _checked(name, ip, token, kind):
     token = token.strip().lower()
     if not re.fullmatch(r"[0-9a-f]{32}", token):
         raise XiaomiError("a token is 32 hex digits")
     device = {"name": name.strip(), "ip": ip, "token": token, "type": kind}
     device["protocol"] = detect(device)
+    return device
+
+
+def _keep(added):
     try:
         cfg = load()
     except XiaomiError:
         cfg = {"devices": []}
-    cfg["devices"] = [d for d in cfg["devices"] if d["name"].lower() != device["name"].lower()] + [device]
+    names = {d["name"].lower() for d in added}
+    cfg["devices"] = [d for d in cfg["devices"] if d["name"].lower() not in names] + added
     save(cfg)
+
+
+def add(name, ip, token, kind="plug"):
+    device = _checked(name, ip, token, kind)
+    _keep([device])
     return device
+
+
+def _try(found):
+    """A device the cloud listed: (saved device, None), or (None, why it was skipped)."""
+    if not found.get("localip"):
+        return None, "no Wi-Fi address (Bluetooth or behind a hub)"
+    try:
+        kind = "light" if ".light." in found.get("model", "") else "plug"
+        return _checked(found.get("name") or found.get("did", "?"), found["localip"], found.get("token") or "", kind), None
+    except XiaomiError as error:
+        return None, str(error)
+
+
+def cloud_add(found):
+    """Checks every device the cloud listed, side by side, and saves those that answer at once."""
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        tried = list(pool.map(_try, found))
+    added = [device for device, _ in tried if device]
+    if added:
+        _keep(added)
+    skipped = [(f.get("name") or f.get("did", "?"), why) for f, (_, why) in zip(found, tried) if why]
+    return added, skipped
 
 
 def forget(cfg, name):
@@ -230,7 +264,22 @@ def pick(found, name):
 
 
 def main(argv):
-    if len(argv) in (3, 4) and argv[0] == "add" and argv[3:] in ([], ["light"]):
+    if argv in (["cloud-qr"], ["cloud-wait"]):
+        import xiaomi_cloud
+
+        try:
+            if argv == ["cloud-qr"]:
+                print(json.dumps(xiaomi_cloud.start()))
+                return 0
+            added, skipped = cloud_add(xiaomi_cloud.wait())
+        except xiaomi_cloud.CloudError as error:
+            raise XiaomiError(str(error)) from None
+        lines = [f"Added {len(added)} device{'' if len(added) == 1 else 's'}" + (":" if added else ".")]
+        lines += [f"  {d['name']} ({d['type']}, {d['ip']})" for d in added]
+        if skipped:
+            lines += [f"Skipped {len(skipped)}:"] + [f"  {name}: {why}" for name, why in skipped]
+        print("\n".join(lines))
+    elif len(argv) in (3, 4) and argv[0] == "add" and argv[3:] in ([], ["light"]):
         token = ask(f"Token of {argv[1]}: ", hidden=True)
         device = add(argv[1], argv[2], token, "light" if argv[3:] else "plug")
         print(f"{device['name']}: {device['ip']} ({device['protocol']})")

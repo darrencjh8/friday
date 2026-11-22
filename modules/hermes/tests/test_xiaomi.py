@@ -111,9 +111,99 @@ class XiaomiTest(unittest.TestCase):
         fake.sock.close()
         self.assertFalse(xiaomi.devices(xiaomi.load())[0]["on"])
 
+    def test_cloud_add_keeps_wifi_devices_that_answer(self):
+        self.device("miot")
+        found = [
+            {"did": "1", "name": "Desk Lamp", "model": "yeelink.light.lamp1", "localip": "127.0.0.1", "token": TOKEN},
+            {"did": "2", "name": "Door Sensor", "model": "lumi.sensor_magnet.v2", "localip": "", "token": TOKEN},
+            {"did": "3", "name": "Old Plug", "model": "chuangmi.plug.m1", "localip": "127.0.0.1", "token": "ff" * 16},
+        ]
+        added, skipped = xiaomi.cloud_add(found)
+        self.assertEqual([(d["name"], d["type"]) for d in added], [("Desk Lamp", "light")])
+        self.assertEqual([name for name, _ in skipped], ["Door Sensor", "Old Plug"])
+        self.assertIn("Wi-Fi", skipped[0][1])
+        self.assertEqual([d["name"] for d in xiaomi.load()["devices"]], ["Desk Lamp"])
+
     def test_not_set_up(self):
         with self.assertRaisesRegex(xiaomi.XiaomiError, "xiaomi add"):
             xiaomi.load()
+
+
+cloud_spec = importlib.util.spec_from_file_location("xiaomi_cloud", Path(__file__).parents[1] / "scripts" / "xiaomi_cloud.py")
+xiaomi_cloud = importlib.util.module_from_spec(cloud_spec)
+cloud_spec.loader.exec_module(xiaomi_cloud)
+
+
+class Reply:
+    def __init__(self, status=200, text="", cookies=None, content=b""):
+        self.status_code, self.text, self.cookies, self.content = status, text, cookies or {}, content
+
+
+class FakeSession:
+    """Xiaomi's sign-in: the QR request, a long poll that answers on the second try, the token hop."""
+
+    def __init__(self):
+        self.headers, self.cookies, self.polls = {"User-Agent": "agent"}, FakeCookies(), 0
+
+    def get(self, url, **_):
+        if url.endswith("/longPolling/loginUrl"):
+            return Reply(text='&&&START&&&{"qr": "https://qr.example/x.png", "loginUrl": "https://login.example", "lp": "https://lp.example"}')
+        if url == "https://qr.example/x.png":
+            return Reply(content=b"PNG")
+        if url == "https://lp.example":
+            self.polls += 1
+            return Reply(status=200 if self.polls > 1 else 408,
+                         text='&&&START&&&{"userId": 7, "ssecurity": "c2VjcmV0", "location": "https://sts.example"}')
+        if url == "https://sts.example":
+            return Reply(cookies={"serviceToken": "st"})
+        raise AssertionError(url)
+
+
+class FakeCookies(dict):
+    def get_dict(self):
+        return dict(self)
+
+
+class CloudTest(unittest.TestCase):
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        login = patch.object(xiaomi_cloud, "CONFIG", os.path.join(self.dir.name, "login.json"))
+        login.start()
+        self.addCleanup(login.stop)
+
+    def test_qr_then_wait_lists_devices_once_per_did(self):
+        session = FakeSession()
+        with patch.object(xiaomi_cloud, "_session", return_value=session):
+            qr = xiaomi_cloud.start()
+            self.assertEqual(qr, {"qr": "data:image/png;base64,UE5H", "url": "https://login.example"})
+            self.assertEqual(os.stat(xiaomi_cloud.CONFIG).st_mode & 0o777, 0o600)
+            seen = []
+
+            def devices(api, server):
+                seen.append((api.user_id, api.ssecurity, api.token))
+                return [{"did": "1", "name": "Lamp"}] if server in ("sg", "de") else []
+
+            with patch.object(xiaomi_cloud._Api, "devices", devices):
+                self.assertEqual(xiaomi_cloud.wait(), [{"did": "1", "name": "Lamp"}])
+        self.assertEqual(seen[0], ("7", "c2VjcmV0", "st"))
+        self.assertFalse(os.path.exists(xiaomi_cloud.CONFIG))  # the half-done sign-in is single use
+        with self.assertRaisesRegex(xiaomi_cloud.CloudError, "QR code first"):
+            xiaomi_cloud.wait()
+
+    def test_unscanned_code_times_out(self):
+        session = FakeSession()
+        session.polls = -10**6  # never answers 200
+        with patch.object(xiaomi_cloud, "_session", return_value=session):
+            xiaomi_cloud.start()
+            with self.assertRaisesRegex(xiaomi_cloud.CloudError, "not scanned in time"):
+                xiaomi_cloud.wait(seconds=0)
+
+    def test_rc4_round_trip_and_signature(self):
+        key = __import__("base64").b64encode(bytes(range(32))).decode()
+        self.assertEqual(xiaomi_cloud._rc4(key, xiaomi_cloud._rc4(key, b"hello")), b"hello")
+        self.assertEqual(xiaomi_cloud._signature("/v2/x", {"data": "{}"}, key),
+                         __import__("base64").b64encode(hashlib.sha1(b"POST&/v2/x&data={}&" + key.encode()).digest()).decode())
 
 
 if __name__ == "__main__":
