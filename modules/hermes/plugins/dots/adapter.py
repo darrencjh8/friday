@@ -230,7 +230,8 @@ JEV_ENDPOINT = "https://api.typesafe.ai/v1/systemone"
 JEV_MODEL = "jev-latest"
 INTENT_ASK = "ASK FRIDAY"
 INTENT_MISSING = "NO SUCH APP"
-INTENT_MAX_APPS = 253  # System One takes at most 255 options, with the two above
+INTENT_SLEEP = "SLEEP THE PC"
+INTENT_MAX_APPS = 252  # System One takes at most 255 options, with the three above
 INTENT_MIN_CONFIDENCE = 0.65
 INTENT_MIN_MARGIN = 0.3
 
@@ -240,13 +241,15 @@ def _intent_question(apps: list[str]) -> dict[str, Any]:
     criteria[INTENT_ASK] = ("not a request to open a program: a question, a task, a reminder, a message to send, "
                             "or anything else for the assistant to answer or do")
     criteria[INTENT_MISSING] = "a request to open a program, but none of the listed apps is that program"
+    criteria[INTENT_SLEEP] = "the user wants the computer put to sleep / turned off"
     return {"intent": {
         "type": "choice",
         "instructions": (
             "Someone spoke this sentence to the assistant on their Windows PC. If they want a program on the PC "
             "opened, started, launched or brought up, including by what it does (\"I want to listen to music\" "
             "for a music app), answer the listed app that is that program. If they want a program opened but "
-            f"none of the listed apps is it, answer {INTENT_MISSING}. Anything else is {INTENT_ASK}."
+            f"none of the listed apps is it, answer {INTENT_MISSING}. If they want the computer put to sleep "
+            f"or turned off, answer {INTENT_SLEEP}. Anything else is {INTENT_ASK}."
         ),
         "criteria": criteria,
     }}
@@ -256,13 +259,13 @@ def _intent_apps(apps: Any) -> list[str]:
     """Distinct non-empty app names, in the order given (most used first), capped for Jev."""
     names: list[str] = []
     for name in apps if isinstance(apps, list) else []:
-        if isinstance(name, str) and name.strip() and name.strip() not in names and name.strip() not in (INTENT_ASK, INTENT_MISSING):
+        if isinstance(name, str) and name.strip() and name.strip() not in names and name.strip() not in (INTENT_ASK, INTENT_MISSING, INTENT_SLEEP):
             names.append(name.strip()[:200])
     return names[:INTENT_MAX_APPS]
 
 
 def _jev_intent(text: str, apps: list[str], key: str) -> dict[str, Any]:
-    """Jev's pick for a spoken request: {"app": name} | {"missing": True} | {"ask": True}.
+    """Jev's pick for a spoken request: {"app": name} | {"missing": True} | {"ask": True} | {"system": "sleep"}.
 
     A weak or unusable answer is "ask": Friday is the safe default. Blocking (urllib); run it
     in a thread.
@@ -287,6 +290,8 @@ def _jev_intent(text: str, apps: list[str], key: str) -> dict[str, Any]:
         return {"ask": True, "reason": "unsure"}
     if choice == INTENT_MISSING:
         return {"missing": True}
+    if choice == INTENT_SLEEP:
+        return {"system": "sleep"}
     if choice in apps:
         return {"app": choice}
     return {"ask": True}
@@ -343,7 +348,8 @@ def _home(frame: dict[str, Any]) -> dict[str, Any]:
 
 # Friday desktop's smart-home setup (the Home plugin's settings): each op runs one fixed command of
 # friday's system CLIs. Keys and tokens reach the CLI on stdin, never in its arguments or the log.
-_SYSTEMS = ("tuya", "broadlink", "xiaomi")
+_SYSTEMS = ("ikea", "tuya", "broadlink", "xiaomi")
+_LABELS = {"ikea": "IKEA"}
 _TUYA_REGIONS = ("us", "us-e", "eu", "eu-w", "in", "sg", "cn")
 _SETUP_OPS = ("status", "systems", "tuya_setup", "tuya_ip", "broadlink_add", "broadlink_learn", "broadlink_forget",
               "xiaomi_add", "xiaomi_forget", "xiaomi_qr", "xiaomi_wait")
@@ -358,7 +364,8 @@ def _status(system: str) -> dict[str, Any]:
     if not ok:
         return {"ready": False, "summary": out.removeprefix(f"{system}: "), "devices": []}
     try:
-        devices = [{"name": str(d["name"]), "detail": ", ".join(d.get("buttons") or [d["type"], d.get("ip") or "no address"])}
+        # IKEA lists no addresses (its gateway holds them); Tuya's may be missing; Broadlink lists learned buttons.
+        devices = [{"name": str(d["name"]), "detail": ", ".join(d.get("buttons") or [d["type"], *([d.get("ip") or "no address"] if "ip" in d else [])])}
                    for d in json.loads(out)]
     except (ValueError, TypeError, KeyError):
         return {"ready": False, "summary": "unexpected device list", "devices": []}
@@ -372,7 +379,7 @@ def _home_setup(frame: dict[str, Any]) -> dict[str, Any]:
     if op in ("status", "systems"):
         with concurrent.futures.ThreadPoolExecutor(len(_SYSTEMS)) as pool:
             systems = dict(zip(_SYSTEMS, pool.map(_status, _SYSTEMS)))
-        lines = [f"{k.capitalize()}: " + (", ".join(f"{d['name']} ({d['detail']})" for d in v["devices"]) or v["summary"])
+        lines = [f"{_LABELS.get(k, k.capitalize())}: " + (", ".join(f"{d['name']} ({d['detail']})" for d in v["devices"]) or v["summary"])
                  for k, v in systems.items()]
         return {"systems": systems, "message": "\n".join(lines)}
     if op == "xiaomi_qr":
