@@ -156,8 +156,8 @@ jobs:
                   python-version: "3.12"
             # Several tests below parse Hermes YAML. setup-python provisions a
             # pristine interpreter, so PyYAML must be installed explicitly.
-            # The Xiaomi CLI test encrypts with cryptography, as the image's home venv does.
-            - name: Install PyYAML and cryptography
+            # The Xiaomi CLI test encrypts with cryptography and signs in with requests, as the image's home venv does.
+            - name: Install PyYAML, cryptography and requests
               run: python -m pip install --quiet PyYAML cryptography requests
             - name: Lint bash scripts
               run: |
