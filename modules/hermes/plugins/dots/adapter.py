@@ -16,6 +16,7 @@ several independent agents are several profiles, each with its own gateway, toke
 
 import asyncio
 import base64
+import concurrent.futures
 import hashlib
 import hmac
 import ipaddress
@@ -344,30 +345,48 @@ def _home(frame: dict[str, Any]) -> dict[str, Any]:
 # friday's system CLIs. Keys and tokens reach the CLI on stdin, never in its arguments or the log.
 _SYSTEMS = ("tuya", "broadlink", "xiaomi")
 _TUYA_REGIONS = ("us", "us-e", "eu", "eu-w", "in", "sg", "cn")
-_SETUP_OPS = ("systems", "tuya_setup", "tuya_ip", "broadlink_add", "broadlink_learn", "broadlink_forget",
-              "xiaomi_add", "xiaomi_forget")
+_SETUP_OPS = ("status", "systems", "tuya_setup", "tuya_ip", "broadlink_add", "broadlink_learn", "broadlink_forget",
+              "xiaomi_add", "xiaomi_forget", "xiaomi_qr", "xiaomi_wait")
 BROADLINK_LEARN_S = 30
+XIAOMI_WAIT_S = 240  # the QR scan (the CLI waits 3 minutes), then every device the account lists is checked
+QR_PREFIX = "data:image/png;base64,"
 
 
-def _describe(system: str) -> str:
+def _status(system: str) -> dict[str, Any]:
+    """{ready, summary, devices: [{name, detail}]}: names, types, addresses, learned buttons; never keys or codes."""
     ok, out = _run_cli([system, "list"])
     if not ok:
-        return out.removeprefix(f"{system}: ")
+        return {"ready": False, "summary": out.removeprefix(f"{system}: "), "devices": []}
     try:
-        devices = json.loads(out)
-        return ", ".join(
-            f"{d['name']} ({', '.join(d.get('buttons') or [d['type'], d.get('ip') or 'no address'])})" for d in devices
-        ) or "no devices"
+        devices = [{"name": str(d["name"]), "detail": ", ".join(d.get("buttons") or [d["type"], d.get("ip") or "no address"])}
+                   for d in json.loads(out)]
     except (ValueError, TypeError, KeyError):
-        return "unexpected device list"
+        return {"ready": False, "summary": "unexpected device list", "devices": []}
+    return {"ready": True, "summary": f"{len(devices)} device{'' if len(devices) == 1 else 's'}", "devices": devices}
 
 
 def _home_setup(frame: dict[str, Any]) -> dict[str, Any]:
-    """Answers {"message": text for the settings page} or {"error": ...}. "systems" describes each system's
-    devices (names, types, addresses, learned buttons; never keys or codes)."""
+    """Answers {"message": text for the settings page, "image"?: a QR code} or {"error": ...}. "status"
+    adds {"systems": {system: _status}} (the overview); "systems" is the same for older apps."""
     op = frame["op"]
-    if op == "systems":
-        return {"message": "\n".join(f"{system.capitalize()}: {_describe(system)}" for system in _SYSTEMS)}
+    if op in ("status", "systems"):
+        with concurrent.futures.ThreadPoolExecutor(len(_SYSTEMS)) as pool:
+            systems = dict(zip(_SYSTEMS, pool.map(_status, _SYSTEMS)))
+        lines = [f"{k.capitalize()}: " + (", ".join(f"{d['name']} ({d['detail']})" for d in v["devices"]) or v["summary"])
+                 for k, v in systems.items()]
+        return {"systems": systems, "message": "\n".join(lines)}
+    if op == "xiaomi_qr":
+        ok, out = _run_cli(["xiaomi", "cloud-qr"])
+        try:
+            qr = json.loads(out) if ok else {}
+        except ValueError:
+            qr = {}
+        if not ok or not str(qr.get("qr", "")).startswith(QR_PREFIX):
+            return {"error": out.removeprefix("xiaomi: ") if not ok else "unexpected answer from Xiaomi"}
+        return {"image": qr["qr"], "message": "Scan this in the Mi Home app (Profile, then the scan icon at the top)."}
+    if op == "xiaomi_wait":
+        ok, out = _run_cli(["xiaomi", "cloud-wait"], timeout=XIAOMI_WAIT_S)
+        return {"message": out.strip()} if ok else {"error": out.removeprefix("xiaomi: ")}
     field = lambda key: str(frame.get(key) or "").strip()  # noqa: E731
     name, ip, light = field("name"), field("ip"), ["light"] if frame.get("light") else []
     if name and (len(name) > 64 or not name.isprintable()):
