@@ -80,6 +80,11 @@ RUN python3 /tmp/patch-slack-send-fallback.py /opt/hermes/plugins/platforms/slac
 COPY patches/patch-telegram-reply-context.py /tmp/patch-telegram-reply-context.py
 RUN python3 /tmp/patch-telegram-reply-context.py /opt/hermes/plugins/platforms/telegram/adapter.py /opt/hermes/gateway/rich_sent_store.py \
     && rm /tmp/patch-telegram-reply-context.py
+# A failed MCP OAuth refresh logs only its status; also log the provider's redacted error reason
+# (e.g. invalid_grant) so a dead grant can be told from a blocked request. Fails the build on upstream drift.
+COPY patches/patch-mcp-refresh-error-reason.py /tmp/patch-mcp-refresh-error-reason.py
+RUN python3 /tmp/patch-mcp-refresh-error-reason.py /opt/hermes/tools/mcp_oauth_provider.py \
+    && rm /tmp/patch-mcp-refresh-error-reason.py
 COPY config.yaml SOUL.md.template /opt/hermes-defaults/
 COPY skills/ /opt/hermes-defaults/skills/
 COPY scripts/ /opt/hermes-defaults/scripts/
