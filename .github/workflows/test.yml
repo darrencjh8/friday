@@ -208,6 +208,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_mnemosyne_cron_readonly_patch.py
             - name: Test Slack send fallback patch
               run: python -m unittest modules/hermes/tests/test_slack_send_fallback_patch.py
+            - name: Test MCP refresh error reason patch
+              run: python -m unittest modules/hermes/tests/test_mcp_refresh_error_reason_patch.py
             - name: Test memory backup script
               run: bash modules/hermes/tests/test-memory-backup.sh
             - name: Test memory restore script
