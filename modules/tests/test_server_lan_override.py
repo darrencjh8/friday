@@ -127,5 +127,19 @@ class DeployAlwaysRaisesLanServicesTests(unittest.TestCase):
                 self.assertEqual(["hermes"], self.up_targets(compose_file, "hermes"))
 
 
+class BuildDropsOnlyHermesTests(unittest.TestCase):
+    """build.sh removes hermes from the build list as a whole word."""
+
+    def test_hermes_sync_survives(self):
+        script = (MODULES / "build.sh").read_text()
+        line = next(l.strip() for l in script.splitlines() if l.strip().startswith("BUILD_SERVICES=$(printf"))
+        result = subprocess.run(
+            ["bash", "-c", line + '\necho "$BUILD_SERVICES"'],
+            env={"PATH": os.environ["PATH"], "BUILD_SERVICES": "expense-tracker hermes hermes-sync lan-guard "},
+            capture_output=True, text=True, check=True,
+        )
+        self.assertEqual(["expense-tracker", "hermes-sync", "lan-guard"], result.stdout.split())
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -90,7 +90,10 @@ fi
 if [[ " $BUILD_SERVICES " == *" hermes "* ]]; then
   # Refresh the pinned upstream base on Hermes builds; leave other services alone.
   $COMPOSE build --pull hermes
-  BUILD_SERVICES="${BUILD_SERVICES//hermes/}"
+  # Drop the whole word only: a substring replace would turn hermes-sync into
+  # "-sync", which compose reads as a flag.
+  # shellcheck disable=SC2086  # splits the list on purpose
+  BUILD_SERVICES=$(printf '%s\n' $BUILD_SERVICES | grep -vx hermes | tr '\n' ' ' || true)
 fi
 if [[ "$BUILD_SERVICES" =~ [^[:space:]] ]]; then
   $COMPOSE build $BUILD_SERVICES
