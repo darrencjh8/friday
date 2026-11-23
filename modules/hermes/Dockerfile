@@ -93,6 +93,7 @@ COPY profiles/ /opt/hermes-defaults/profiles/
 COPY patches/patch-mnemosyne-cron-readonly.py /opt/hermes-defaults/patches/
 COPY plugins/log-issue-triage/ /opt/hermes/plugins/log-issue-triage/
 COPY plugins/learning-commands/ /opt/hermes/plugins/learning-commands/
+COPY plugins/checkout-gate/ /opt/hermes/plugins/checkout-gate/
 # /replay_<id>_<tx|stmt|pf> for email-intake review requests (#783).
 COPY plugins/intake-commands/ /opt/hermes/plugins/intake-commands/
 # Read-only financial email intake, shadow mode (#783).

@@ -1,0 +1,5 @@
+name: checkout-gate
+version: 1.0.0
+description: "Asks the owner before a browser call places an order or pays; blocks it in cron runs."
+kind: backend
+author: friday
