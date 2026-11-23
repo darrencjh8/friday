@@ -372,13 +372,16 @@ tts:
 # A command provider, not the built-in openai one: Hermes hands an openai
 # base_url to desktop clients to call directly, and they can't resolve a
 # compose service name. Commands always run here, so every client is covered.
+# stt-transcribe (scripts/stt-transcribe.sh) tries Parakeet on the laptop
+# (PARAKEET_URL, default http://host.docker.internal:8765) and falls back to
+# the server's Whisper at whisper:8000.
 stt:
     enabled: true
-    provider: whisper
+    provider: transcribe
     providers:
-        whisper:
+        transcribe:
             type: command
-            command: curl --fail-with-body -sS --data-binary @{input_path} -o {output_path} http://whisper:8000/transcribe
+            command: stt-transcribe {input_path} {output_path}
 
 # Browser Webapp (v0.23): the full Desktop workspace served by the gateway on
 # its own listener — not the retired dashboard/WebUI (#157). host must be

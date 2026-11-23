@@ -190,6 +190,8 @@ jobs:
               run: python -m unittest modules/hermes/tests/test_xiaomi.py
             - name: Test wake-on-LAN CLI
               run: python -m unittest modules/hermes/tests/test_wol.py
+            - name: Test speech-to-text fallback
+              run: python -m unittest modules/hermes/tests/test_stt_transcribe.py
             - name: Test mnemosyne-vacuum script
               run: bash modules/hermes/tests/test-mnemosyne-vacuum.sh
             - name: Test mnemosyne forget pass

@@ -183,7 +183,7 @@ Hermes Agent uses the **LLM Agent Pattern**: each module exposes typed tools ove
 | **portfolio-tracker** | Production server (Docker) | MCP + REST tool server, IMAP ingress (Trades folder), PP XML read/write, OneDrive | ~512 MB (`mem_limit: 512m`) |
 | **actual-api** | Production server (Docker) | Official `@actual-app/api` (Node.js), WebSocket sync | — |
 | **dots-web** | Production server (Docker) | Dots web app and pairing relay on :8789 | ~128 MB (`mem_limit: 128m`) |
-| **whisper** | Production server (Docker) | Speech-to-text for Hermes (no published port) | ~1.5 GB (`mem_limit: 1500m`) |
+| **whisper** | Production server (Docker) | Speech-to-text backup for Hermes: `stt-transcribe` tries Parakeet on the laptop first (`PARAKEET_URL`, default `host.docker.internal:8765`) and falls back here (no published port) | ~1.5 GB (`mem_limit: 1500m`) |
 | **codex-router** | Production server (Docker) | OpenAI-compatible LLM endpoint on :4100 | front ~128 MB (`mem_limit: 128m`); the two colours inherit 1536m from the shared `x-codex-router-color` anchor |
 | **Email Burner** | Any IMAP provider | Public IMAP | Dedicated inbox |
 | **DeepSeek API** | DeepSeek Cloud | Public HTTPS, reached through `codex-router` | Pay-per-token |
