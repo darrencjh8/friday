@@ -1005,6 +1005,16 @@ UP_TARGETS=$(for TARGET in $TARGETS; do
   esac
 done | awk '!seen[$0]++' | tr '\n' ' ')
 
+# With the server LAN override in COMPOSE_FILE, its services go up on every
+# deploy, whatever changed: lan-guard must run whenever module ports are on the
+# LAN, and a module only gains its LAN binding when `up` reconciles it. `up`
+# leaves an unchanged container alone, so this costs nothing on most deploys.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
+  for svc in lan-guard expense-tracker portfolio-tracker actual-api whisper; do
+    [[ " $UP_TARGETS " == *" $svc "* ]] || UP_TARGETS="$UP_TARGETS $svc "
+  done
+fi
+
 # Validate the compose config before stopping or rebuilding anything: a bad
 # config used to take the stack down first and only fail at `up`.
 $COMPOSE config -q >/dev/null
