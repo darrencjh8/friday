@@ -16,7 +16,7 @@ The `wol` CLI wakes the user's PC with a wake-on-LAN magic packet sent straight 
 - Wake it: `wol`. Say it was sent and that the PC takes a little while to come up; a sent packet does not prove the PC woke.
 - See which PC is saved: `wol show`.
 
-`wol` says "no PC saved yet" until the user saves one on the server with `docker exec hermes wol set <pc-ip> <pc-mac>`; point them to that command. Only home network addresses are accepted.
+`wol` says "no PC saved yet" until the user saves one on the machine that runs Hermes with `docker exec hermes wol set <pc-ip> <pc-mac>`; point them to that command. Only home network addresses are accepted.
 
 Wake the PC only when the user asks. There is no way to put it back to sleep or shut it down from here.
 

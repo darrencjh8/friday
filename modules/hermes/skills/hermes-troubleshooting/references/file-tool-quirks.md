@@ -28,18 +28,20 @@ is refused with "command parser limit or malformed executable payload" (hardline
 
 `friday` module tests (e.g. expense-tracker's vitest suite) cannot run on the local host when a native dep like `better-sqlite3` fails to build. The verified pattern:
 
+The container is on the server: `module-docker` (same arguments as `docker`) reaches it from wherever Hermes runs.
+
 1. Copy working-tree files into the container test dir — `/tmp/test-run` can be STALE:
    ```bash
-   docker cp modules/expense-tracker/src modules-expense-tracker-1:/tmp/test-run/src
-   docker cp modules/expense-tracker/tests modules-expense-tracker-1:/tmp/test-run/tests
+   module-docker cp modules/expense-tracker/src modules-expense-tracker-1:/tmp/test-run/src
+   module-docker cp modules/expense-tracker/tests modules-expense-tracker-1:/tmp/test-run/tests
    ```
 2. Verify sync before trusting results — md5sums must match:
    ```bash
    md5sum modules/expense-tracker/src/tools.js
-   docker exec modules-expense-tracker-1 md5sum /tmp/test-run/src/tools.js
+   module-docker exec modules-expense-tracker-1 md5sum /tmp/test-run/src/tools.js
    ```
 3. Run filtered tests:
    ```bash
-   docker exec modules-expense-tracker-1 sh -c 'cd /tmp/test-run && ./node_modules/.bin/vitest run tests/tools.test.js -t mark_email_read'
+   module-docker exec modules-expense-tracker-1 sh -c 'cd /tmp/test-run && ./node_modules/.bin/vitest run tests/tools.test.js -t mark_email_read'
    ```
 4. After a handler change, run the FULL test file plus dependent suites (orchestrator, imap) — filtered runs miss regressions elsewhere. Verified 2026-08: 7/7 filtered, 31/31 full tools.test.js, 142/142 orchestrator+imap suites.

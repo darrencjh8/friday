@@ -38,3 +38,34 @@ services:
         volumes:
             - ./lan-guard/guard.sh:/guard.sh:ro
         command: ["sh", "/guard.sh"]
+
+    # Two-way folder sync with the hermes machine (modules/hermes-sync/sync.sh):
+    # expense-tracker's data/ to the laptop, the laptop's wiki accounts back
+    # here. It runs only when HERMES_TARGET is friday-laptop; any other value
+    # (a deploy with target server, or no target at all) recreates it idle, so
+    # the laptop's copy can never overwrite the server's before cutover.
+    hermes-sync:
+        image: alpine:3.22
+        restart: unless-stopped
+        mem_limit: 128m
+        # NOTIFY_URL names the hermes service, which then runs on the laptop.
+        extra_hosts:
+            - "hermes:${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}"
+        environment:
+            - HERMES_TARGET=${HERMES_TARGET:-server}
+            - LAPTOP_LAN_HOST=${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}
+            - NOTIFY_URL=${NOTIFY_URL:-}
+            - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET:-}
+        volumes:
+            - ./hermes-sync/sync.sh:/sync.sh:ro
+            # deploy.sh writes the SSH key here; known_hosts is kept beside it.
+            - /home/runner/data/hermes-sync:/state
+            # Read-write only so SQLite can take its shared lock for the backup.
+            - /home/runner/data/expense-tracker/data:/home/runner/data/expense-tracker/data
+            - /home/runner/data/hermes/data/home/wiki/entities/accounts:/home/runner/data/hermes/data/home/wiki/entities/accounts
+        command: ["sh", "/sync.sh"]
+        logging:
+            driver: json-file
+            options:
+                max-size: "10m"
+                max-file: "3"

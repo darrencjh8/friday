@@ -83,6 +83,13 @@ class DeployHermesRunnerTests(unittest.TestCase):
         self.assertEqual(step("deploy", "Deploy services")["env"], deploy["env"])
         self.assertEqual("bash ./modules/deploy.sh --component hermes --non-interactive --skip-build", deploy["run"])
 
+    def test_only_the_laptop_job_gets_the_server_ssh_key(self):
+        env = jobs()["deploy-hermes"]["env"]
+        self.assertEqual("${{ secrets.HERMES_SERVER_SSH_KEY }}", env["HERMES_SERVER_SSH_KEY"])
+        self.assertEqual("${{ vars.SERVER_SSH_USER }}", env["SERVER_SSH_USER"])
+        self.assertEqual("${{ vars.SERVER_SSH_HOST_KEY }}", env["SERVER_SSH_HOST_KEY"])
+        self.assertNotIn("HERMES_SERVER_SSH_KEY", WORKFLOW.read_text(encoding="utf-8").split("deploy-hermes:")[0])
+
     def test_server_target_passes_the_detected_list_through(self):
         for detected in ("all", " hermes expense-tracker", " codex-router", "hermes"):
             with self.subTest(detected=detected):

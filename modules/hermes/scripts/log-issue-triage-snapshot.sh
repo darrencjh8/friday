@@ -21,6 +21,13 @@ case "$component" in
     actual-api) services=(actual-api) ;;
 esac
 
+# The modules may run on another machine than hermes (Hermes on the laptop):
+# `module-docker` reaches their Docker, and is plain `docker` when they share
+# this one. The hermes container itself, and its Compose project label, are
+# always on the local Docker.
+dk=module-docker
+[ "$component" = hermes ] && dk=docker
+
 project=$(docker inspect --format '{{index .Config.Labels "com.docker.compose.project"}}' hermes 2>/dev/null || true)
 if [[ ! "$project" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     echo "cannot resolve Compose project for log triage" >&2
@@ -28,7 +35,7 @@ if [[ ! "$project" =~ ^[A-Za-z0-9_.-]+$ ]]; then
 fi
 containers=()
 for service in "${services[@]}"; do
-    if names=$(docker ps -a --filter "label=com.docker.compose.project=$project" \
+    if names=$("$dk" ps -a --filter "label=com.docker.compose.project=$project" \
         --filter "label=com.docker.compose.service=$service" --format '{{.Names}}' 2>/dev/null); then
         while IFS= read -r name; do
             [ -n "$name" ] && containers+=("$name")
@@ -79,7 +86,7 @@ if ((${#containers[@]} == 0)); then
     printf '[collector-error] container=%s exit=1\n' "$component"
 else
 for container in "${containers[@]}"; do
-    if metadata=$(docker inspect --format '{{.Id}}|{{.Config.Image}}|{{index .Config.Labels "org.opencontainers.image.revision"}}' "$container" 2>/dev/null); then
+    if metadata=$("$dk" inspect --format '{{.Id}}|{{.Config.Image}}|{{index .Config.Labels "org.opencontainers.image.revision"}}' "$container" 2>/dev/null); then
         IFS='|' read -r image_id image_ref revision <<< "$metadata"
     else
         image_id=""
@@ -88,7 +95,7 @@ for container in "${containers[@]}"; do
     fi
     printf '[collector-meta] container=%s image_id=%s image_ref=%s revision=%s\n' \
         "$container" "$image_id" "$image_ref" "$revision"
-    if timeout 30 docker logs --since "$since" --timestamps --tail 500 "$container" 2>&1 | sed "s/^/$container\t/"; then
+    if timeout 30 "$dk" logs --since "$since" --timestamps --tail 500 "$container" 2>&1 | sed "s/^/$container\t/"; then
         printf '[collector-ok] container=%s\n' "$container"
     else
         status=$?

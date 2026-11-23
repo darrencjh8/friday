@@ -568,6 +568,35 @@ grep -q 'chmod 0400' <<<"$fcm_block" \
     || nope "Dots FCM secret mode" "0400 missing"
 
 echo ""
+echo "=== deploy.sh: hermes -> server SSH files (laptop only) ==="
+ssh_block=$(sed -n '/^if \[\[ ":${COMPOSE_FILE:-}:" == \*":docker-compose.laptop.yml:"\* \]\]; then$/,/^fi$/p' "$DEPLOY_SCRIPT")
+[ -n "$ssh_block" ] && ok "SSH files are written only with the laptop override" \
+    || nope "SSH block gate" "no block gated on docker-compose.laptop.yml"
+grep -q 'printf .%s\\n. "${HERMES_SERVER_SSH_KEY:-}" | docker run' <<<"$ssh_block" \
+    && ok "server SSH key reaches the root container on stdin" \
+    || nope "server SSH key delivery" "key is not piped on stdin"
+# Run the root container's script against a temp dir (chown stubbed: not root).
+ssh_inner=$(sed -n "/alpine:3 sh -c '\$/,/^  '\$/p" <<<"$ssh_block" | sed '1d;$d')
+ssh_tmp=$(mktemp -d)
+mkdir -p "$ssh_tmp/bin"
+printf '#!/bin/sh\necho "$@" > "%s/chown-args"\n' "$ssh_tmp" > "$ssh_tmp/bin/chown"
+chmod +x "$ssh_tmp/bin/chown"
+printf 'PRIVATE KEY\n' | PATH="$ssh_tmp/bin:$PATH" SERVER_LAN_HOST=198.51.100.10 \
+    SERVER_SSH_HOST_KEY="ssh-ed25519 AAAAtest" sh -c "${ssh_inner//dir=\/secrets/dir=$ssh_tmp}"
+d="$ssh_tmp/server-ssh"
+[ "$(cat "$d/id")" = "PRIVATE KEY" ] && [ "$(stat -c %a "$d/id")" = 400 ] \
+    && grep -q '^10000:10000 ' "$ssh_tmp/chown-args" \
+    && ok "key is 0400 and owned by the gateway uid" || nope "key file" "content, mode or owner wrong"
+[ "$(cat "$d/known_hosts")" = "198.51.100.10 ssh-ed25519 AAAAtest" ] \
+    && ok "server host key is pinned for its address" || nope "known_hosts" "$(cat "$d/known_hosts")"
+grep -qx 'Host 198.51.100.10' "$d/config" && grep -q 'StrictHostKeyChecking yes' "$d/config" \
+    && grep -q 'IdentityFile /run/secrets/server-ssh/id' "$d/config" \
+    && grep -q 'UserKnownHostsFile /run/secrets/server-ssh/known_hosts' "$d/config" \
+    && grep -q 'BatchMode yes' "$d/config" \
+    && ok "ssh config applies the key and pinned host to the server only" || nope "ssh config" "$(cat "$d/config")"
+chmod -R u+w "$ssh_tmp"; rm -rf "$ssh_tmp"
+
+echo ""
 echo "========================================="
 echo -e " Results: ${GREEN}$pass passed${NC}, ${RED}$fail failed${NC}"
 echo "========================================="

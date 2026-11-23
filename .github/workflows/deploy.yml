@@ -322,6 +322,9 @@ jobs:
                   PP_OFFSET_MAP: ${{ vars.PP_OFFSET_MAP }}
                   SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
                   FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
+                  # hermes-sync's SSH key for the laptop; deploy.sh writes it to a
+                  # root-only file on the server and nowhere else.
+                  LAPTOP_SSH_KEY: ${{ secrets.LAPTOP_SSH_KEY }}
                   DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
                   FORCE_ALL: ${{ inputs.force_all || 'false' }}
                   DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
@@ -400,6 +403,12 @@ jobs:
             COMPOSE_FILE: docker-compose.yml:docker-compose.laptop.yml
             SERVER_LAN_HOST: ${{ vars.SERVER_LAN_HOST }}
             LAPTOP_LAN_HOST: ${{ vars.LAPTOP_LAN_HOST }}
+            # Hermes's module-docker reaches the server's Docker over SSH with
+            # this account, key and pinned host key (see deploy.sh). Only this
+            # laptop job receives them; the server deploy never does.
+            SERVER_SSH_USER: ${{ vars.SERVER_SSH_USER }}
+            SERVER_SSH_HOST_KEY: ${{ vars.SERVER_SSH_HOST_KEY }}
+            HERMES_SERVER_SSH_KEY: ${{ secrets.HERMES_SERVER_SSH_KEY }}
         steps:
             - *checkout-friday
             # deploy.sh syncs the codex-router skills into the Hermes container
