@@ -101,7 +101,10 @@ def view_tasks():
         capture_output=True, text=True, check=False,
     )
     if proc.returncode != 0:
-        raise SystemExit(f"gtasks view failed: {proc.stderr.strip()}")
+        message = proc.stderr.strip()
+        if proc.returncode == 3:
+            raise SystemExit(message)
+        raise SystemExit(f"gtasks view failed: {message}")
     try:
         return json.loads(proc.stdout or "[]")
     except json.JSONDecodeError as error:

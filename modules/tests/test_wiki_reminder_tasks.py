@@ -1,10 +1,18 @@
 """Issue #827: daily wiki reminders target Google Tasks list Planned safely."""
 
+import importlib.util
 from pathlib import Path
+from unittest import mock
 import unittest
 
 SEED = Path(__file__).parents[1] / "hermes" / "50-seed-defaults"
 HELPER = Path(__file__).parents[1] / "hermes" / "scripts" / "wiki-reminder-tasks.py"
+
+_spec = importlib.util.spec_from_file_location("wiki_reminder_tasks", HELPER)
+wrt = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(wrt)
+
+CLI_MESSAGE = "Google token expired or revoked. Run `google login` again interactively to reconnect."
 
 
 class WikiReminderTaskTests(unittest.TestCase):
@@ -29,6 +37,22 @@ class WikiReminderTaskTests(unittest.TestCase):
                          "auto-charge-watch", "auto-charge-record", "Handling"):
                 self.assertIn(name, prompt)
         self.assertIn("recurring-payments.md", tick)
+
+    def test_view_tasks_exit_3_reports_plain_message_only(self):
+        # Issue #320: an expired token is the CLI's plain message, not a
+        # "gtasks view failed:" tool error.
+        proc = mock.Mock(returncode=3, stdout="", stderr=CLI_MESSAGE)
+        with mock.patch.object(wrt.subprocess, "run", return_value=proc):
+            with self.assertRaises(SystemExit) as caught:
+                wrt.view_tasks()
+        self.assertEqual(str(caught.exception), CLI_MESSAGE)
+
+    def test_view_tasks_other_failure_keeps_prefix(self):
+        proc = mock.Mock(returncode=1, stdout="", stderr="boom")
+        with mock.patch.object(wrt.subprocess, "run", return_value=proc):
+            with self.assertRaises(SystemExit) as caught:
+                wrt.view_tasks()
+        self.assertTrue(str(caught.exception).startswith("gtasks view failed:"))
 
     def test_status_is_checked_live_not_copied_from_the_wiki(self):
         text = SEED.read_text(encoding="utf-8")

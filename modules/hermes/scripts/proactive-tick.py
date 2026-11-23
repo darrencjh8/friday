@@ -247,8 +247,29 @@ def friday_tasks():
     if result.returncode != 0:
         if "not found" in (result.stdout + result.stderr).lower():
             return []
+        if result.returncode == 3:
+            raise TasksAuthExpired
         raise RuntimeError(f"gtasks failed: {(result.stderr or result.stdout).strip()[:200]}")
     return tuple(t for t in json.loads(result.stdout or "[]") if t.get("status") != "completed")
+
+
+class TasksAuthExpired(Exception):
+    """The gtasks subprocess exited 3: the Google token expired or was revoked."""
+
+
+AUTH_EXPIRED_LINE = "Google Tasks reminders are paused — run `google login` again to reconnect."
+
+
+def _is_google_auth_expired(error):
+    """True when error is the shared-token AuthExpired from gtasks.
+
+    gmail.py and gcal.py both import gtasks at their top level, so the class
+    is already in sys.modules whenever their code can raise it. Read it
+    there instead of importing gtasks: importing it here would execute its
+    top-level code inside the tick.
+    """
+    module = sys.modules.get("gtasks")
+    return module is not None and isinstance(error, module.AuthExpired)
 
 
 def task_line(task):
@@ -385,9 +406,13 @@ def main():
     for source, collect in SOURCES.items():
         try:
             items = collect(today, seen, cursors)
-        except Exception as error:  # a broken source is reported, never hidden
-            key = f"error:{source}"
-            items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
+        except Exception as error:
+            if isinstance(error, TasksAuthExpired) or _is_google_auth_expired(error):
+                key = "google:auth-expired"
+                items = [] if seen.get(key) == today.isoformat() else [(key, AUTH_EXPIRED_LINE)]
+            else:  # a broken source is reported, never hidden
+                key = f"error:{source}"
+                items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
         if items:
             sections.append(f"## {source}\n" + "\n\n".join(text for _, text in items))
             seen.update({key: today.isoformat() for key, _ in items})
@@ -397,6 +422,8 @@ def main():
         return 0
     try:
         open_tasks = friday_tasks()
+    except TasksAuthExpired:
+        open_tasks = []
     except Exception as error:
         open_tasks = []
         sections.append(f"## Friday tasks\nunavailable: {error}")
