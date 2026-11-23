@@ -19,7 +19,7 @@ This replaces the earlier version of this plan, which moved the whole stack.
 - **Hermes runs as the same Linux container**, not a native Windows install. A Windows install would be stock Hermes without Friday's seed, skills, scripts, plugins, cron jobs and CI-injected secrets, and merged PRs would no longer reach it.
 - **No Swarm or k3s.** Hermes already calls the modules by compose service name (`codex-router:4100`, `expense-tracker:8080`, `portfolio-tracker:8081`, `whisper:8000`). On the laptop, `extra_hosts` maps those names to the server's LAN address, so no Hermes config or code changes. An overlay network would need Docker Engine instead of Docker Desktop and a deploy rewrite.
 - **Docker Desktop with WSL integration** runs the laptop's container.
-- **Deploy target per service.** The deploy job's runner comes from `vars.DEPLOY_RUNNER_LABEL` (default `self-hosted`, the server). A second job deploys `hermes` to the runner named by `vars.HERMES_RUNNER_LABEL` when it is set; when it is unset, `hermes` deploys to the server exactly as today.
+- **Deploy target per service.** The deploy job's runner comes from `vars.DEPLOY_RUNNER_LABEL` (default `self-hosted`, the server). A second job deploys `hermes` to the `friday-laptop` runner when the target is `friday-laptop`: the `hermes_target` dropdown on a manual run (default `friday-laptop`), or on a push to main a default written in `deploy.yml` (`server` until cutover). With `server`, `hermes` deploys to the server exactly as today.
 
 ## Current state (server, 2026-11-23)
 
@@ -47,7 +47,7 @@ Server:
 
 ## Changes in this repository
 
-1. `deploy.yml`: `deploy` job `runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}` and excludes `hermes` from its component list when `vars.HERMES_RUNNER_LABEL` is set. New `deploy-hermes` job on `runs-on: ${{ vars.HERMES_RUNNER_LABEL }}`, `if: vars.HERMES_RUNNER_LABEL != ''`, running `deploy.sh --component hermes` with the same secrets and variables. With the variable unset, behaviour is unchanged.
+1. `deploy.yml`: `deploy` job `runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}` and excludes `hermes` from its component list when the hermes target is `friday-laptop`. New `deploy-hermes` job on `runs-on: friday-laptop`, gated on that target, running `deploy.sh --component hermes` with the same secrets and variables. With the target `server`, behaviour is unchanged.
 2. `modules/docker-compose.laptop.yml` (override, used only by `deploy-hermes`): `extra_hosts` from `vars.SERVER_LAN_HOST`, Hermes ports also bound to `vars.LAPTOP_LAN_HOST`.
 3. `modules/docker-compose.yml` (server): `expense-tracker`, `portfolio-tracker`, `whisper` also published on `${SERVER_LAN_HOST}` when set; unset keeps today's bindings.
 4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a systemd timer on the server, every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. Installed by the deploy, logged, and alerting through the existing notify webhook after 10 failed minutes.
@@ -67,7 +67,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 1. Pause merges.
 2. `migrate-hermes.yml` with `dry_run=false`: stops server `hermes`, archives, copies, verifies.
 3. Extract on the laptop into `/home/runner/data/hermes`.
-4. Set `HERMES_RUNNER_LABEL=friday-laptop`; run `deploy.yml` with `force_all=true`. The server job skips `hermes`; `deploy-hermes` starts it on the laptop.
+4. Merge the cutover PR that changes the push default in `deploy.yml` to `friday-laptop`, then run `deploy.yml` with `force_all=true` and `hermes_target=friday-laptop`. The server job skips `hermes`; `deploy-hermes` starts it on the laptop.
 5. Enable the sync timer; re-point the `tailscale serve` Hermes entries on the server to the laptop.
 6. Verify, then resume merges.
 
@@ -83,7 +83,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 ## Rollback
 
 1. `migrate-hermes.yml` in reverse (laptop → server) with Hermes stopped on the laptop.
-2. Unset `HERMES_RUNNER_LABEL`; run `deploy.yml` with `force_all=true`; `hermes` returns to the server.
+2. Run `deploy.yml` with `force_all=true` and `hermes_target=server`, and revert the push default to `server`; `hermes` returns to the server.
 3. Re-point the `tailscale serve` entries to `127.0.0.1`; disable the sync timer.
 
 Skipping step 1 loses everything Friday did on the laptop since cutover.

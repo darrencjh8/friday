@@ -14,6 +14,13 @@ on:
         description: "Deployment environment"
         type: environment
         default: "darren-prod"
+      hermes_target:
+        description: "Where hermes runs: friday-laptop (the laptop runner) or server"
+        type: choice
+        default: friday-laptop
+        options:
+          - friday-laptop
+          - server
 
 concurrency:
   group: production-deploy
@@ -50,7 +57,7 @@ jobs:
       - name: Deploy services
         env:
           GITHUB_ACTIONS: true
-          HERMES_RUNNER_LABEL: ${{ vars.HERMES_RUNNER_LABEL }}
+          HERMES_TARGET: ${{ inputs.hermes_target }}
           HERMES_WORKSPACE: /home/darren/workspace/hermes
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

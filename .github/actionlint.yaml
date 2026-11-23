@@ -1,0 +1,4 @@
+self-hosted-runner:
+    # The laptop runner that deploy-hermes targets.
+    labels:
+        - friday-laptop
