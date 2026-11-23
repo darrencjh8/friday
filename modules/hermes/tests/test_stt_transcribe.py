@@ -127,7 +127,7 @@ class TestSttTranscribe(unittest.TestCase):
         result, calls = self.run_stt("ok-parakeet", "ok-whisper", FFMPEG_MODE="fail")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("hello from whisper", self.transcript())
-        self.assertFalse(any(call.startswith("http://parakeet.test") for call in calls))
+        self.assertEqual([f"http://whisper:8000/transcribe {self.input}"], [c for c in calls if "/transcribe" in c])
 
     def test_empty_parakeet_transcript_is_kept(self):
         # Parakeet's voice check found no speech; Whisper would only say the same, slower.
