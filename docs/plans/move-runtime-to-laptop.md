@@ -1,6 +1,7 @@
 QUESTIONS
 q: How does the email-intake plugin keep deduplicating against `dedup.db` once Hermes no longer shares a disk with expense-tracker? | assumption: a one-way sync copies expense-tracker's `data/` (including `dedup.db` and `wiki-proposals.jsonl`) from the server to the laptop every minute, read-only on the laptop as today. The build confirms that expense-tracker also rejects a duplicate booking on its own side, so a snapshot up to a minute old cannot double-book; if it does not, the plugin reads booked UIDs from an expense-tracker endpoint instead.
 q: How do the module ports get reached from the laptop without opening them to the whole LAN? | assumption: the server binds `expense-tracker` (8080), `portfolio-tracker` (8081) and `whisper` (8000) to its LAN address in addition to `127.0.0.1`, and a `DOCKER-USER` iptables rule accepts those ports, plus `codex-router` (4100), only from the laptop's reserved address. Laptop address and server address come from repository variables, never literals in the repo.
+q: How does the Hermes container reach Parakeet, which runs as a systemd service in the WSL distro on 127.0.0.1:8765? | assumption: through `host.docker.internal:8765`, which Docker Desktop routes to the Windows host and mirrored networking shares with the distro. The build checks this from inside the container first; if it does not answer, Parakeet's port is also bound to the laptop's LAN address and Hermes uses that.
 q: Do clients (phone, Dots, desktop bar) need new URLs? | assumption: no. The server keeps the `darren` tailnet name and its `tailscale serve` entries; the entries that point at Hermes ports (8642, 8788, 9120, 8300) are re-pointed from `127.0.0.1` to the laptop's LAN address.
 
 # Move Hermes to the laptop; keep the modules on the server
@@ -36,6 +37,7 @@ Laptop (`Debian` WSL2 distro, 16 GB, mirrored networking, automount and interop 
 - Hermes ports bound to the laptop's LAN address (plus `127.0.0.1`), allowed through the Hyper-V firewall from the server only.
 - Runner `friday-laptop` (label `friday-laptop` only), already registered.
 - Synced copies: `/home/runner/data/expense-tracker/data` (server → laptop, read-only use).
+- Speech-to-text: Parakeet (NVIDIA Parakeet TDT 0.6B v2, ONNX on CPU, the same server as the Friday desktop app) as a systemd service, already installed and verified on a test clip.
 
 Server:
 - All modules as today. `expense-tracker`, `portfolio-tracker`, `whisper` also published on the server's LAN address; `codex-router` already is.
@@ -50,13 +52,14 @@ Server:
 3. `modules/docker-compose.yml` (server): `expense-tracker`, `portfolio-tracker`, `whisper` also published on `${SERVER_LAN_HOST}` when set; unset keeps today's bindings.
 4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a systemd timer on the server, every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. Installed by the deploy, logged, and alerting through the existing notify webhook after 10 failed minutes.
 5. Remote Docker for module containers: Hermes's scripts that target `modules-*` containers use `DOCKER_HOST=ssh://<user>@<server>` with a dedicated key; commands that target the `hermes` container itself stay local. Each script is updated and tested individually.
-6. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, `dry_run` input defaulting to `true`): archive `/home/runner/data/hermes` (via a root `alpine` container, since `data/` is container-owned), copy to the laptop with `rsync -e "ssh -p 2222"` using a deploy key in the `darren-prod` environment, verify checksums. With `dry_run=false` it stops only the server's `hermes` container first. It never deletes anything.
+6. `modules/hermes/config.yaml` `stt` command: convert the voice note to 16 kHz mono WAV with `ffmpeg`, send it to Parakeet's `/transcribe` with a 2 s connect timeout, and fall back to `whisper:8000/transcribe` on the server if Parakeet does not answer or errors. Tested with Parakeet up and with it stopped.
+7. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, `dry_run` input defaulting to `true`): archive `/home/runner/data/hermes` (via a root `alpine` container, since `data/` is container-owned), copy to the laptop with `rsync -e "ssh -p 2222"` using a deploy key in the `darren-prod` environment, verify checksums. With `dry_run=false` it stops only the server's `hermes` container first. It never deletes anything.
 
 ## Cutover runbook
 
 Preparation (no downtime):
 1. Router reservation for the laptop (done by Darren); Docker Desktop starts at sign-in; Windows auto-login with lock; critical battery action Hibernate.
-2. Merge changes 1 to 6 with the new variables unset: production is unchanged.
+2. Merge changes 1 to 7 with the new variables unset: production is unchanged.
 3. Set `SERVER_LAN_HOST`, `LAPTOP_LAN_HOST`; deploy the server so the module ports and firewall rule are in place. From the laptop, `curl` each module health endpoint; from any other LAN device, confirm they are refused.
 4. Dry run `migrate-hermes.yml` to time the copy.
 
@@ -72,7 +75,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 
 - `deploy-hermes` health checks pass on the laptop (gateway `s6-svstat`); the server deploy's checks pass for the modules.
 - From inside the laptop's `hermes` container: `codex-router:4100/health/liveliness`, `expense-tracker:8080`, `portfolio-tracker:8081`, `whisper:8000/health` all answer.
-- Telegram reply, voice note transcribed, Dots and the desktop bar connect at unchanged URLs, the next proactive tick fires.
+- Telegram reply; a voice note is transcribed by Parakeet (Parakeet log line) and, with Parakeet stopped, by the server's Whisper; Dots and the desktop bar connect at unchanged URLs, the next proactive tick fires.
 - Email intake in shadow mode books nothing twice against a test message already in `dedup.db`.
 - `expense-tracker` and `portfolio-tracker` read a mapping change made in the laptop's wiki within two minutes.
 - Only one `hermes` container is running across both machines (no Telegram `409 Conflict`).
@@ -91,7 +94,7 @@ Skipping step 1 loses everything Friday did on the laptop since cutover.
 - **Every model call crosses Wi-Fi** to `codex-router` on the server and back. That is a few milliseconds against multi-second model calls.
 - **Docker socket reach.** Under Docker Desktop, Hermes's `docker.sock` can start containers that mount the Windows C: drive. Accepted for now.
 - **Availability.** Laptop sleep, Windows updates and travel take Hermes offline; modules on the server keep running but are only reachable through Hermes.
-- **Parakeet** is already serving on the laptop (`127.0.0.1:8765`); wiring Hermes's `stt` to it is a separate follow-up.
+- **Whisper stays on the server as the speech-to-text backup only.** Parakeet is on the same machine as Hermes, so the backup is used only if the Parakeet process fails. Idle, Whisper unloads its model (24 MB measured).
 
 ## Open decisions
 
