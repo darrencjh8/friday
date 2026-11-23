@@ -56,6 +56,8 @@ There is no `gateway/` directory in the repository (`git ls-files gateway` retur
 6. **Deploy:** `bash ./modules/deploy.sh --component all --non-interactive --skip-build`, or one `--component <c>` per detected component. `GITHUB_ACTIONS=true` makes `deploy.sh` read secrets from the environment instead of `.env` files.
 7. **Record:** the deployed codex-router revision is written to `codex-router-sha.txt` and uploaded as a workflow artifact.
 
+The `deploy` job runs on the runner labelled by the repository variable `DEPLOY_RUNNER_LABEL` (default `self-hosted`, the server). When the variable `HERMES_RUNNER_LABEL` is set, step 3 is followed by a split: the `deploy` job drops `hermes` from its list (`all` becomes every other compose service), and a second job, `deploy-hermes`, runs on that runner, repeats the checkout and detection, and when hermes is among the detected components builds it and runs `bash ./modules/deploy.sh --component hermes --non-interactive --skip-build` with the same secrets and variables. With `HERMES_RUNNER_LABEL` unset, `deploy-hermes` is skipped and hermes deploys on the server as before. See `docs/plans/move-runtime-to-laptop.md`.
+
 `--skip-build` is essential in CI: without it, `deploy.sh` runs its own `git pull` and image build, bypassing the pipeline's change detection and health gate.
 
 ### Rolling codex-router update
