@@ -116,6 +116,26 @@ whole alert line. The wiki is the authority, so `learn_fact` queues a proposal
 (`proposal_queued`) for the user to approve in the wiki digest rather than taking
 effect at once; say so. No yes → change nothing beyond the transaction.
 
+### Held transfers and destination corrections
+
+A held transfer the owner confirms in chat, or a transfer destination the
+owner corrects, is the same shape as a booked-merchant correction — except
+there is no booked row and no merchant descriptor, so the mapping is recorded
+in the same turn as the booking, with no second "remember this?" question.
+The owner's statement IS the confirmation.
+
+- Payee/category: `<NAME> maps to <Payee> payee` plus
+  `<Payee> maps to <Category> category`, via `learn_fact`. For an incoming
+  credit from a person, the amount rule instead:
+  `Incoming <CUR> <amount> from <NAME> maps to <Payee> payee` — never the
+  name alone. Say what was saved.
+- Destination: `Card/Account ending <suffix> belongs to <account>` when the
+  alert named a masked suffix; `<bank> alert recipient maps to <account>
+  account` when it named a recipient bank.
+- Never `learn_fact` a Jev pick, never on silence, never `Misc`. A correction
+  that names neither a masked suffix nor a recipient bank stays one-row-only:
+  do not invent a fact shape for it.
+
 ### Must not
 
 - Guess an account for a user, or store a fact the user did not confirm.

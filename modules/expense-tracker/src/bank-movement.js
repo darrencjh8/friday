@@ -1,5 +1,6 @@
 import {
   accountAliases,
+  canonicalSuffixFact,
   matchAccountByName,
   parseSuffixFact,
   resolveFactAccount,
@@ -855,4 +856,33 @@ export function resolveMovementAccounts(movement, accounts, payees, mappings = {
     destination_payee: transferPayee,
     internal: !!(source && destination && source.id !== destination.id && transferPayee),
   };
+}
+
+/**
+ * The stored mapping fact that resolved the DESTINATION leg of this movement,
+ * or null. Destination leg only: the source leg may have used a mapping too,
+ * and naming it would misattribute it as the destination mapping (#319).
+ * Mirrors the destination leg of `resolveMovementAccounts` branch for branch,
+ * so it fires exactly when that chain used a stored suffix or recipient
+ * mapping — a direct suffix/bank resolution in between means the mapping did
+ * not do the resolving, and neither does a conflicting mapping (the chain
+ * skips it). The text is the mapping's canonical form, regenerated from the
+ * Maps.
+ */
+export function destinationMappingFact(movement, accounts, mappings = { suffix: new Map(), recipient: new Map() }) {
+  const evidence = movement.direction === "outgoing" ? movement.counterparty : movement.own_account;
+  if (!hasConflictingMapping(evidence, mappings)) {
+    const mapped = resolveMappedAccount(evidence, mappings);
+    if (mapped) {
+      return canonicalSuffixFact({ suffix: evidence.suffix, accountName: mapped.name });
+    }
+  }
+  if (movement.direction === "outgoing") return null;
+  if (resolveAccount(evidence, accounts)) return null;
+  if (resolveAccountByBank(evidence, accounts)) return null;
+  if (movement.recipient_bank) {
+    const account = mappings.recipient.get(movement.recipient_bank);
+    if (account) return `${movement.recipient_bank} alert recipient maps to ${account.name} account`;
+  }
+  return null;
 }
