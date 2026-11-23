@@ -248,6 +248,8 @@ jobs:
               run: python -m unittest discover -s modules/hermes/tests -p 'test_log_issue_triage_*.py' -v
             - name: Test Hermes learning commands plugin
               run: python -m unittest modules/hermes/tests/test_learning_commands_plugin.py -v
+            - name: Test Hermes checkout gate plugin
+              run: python -m unittest modules/hermes/tests/test_checkout_gate_plugin.py -v
             - name: Test Hermes email-intake core (#783)
               run: python -m unittest modules/hermes/tests/test_email_intake.py -v
             - name: Test Hermes email-intake parity replay (#796)

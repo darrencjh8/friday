@@ -62,5 +62,5 @@ These are operationally load-bearing where they are, so they are not moved here.
 | [../modules/hermes/SLACK.md](../modules/hermes/SLACK.md) | Slack app setup, Socket Mode, and tokens/scopes. |
 | [../modules/portfolio-tracker/README.md](../modules/portfolio-tracker/README.md) | Portfolio tracker detail and local run instructions. |
 | [../modules/expense-tracker/docs/design.md](../modules/expense-tracker/docs/design.md) | Expense tracker design. |
-| [../modules/hermes/skills/](../modules/hermes/skills/) | Skill packs: `expense-tracker`, `experience-wiki`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `home`, `hermes-troubleshooting`, `image-gen`, `pdf-reading`, `skill-merge-approval`, `spec-auditor`, `wol`. |
+| [../modules/hermes/skills/](../modules/hermes/skills/) | Skill packs: `expense-tracker`, `experience-wiki`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `home`, `hermes-troubleshooting`, `image-gen`, `pdf-reading`, `shopping`, `skill-merge-approval`, `spec-auditor`, `wol`. |
 | [../.agents/skills/full-deploy/SKILL.md](../.agents/skills/full-deploy/SKILL.md) | Full-deploy operator runbook. |
