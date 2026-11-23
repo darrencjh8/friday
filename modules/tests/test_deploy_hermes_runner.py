@@ -1,0 +1,85 @@
+"""deploy.yml can deploy hermes to its own runner (docs/plans/move-runtime-to-laptop.md).
+
+With HERMES_RUNNER_LABEL unset the workflow must behave exactly as before: the
+server job keeps hermes and the deploy-hermes job is skipped.
+"""
+from pathlib import Path
+import os
+import stat
+import subprocess
+import tempfile
+import unittest
+
+import yaml
+
+
+ROOT = Path(__file__).parents[2]
+WORKFLOW = ROOT / ".github/workflows/deploy.yml"
+
+
+def jobs():
+    return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+
+
+def step(job, name):
+    for s in jobs()[job]["steps"]:
+        if s.get("name") == name:
+            return s
+    raise AssertionError(f"{job} has no step {name!r}")
+
+
+def split(detected, runner_label="", compose_services=("hermes", "expense-tracker", "codex-router")):
+    """Run the split step's script and return its outputs as a dict."""
+    script = step("deploy", "Split hermes off to its own runner")["run"]
+    with tempfile.TemporaryDirectory() as td:
+        bin_dir = Path(td) / "bin"
+        bin_dir.mkdir()
+        stub = bin_dir / "docker-compose"
+        stub.write_text("#!/bin/sh\nprintf '%s\\n' " + " ".join(compose_services) + "\n")
+        stub.chmod(stub.stat().st_mode | stat.S_IEXEC)
+        out = Path(td) / "out"
+        env = dict(os.environ, GITHUB_OUTPUT=str(out), DETECTED=detected,
+                   HERMES_RUNNER_LABEL=runner_label,
+                   PATH=f"{bin_dir}{os.pathsep}{os.environ['PATH']}")
+        # GitHub's default bash shell flags.
+        subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                       env=env, check=True, cwd=td)
+        return dict(line.split("=", 1) for line in out.read_text().splitlines())
+
+
+class DeployHermesRunnerTests(unittest.TestCase):
+    def test_deploy_job_defaults_to_the_self_hosted_runner(self):
+        self.assertEqual("${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}", jobs()["deploy"]["runs-on"])
+
+    def test_deploy_hermes_is_gated_on_its_runner_variable(self):
+        job = jobs()["deploy-hermes"]
+        self.assertIn("vars.HERMES_RUNNER_LABEL != ''", job["if"])
+        self.assertEqual("${{ vars.HERMES_RUNNER_LABEL }}", job["runs-on"])
+        self.assertEqual(jobs()["deploy"]["environment"], job["environment"])
+        deploy = step("deploy-hermes", "Deploy hermes")
+        self.assertEqual("steps.changes.outputs.hermes == 'true'", deploy["if"])
+        self.assertEqual(step("deploy", "Deploy services")["env"], deploy["env"])
+        self.assertEqual("bash ./modules/deploy.sh --component hermes --non-interactive --skip-build", deploy["run"])
+
+    def test_unset_variable_passes_the_detected_list_through(self):
+        for detected in ("all", " hermes expense-tracker", " codex-router", "hermes"):
+            with self.subTest(detected=detected):
+                self.assertEqual(detected, split(detected)["components"])
+
+    def test_set_variable_drops_hermes_from_the_server_list(self):
+        self.assertEqual("expense-tracker", split(" hermes expense-tracker", "friday-laptop")["components"])
+        self.assertEqual("", split("hermes", "friday-laptop")["components"])
+        self.assertEqual("expense-tracker codex-router", split("all", "friday-laptop")["components"])
+
+    def test_reports_whether_hermes_deploys(self):
+        self.assertEqual("true", split("all", "friday-laptop")["hermes"])
+        self.assertEqual("true", split(" hermes expense-tracker")["hermes"])
+        self.assertEqual("false", split(" codex-router", "friday-laptop")["hermes"])
+
+    def test_server_skips_build_and_deploy_when_nothing_is_left(self):
+        for name in ("Build images", "Deploy services"):
+            self.assertEqual("steps.changes.outputs.components != ''", step("deploy", name)["if"])
+
+
+if __name__ == "__main__":
+    unittest.main()

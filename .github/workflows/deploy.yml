@@ -55,21 +55,24 @@ jobs:
     deploy:
         if: always() && needs.test.result != 'failure'
         needs: test
-        runs-on: self-hosted
+        # The server's runner unless a repository variable names another one.
+        runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}
         permissions:
             contents: read
             actions: write
         environment:
             name: ${{ github.event.inputs.environment || 'darren-prod' }}
         steps:
-            - uses: actions/checkout@v4
+            - &checkout-friday
+              uses: actions/checkout@v4
               with:
                   ref: ${{ github.event.inputs.ref || '' }}
                   fetch-depth: 0
                   clean: false
                   token: ${{ secrets.SUBMODULE_PAT }}
 
-            - uses: actions/checkout@v4
+            - &checkout-codex-router
+              uses: actions/checkout@v4
               with:
                   repository: darrencjh8/codex-router
                   ref: main
@@ -78,19 +81,22 @@ jobs:
 
             # dots-web is built from hermes-dots web/ at a pinned commit, so every
             # update to the tailnet app is a reviewed bump of modules/hermes-dots.sha.
-            - name: Read the pinned hermes-dots commit
+            - &read-hermes-dots-pin
+              name: Read the pinned hermes-dots commit
               id: hermes_dots
               run: echo "sha=$(tr -d '[:space:]' < modules/hermes-dots.sha)" >> "$GITHUB_OUTPUT"
 
-            - uses: actions/checkout@v4
+            - &checkout-hermes-dots
+              uses: actions/checkout@v4
               with:
                   repository: darrencjh8/hermes-dots
                   ref: ${{ steps.hermes_dots.outputs.sha }}
                   token: ${{ secrets.SUBMODULE_PAT }}
                   path: modules/hermes-dots
 
-            - name: Detect changed modules
-              id: changes
+            - &detect-changes
+              name: Detect changed modules
+              id: detect
               env:
                   FORCE_ALL: ${{ inputs.force_all || 'false' }}
                   DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}
@@ -152,6 +158,33 @@ jobs:
                   fi
                   echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
 
+            # Hermes can run on its own runner (the deploy-hermes job below).
+            # When HERMES_RUNNER_LABEL is set, this job drops hermes from its
+            # list and `all` becomes every other compose service. Unset, the
+            # detected list passes through unchanged. `hermes` reports whether
+            # the detected list deploys hermes at all, for deploy-hermes.
+            - &split-hermes
+              name: Split hermes off to its own runner
+              id: changes
+              env:
+                  DETECTED: ${{ steps.detect.outputs.components || 'all' }}
+                  HERMES_RUNNER_LABEL: ${{ vars.HERMES_RUNNER_LABEL }}
+              run: |
+                  case " $DETECTED " in
+                      *" all "*|*" hermes "*) echo "hermes=true" >> "$GITHUB_OUTPUT" ;;
+                      *) echo "hermes=false" >> "$GITHUB_OUTPUT" ;;
+                  esac
+                  if [ -z "${HERMES_RUNNER_LABEL:-}" ]; then
+                      echo "components=$DETECTED" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
+                  case " $DETECTED " in
+                      *" all "*) LIST=$(docker-compose --project-name modules -f modules/docker-compose.yml config --services) ;;
+                      *) LIST=$DETECTED ;;
+                  esac
+                  LIST=$(printf '%s\n' "$LIST" | tr ' ' '\n' | grep -vx hermes | xargs || true)
+                  echo "components=$LIST" >> "$GITHUB_OUTPUT"
+
             # dots-web builds Friday's clips (android) and icons (dots-web) from the
             # friday-persona release pinned in hermes-dots' persona-media.version.
             - name: Fetch persona media
@@ -161,10 +194,12 @@ jobs:
                   bash ./scripts/fetch-persona-media.sh dots-web modules/hermes-dots/web
                   bash ./scripts/fetch-persona-media.sh android modules/hermes-dots
 
+            # Empty only when hermes was the whole list and deploys elsewhere.
             - name: Build images
+              if: steps.changes.outputs.components != ''
               env:
                   DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
-              run: |
+              run: &build-run |
                   mkdir -p /home/runner/data/{expense-tracker/data,expense-tracker/state,portfolio-tracker/data,hermes/{data,workspace},codex-router}
                   if [ "${DEPLOY_COMPONENTS}" = "all" ]; then
                       bash ./modules/build.sh
@@ -175,7 +210,8 @@ jobs:
                   fi
 
             - name: Deploy services
-              env:
+              if: steps.changes.outputs.components != ''
+              env: &deploy-env
                   GITHUB_ACTIONS: true
                   HERMES_WORKSPACE: /home/darren/workspace/hermes
                   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
@@ -284,12 +320,12 @@ jobs:
               if: >-
                   always() &&
                   (steps.changes.outputs.components == 'all' || contains(format(' {0} ', steps.changes.outputs.components), ' hermes '))
-              env:
+              env: &tooling-env
                   # Authenticates the release lookup below; unauthenticated
                   # api.github.com calls are limited to 60 per hour per IP and a
                   # rate limit here would fail the deploy.
                   GH_TOKEN: ${{ secrets.FRIDAY_PAT }}
-              run: |
+              run: &tooling-run |
                   # gh and ntn are installed into the container's persisted
                   # /opt/data volume, which is already on the image PATH, rather
                   # than baked into an image layer. Rebuilding the image or
@@ -327,3 +363,42 @@ jobs:
                   name: codex-router-sha
                   path: /tmp/router-sha/codex-router-sha.txt
                   if-no-files-found: error
+
+    # Deploys hermes alone to the runner named by HERMES_RUNNER_LABEL; the
+    # deploy job above then leaves hermes out. Skipped while the variable is
+    # unset, so hermes deploys with everything else on the server as before.
+    # The steps are the deploy job's own, reused through YAML anchors.
+    deploy-hermes:
+        if: always() && needs.test.result != 'failure' && vars.HERMES_RUNNER_LABEL != ''
+        needs: test
+        runs-on: ${{ vars.HERMES_RUNNER_LABEL }}
+        permissions:
+            contents: read
+        environment:
+            name: ${{ github.event.inputs.environment || 'darren-prod' }}
+        steps:
+            - *checkout-friday
+            # deploy.sh syncs the codex-router skills into the Hermes container
+            # and refreshes its checkout there; the compose file it validates
+            # names the hermes-dots build context.
+            - *checkout-codex-router
+            - *read-hermes-dots-pin
+            - *checkout-hermes-dots
+            - *detect-changes
+            - *split-hermes
+
+            - name: Build hermes image
+              if: steps.changes.outputs.hermes == 'true'
+              env:
+                  DEPLOY_COMPONENTS: hermes
+              run: *build-run
+
+            - name: Deploy hermes
+              if: steps.changes.outputs.hermes == 'true'
+              env: *deploy-env
+              run: bash ./modules/deploy.sh --component hermes --non-interactive --skip-build
+
+            - name: Ensure Hermes container tooling
+              if: always() && steps.changes.outputs.hermes == 'true'
+              env: *tooling-env
+              run: *tooling-run
