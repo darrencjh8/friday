@@ -96,7 +96,10 @@ class DeploymentTests(unittest.TestCase):
         stt = self.config["stt"]
         provider = stt["providers"][stt["provider"]]
         self.assertEqual("command", provider["type"])
-        self.assertIn("http://whisper:8000/transcribe", provider["command"])
+        self.assertEqual("stt-transcribe {input_path} {output_path}", provider["command"])
+        # The command tries Parakeet, then falls back to this service.
+        script = (MODULES / "hermes" / "scripts" / "stt-transcribe.sh").read_text(encoding="utf-8")
+        self.assertIn("http://whisper:8000/transcribe", script)
 
 
 if __name__ == "__main__":
