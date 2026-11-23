@@ -1,0 +1,113 @@
+#!/bin/sh
+# Two-way folder sync between the server and the hermes machine (the laptop),
+# run on the server every minute while hermes lives on the laptop:
+#   server -> laptop  expense-tracker's data/ (dedup.db, wiki-proposals.jsonl,
+#                     ...), which the laptop's hermes mounts read-only;
+#   laptop -> server  hermes's wiki/entities/accounts, which expense-tracker and
+#                     portfolio-tracker mount read-only at /wiki/accounts.
+#
+# It does nothing unless HERMES_TARGET is friday-laptop. Before cutover the
+# laptop's accounts copy is empty or stale and must never reach the server, and
+# a deploy back to the server recreates this container idle.
+#
+# After ALERT_AFTER failed runs in a row it posts once to the Hermes notify
+# webhook, and once more when a run succeeds again.
+set -u
+
+: "${LAPTOP_LAN_HOST:?}"
+HERMES_TARGET="${HERMES_TARGET:-server}"
+LAPTOP_SSH_USER="${LAPTOP_SSH_USER:-darren}"
+LAPTOP_SSH_PORT="${LAPTOP_SSH_PORT:-2222}"
+STATE_DIR="${STATE_DIR:-/state}"
+SNAPSHOT_DIR="${SNAPSHOT_DIR:-/tmp/hermes-sync-snapshot}"
+ET_DATA_DIR="${ET_DATA_DIR:-/home/runner/data/expense-tracker/data}"
+ACCOUNTS_DIR="${ACCOUNTS_DIR:-/home/runner/data/hermes/data/home/wiki/entities/accounts}"
+INTERVAL="${HERMES_SYNC_INTERVAL:-60}"
+ALERT_AFTER="${HERMES_SYNC_ALERT_AFTER:-10}"
+# 0 runs forever; the tests set a count.
+RUNS="${HERMES_SYNC_RUNS:-0}"
+
+log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) hermes-sync: $*"; }
+
+if [ "$HERMES_TARGET" != friday-laptop ]; then
+  log "idle: HERMES_TARGET is $HERMES_TARGET, not friday-laptop"
+  [ "$RUNS" -gt 0 ] && exit 0
+  exec sleep infinity
+fi
+
+for tool in rsync ssh sqlite3 curl openssl; do
+  if ! command -v "$tool" >/dev/null; then
+    # ponytail: installs the tools at every start (needs the Alpine mirror), as
+    # lan-guard does; bake an image if the server must boot without internet.
+    apk add --no-cache rsync openssh-client sqlite curl openssl >/dev/null
+    break
+  fi
+done
+
+SSH="ssh -p $LAPTOP_SSH_PORT -i $STATE_DIR/laptop_ssh_key -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$STATE_DIR/known_hosts"
+REMOTE="$LAPTOP_SSH_USER@$LAPTOP_LAN_HOST"
+
+sync_once() {
+  # A live SQLite file copied byte by byte can tear mid-write, so each database
+  # goes through SQLite's backup API into a snapshot first. The snapshot is put
+  # in rollback-journal mode so hermes can open it from a read-only mount
+  # without the -wal and -shm files.
+  rm -rf "$SNAPSHOT_DIR" && mkdir -p "$SNAPSHOT_DIR" || return 1
+  for db in "$ET_DATA_DIR"/*.db; do
+    [ -f "$db" ] || continue
+    snap="$SNAPSHOT_DIR/$(basename "$db")"
+    sqlite3 "$db" ".backup '$snap'" || return 1
+    sqlite3 "$snap" "PRAGMA journal_mode=DELETE" >/dev/null || return 1
+  done
+
+  # Server -> laptop. --delete stays inside the laptop's copy of this one
+  # directory, which nothing on the laptop writes, so it mirrors the server.
+  # Excluded files (the snapshots) are never deleted by it.
+  rsync -a --delete --mkpath --chmod=a+rX \
+    --exclude='*.db' --exclude='*.db-wal' --exclude='*.db-shm' --exclude='*.db-journal' \
+    -e "$SSH" "$ET_DATA_DIR/" "$REMOTE:$ET_DATA_DIR/" || return 1
+  rsync -a --mkpath --chmod=a+rX -e "$SSH" "$SNAPSHOT_DIR/" "$REMOTE:$ET_DATA_DIR/" || return 1
+
+  # Laptop -> server. Never --delete: an empty or half-copied laptop directory
+  # must not be able to remove the server's mappings. --update also skips any
+  # file that is newer on the server. A mapping deleted on the laptop therefore
+  # stays on the server until it is removed there by hand.
+  rsync -a --update -e "$SSH" "$REMOTE:$ACCOUNTS_DIR/" "$ACCOUNTS_DIR/" || return 1
+}
+
+notify() {
+  if [ -z "${NOTIFY_URL:-}" ]; then
+    log "NOTIFY_URL unset, not alerting: $1"
+    return 0
+  fi
+  # The messages are fixed strings without quotes, so no JSON escaping needed.
+  body="{\"message\":\"$1\"}"
+  set --
+  if [ -n "${HERMES_WEBHOOK_SECRET:-}" ]; then
+    sig=$(printf '%s' "$body" | openssl dgst -sha256 -hmac "$HERMES_WEBHOOK_SECRET" | sed 's/^.*= //')
+    set -- -H "X-Webhook-Signature: $sig"
+  fi
+  curl -fsS -m 10 -H "Content-Type: application/json" "$@" -d "$body" "$NOTIFY_URL" >/dev/null \
+    || log "alert not delivered"
+}
+
+fails=0
+run=0
+while :; do
+  run=$((run + 1))
+  if out=$(sync_once 2>&1); then
+    log "ok"
+    if [ "$fails" -ge "$ALERT_AFTER" ]; then
+      notify "hermes-sync recovered: the server and laptop folders are syncing again after $fails failed minutes."
+    fi
+    fails=0
+  else
+    fails=$((fails + 1))
+    log "failed ($fails in a row): $out"
+    if [ "$fails" -eq "$ALERT_AFTER" ]; then
+      notify "hermes-sync has failed for $ALERT_AFTER minutes in a row: expense-tracker data is not reaching the laptop and wiki account mappings are not reaching the server. See docker logs modules-hermes-sync-1 on the server."
+    fi
+  fi
+  [ "$RUNS" -gt 0 ] && [ "$run" -ge "$RUNS" ] && exit 0
+  sleep "$INTERVAL"
+done

@@ -106,7 +106,8 @@ class DeployAlwaysRaisesLanServicesTests(unittest.TestCase):
 
     def up_targets(self, compose_file, up_targets):
         script = (MODULES / "deploy.sh").read_text()
-        start = script.index("if [[ \":${COMPOSE_FILE:-}:\" == *\":docker-compose.server-lan.yml:\"* ]]")
+        start = script.index("if [[ \":${COMPOSE_FILE:-}:\" == *\":docker-compose.server-lan.yml:\"* ]]",
+                             script.index("UP_TARGETS=$("))
         block = script[start:script.index("\nfi\n", start) + 4]
         result = subprocess.run(
             ["bash", "-c", block + 'echo "$UP_TARGETS"'],
@@ -118,7 +119,7 @@ class DeployAlwaysRaisesLanServicesTests(unittest.TestCase):
     def test_lan_services_join_a_hermes_only_deploy(self):
         targets = self.up_targets("docker-compose.yml:docker-compose.server-lan.yml", "hermes expense-tracker ")
         self.assertEqual(
-            ["hermes", "expense-tracker", "lan-guard", "portfolio-tracker", "actual-api", "whisper"], targets)
+            ["hermes", "expense-tracker", "lan-guard", "hermes-sync", "portfolio-tracker", "actual-api", "whisper"], targets)
 
     def test_nothing_added_without_the_override(self):
         for compose_file in ("docker-compose.yml", "docker-compose.yml:docker-compose.laptop.yml", ""):

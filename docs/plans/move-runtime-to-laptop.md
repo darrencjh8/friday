@@ -50,7 +50,7 @@ Server:
 1. `deploy.yml`: `deploy` job `runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}` and excludes `hermes` from its component list when the hermes target is `friday-laptop`. New `deploy-hermes` job on `runs-on: friday-laptop`, gated on that target, running `deploy.sh --component hermes` with the same secrets and variables. With the target `server`, behaviour is unchanged.
 2. `modules/docker-compose.laptop.yml` (override, used only by `deploy-hermes`): `extra_hosts` from `vars.SERVER_LAN_HOST`, Hermes ports also bound to `vars.LAPTOP_LAN_HOST`.
 3. `modules/docker-compose.yml` (server): `expense-tracker`, `portfolio-tracker`, `whisper` also published on `${SERVER_LAN_HOST}` when set; unset keeps today's bindings.
-4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a systemd timer on the server, every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. Installed by the deploy, logged, and alerting through the existing notify webhook after 10 failed minutes.
+4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a `hermes-sync` service in `modules/docker-compose.server-lan.yml` (a restarting container like `lan-guard`, rather than a systemd timer, so the deploy installs it without host access), every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. It syncs only when the deploy's `HERMES_TARGET` is `friday-laptop` and idles otherwise. Logged, and alerting through the existing notify webhook after 10 failed minutes.
 5. Remote Docker for module containers: Hermes's scripts that target `modules-*` containers use `DOCKER_HOST=ssh://<user>@<server>` with a dedicated key; commands that target the `hermes` container itself stay local. Each script is updated and tested individually.
 6. `modules/hermes/config.yaml` `stt` command: convert the voice note to 16 kHz mono WAV with `ffmpeg`, send it to Parakeet's `/transcribe` with a 2 s connect timeout, and fall back to `whisper:8000/transcribe` on the server if Parakeet does not answer or errors. Tested with Parakeet up and with it stopped.
 7. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, `dry_run` input defaulting to `true`): archive `/home/runner/data/hermes` (via a root `alpine` container, since `data/` is container-owned), copy to the laptop with `rsync -e "ssh -p 2222"` using a deploy key in the `darren-prod` environment, verify checksums. With `dry_run=false` it stops only the server's `hermes` container first. It never deletes anything.
@@ -68,7 +68,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 2. `migrate-hermes.yml` with `dry_run=false`: stops server `hermes`, archives, copies, verifies.
 3. Extract on the laptop into `/home/runner/data/hermes`.
 4. Merge the cutover PR that changes the push default in `deploy.yml` to `friday-laptop`, then run `deploy.yml` with `force_all=true` and `hermes_target=friday-laptop`. The server job skips `hermes`; `deploy-hermes` starts it on the laptop.
-5. Enable the sync timer; re-point the `tailscale serve` Hermes entries on the server to the laptop.
+5. The deploy in step 4 starts the sync (target `friday-laptop`); re-point the `tailscale serve` Hermes entries on the server to the laptop.
 6. Verify, then resume merges.
 
 ## Verification
@@ -84,7 +84,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 
 1. `migrate-hermes.yml` in reverse (laptop → server) with Hermes stopped on the laptop.
 2. Run `deploy.yml` with `force_all=true` and `hermes_target=server`, and revert the push default to `server`; `hermes` returns to the server.
-3. Re-point the `tailscale serve` entries to `127.0.0.1`; disable the sync timer.
+3. Re-point the `tailscale serve` entries to `127.0.0.1`. The deploy in step 2 (target `server`) already recreated the sync idle.
 
 Skipping step 1 loses everything Friday did on the laptop since cutover.
 
