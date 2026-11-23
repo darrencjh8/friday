@@ -322,6 +322,9 @@ jobs:
                   PP_OFFSET_MAP: ${{ vars.PP_OFFSET_MAP }}
                   SUBMODULE_PAT: ${{ secrets.SUBMODULE_PAT }}
                   FRIDAY_PAT: ${{ secrets.FRIDAY_PAT }}
+                  # hermes-sync's SSH key for the laptop; deploy.sh writes it to a
+                  # root-only file on the server and nowhere else.
+                  LAPTOP_SSH_KEY: ${{ secrets.LAPTOP_SSH_KEY }}
                   DEPLOY_COMPONENTS: ${{ steps.changes.outputs.components || 'all' }}
                   FORCE_ALL: ${{ inputs.force_all || 'false' }}
                   DEPLOY_COMPONENTS_OVERRIDE: ${{ inputs.components || '' }}

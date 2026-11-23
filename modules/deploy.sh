@@ -969,40 +969,20 @@ printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none 
     mv -f "$tmp" /secrets/dots_fcm_service_account.json
   '
 
-# ---- hermes -> server SSH for the module containers (laptop only) ----
-# With the laptop override in COMPOSE_FILE, hermes runs here and the modules on
-# the server. `module-docker` in the container reaches the server's Docker over
-# SSH (MODULES_DOCKER_HOST, set by the override) with a dedicated key. The key
-# comes from the HERMES_SERVER_SSH_KEY secret on stdin, never argv or the log,
-# and is written by a throwaway root container like the secrets above, owned by
-# the gateway uid. The server's host key is pinned from SERVER_SSH_HOST_KEY
-# rather than trusted on first use: the laptop reaches the server over Wi-Fi,
-# and a first connection to a spoofed address would otherwise be remembered.
-# The ssh client config names that key and file for the server's address only,
-# so no other ssh use in the container changes. A missing key or host key only
-# warns: Friday still deploys, and module-docker fails until they are set.
-if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]; then
-  if [ -z "${HERMES_SERVER_SSH_KEY:-}" ] || [ -z "${SERVER_SSH_HOST_KEY:-}" ]; then
-    echo -e "  ${YELLOW}⚠ HERMES_SERVER_SSH_KEY or SERVER_SSH_HOST_KEY is unset: module-docker cannot reach the server${NC}"
-  fi
-  printf '%s\n' "${HERMES_SERVER_SSH_KEY:-}" | docker run --rm -i --network none \
-    -e SERVER_LAN_HOST -e SERVER_SSH_HOST_KEY \
-    -v "/home/runner/data/hermes:/secrets" \
+# hermes-sync's key for the laptop's SSH (LAPTOP_SSH_KEY), only on the server
+# under the LAN override that defines that service. Written like the PAT above:
+# a root-only 0400 file from a one-shot root container, the key on stdin only.
+# printf adds the final newline OpenSSH needs and a pasted secret may lack.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
+  printf '%s\n' "${LAPTOP_SSH_KEY:-}" | docker run --rm -i --network none \
+    -v "/home/runner/data/hermes-sync:/secrets" \
     alpine:3 sh -c '
-    umask 077
-    dir=/secrets/server-ssh
-    mkdir -p "$dir"
-    tmp="$(mktemp "$dir/.id.XXXXXX")"
-    cat > "$tmp"
-    chown 10000:10000 "$tmp"
-    chmod 0400 "$tmp"
-    mv -f "$tmp" "$dir/id"
-    printf "%s %s\n" "$SERVER_LAN_HOST" "$SERVER_SSH_HOST_KEY" > "$dir/known_hosts"
-    printf "Host %s\n    IdentityFile /run/secrets/server-ssh/id\n    IdentitiesOnly yes\n    UserKnownHostsFile /run/secrets/server-ssh/known_hosts\n    StrictHostKeyChecking yes\n    BatchMode yes\n    ConnectTimeout 10\n" \
-      "$SERVER_LAN_HOST" > "$dir/config"
-    chmod 0444 "$dir/known_hosts" "$dir/config"
-    chmod 0755 "$dir"
-  '
+      umask 077
+      tmp="$(mktemp /secrets/.laptop_ssh_key.XXXXXX)"
+      cat > "$tmp"
+      chmod 0400 "$tmp"
+      mv -f "$tmp" /secrets/laptop_ssh_key
+    '
 fi
 
 COMPOSE="docker-compose --project-name modules"
@@ -1045,8 +1025,10 @@ done | awk '!seen[$0]++' | tr '\n' ' ')
 # deploy, whatever changed: lan-guard must run whenever module ports are on the
 # LAN, and a module only gains its LAN binding when `up` reconciles it. `up`
 # leaves an unchanged container alone, so this costs nothing on most deploys.
+# hermes-sync is among them so that every deploy recreates it with the run's
+# HERMES_TARGET: syncing for friday-laptop, idle for anything else.
 if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
-  for svc in lan-guard expense-tracker portfolio-tracker actual-api whisper; do
+  for svc in lan-guard hermes-sync expense-tracker portfolio-tracker actual-api whisper; do
     [[ " $UP_TARGETS " == *" $svc "* ]] || UP_TARGETS="$UP_TARGETS $svc "
   done
 fi
