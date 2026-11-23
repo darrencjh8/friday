@@ -170,6 +170,12 @@ def _text(lang: str, key: str, **args: Any) -> str:
 TAKEOVER_TIMEOUT_S = 15 * 60
 # clarify already has its own card in the app.
 _HIDDEN_TOOLS = frozenset({"clarify"})
+# Friday patch: an expense-tracker learning offer ("Tap /remember_<id> or /forget_<id>") is shown as an
+# approval card. Approve sends /remember_<id> as the owner and Refuse /forget_<id>; the learning-commands
+# plugin answers them before the model sees them. The card id carries the offer id, so a tap still works
+# after a gateway restart.
+_OFFER_RE = re.compile(r" ?Tap /remember_([a-z0-9]{1,16}) or /forget_\1\.?")
+_OFFER_CARD = "learn_"
 
 
 def _now_ms() -> int:
@@ -2020,7 +2026,7 @@ class DotsAdapter(BasePlatformAdapter):
                 "", "",
                 "\U0001F3FB\U0001F3FC\U0001F3FD\U0001F3FE\U0001F3FF\uFE0F"))
             choice = {"👍": "once", "👎": "deny"}.get(normalized)
-            if choice is not None and message_id in self._approvals:
+            if choice is not None and (message_id in self._approvals or message_id.startswith(_OFFER_CARD)):
                 await self._on_approval({"approval_id": message_id, "choice": choice})
         if self._reaction_handler is None or not message_id:
             return
@@ -2031,8 +2037,20 @@ class DotsAdapter(BasePlatformAdapter):
         })
 
     async def _on_approval(self, frame: dict[str, Any]) -> None:
-        from tools.approval import resolve_gateway_approval
         approval_id, choice = str(frame.get("approval_id", "")), str(frame.get("choice", "deny"))
+        if approval_id.startswith(_OFFER_CARD):  # Friday patch: answer a learning offer once
+            card = self._history.get(approval_id)
+            if card is None or card.get("type") != "approval" or card.get("resolved") or choice not in ("once", "deny"):
+                return
+            self._history.update(approval_id, resolved=choice)
+            await self._push({"type": "approval_resolved", "approval_id": approval_id, "choice": choice})
+            action = "forget" if choice == "deny" else "remember"
+            await self.handle_message(MessageEvent(
+                text=f"/{action}_{approval_id[len(_OFFER_CARD):]}", message_type=MessageType.TEXT,
+                source=self._source(card.get("chat") or OWNER), message_id=uuid.uuid4().hex,
+                timestamp=datetime.now(tz=UTC)))
+            return
+        from tools.approval import resolve_gateway_approval
         session_key = self._approvals.pop(approval_id, None)
         if session_key is None or choice not in ("once", "session", "always", "deny"):
             return
@@ -2154,6 +2172,20 @@ class DotsAdapter(BasePlatformAdapter):
     async def send(self, chat_id: str, content: str, reply_to: Optional[str] = None,
                    metadata: Optional[dict[str, Any]] = None) -> SendResult:
         chat = self._known(chat_id)
+        lines = [line for line in content.splitlines() if line.strip()]
+        if lines and all(_OFFER_RE.search(line) for line in lines):  # Friday patch: offer cards
+            for line in lines:
+                card = _OFFER_CARD + _OFFER_RE.search(line).group(1)
+                event = self._history.add({
+                    "type": "approval", "id": card, "approval_id": card, "ts": _now_ms(), "chat": chat,
+                    "title": "Remember this mapping?", "description": "Remember this mapping?",
+                    "command": _OFFER_RE.sub("", line).strip(),
+                    "actions": [{"label": "Remember", "choice": "once", "style": "primary"},
+                                {"label": "Forget", "choice": "deny", "style": "danger"}],
+                })
+                await self._push(event)
+                self._notify("approval", card, event["command"], chat)
+            return SendResult(success=True, message_id=card)
         if await self._attach_transcript(chat, content):
             return SendResult(success=True, message_id=self._turns.get(chat))
         event = self._history.add({

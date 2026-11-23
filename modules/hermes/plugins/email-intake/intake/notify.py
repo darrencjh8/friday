@@ -7,9 +7,10 @@ commands for uncertain mail, a blocked notice for a password-protected
 statement, a notify rule's message, and a failure notice once retries are
 spent. Shadow mode queues nothing.
 
-Messages that carry a tap command (/remember_, /forget_, /replay_) go
-straight to the Bot API sendMessage, as expense-tracker's learning offers
-do: Hermes owns getUpdates, sendMessage does not conflict with it, and those
+Learning offers (/remember_, /forget_) go to Dots verbatim through the
+Hermes `learning-offer` webhook, where the adapter shows them as an approval
+card. Review requests (/replay_) go straight to the Bot API sendMessage:
+Hermes owns getUpdates, sendMessage does not conflict with it, and those
 commands are handled only on Telegram. Plain text, never parse_mode. Every
 other message goes to Dots through the Hermes `notify` webhook, the same
 signed route expense-tracker's notify_user uses.
@@ -31,6 +32,7 @@ SENT, RETRY, REJECTED = "sent", "retry", "rejected"
 REPLAY_ID_LENGTH = 10
 TELEGRAM_LIMIT = 4000
 COMMAND = re.compile(r"/(remember|forget|replay)_")
+OFFER = re.compile(r"/(remember|forget)_")
 
 
 def replay_id(evidence_hash):
@@ -86,7 +88,7 @@ def result_text(records, domain, subject):
 
 
 def offers_text(records):
-    """The learning offers, sent apart from the result so their commands reach Telegram."""
+    """The learning offers, sent apart from the result so they reach Dots as approval cards."""
     offers = [offer_text(r["mapping_candidate"]) for r in records if r.get("mapping_candidate")]
     return "\n".join(offers)[:TELEGRAM_LIMIT] or None
 
@@ -156,22 +158,26 @@ class WebhookSender:
 class Outbox:
     """Delivers queued messages in order; each is sent at most once.
 
-    Messages with a tap command go to Telegram, the rest to Dots when it is
-    configured. ponytail: one ordered queue for both, so an outage on either
-    holds the other back until the next run; split the queue per channel if
+    Learning offers go to the `learning-offer` route when it is configured,
+    other messages with a tap command to Telegram, the rest to Dots when it is
+    configured. ponytail: one ordered queue for all, so an outage on any
+    holds the others back until the next run; split the queue per channel if
     that ever bites.
     """
 
-    def __init__(self, journal, send, dots=None):
+    def __init__(self, journal, send, dots=None, offers=None):
         self._journal = journal
         self._send = send
         self._dots = dots
+        self._offers = offers
 
     def flush(self):
         """An outage keeps every message for later, in order; a rejected message is dropped and logged."""
         sent = 0
         for key, text, _attempts in self._journal.unsent_notifications():
-            if self._dots is None or COMMAND.search(text):
+            if self._offers is not None and OFFER.search(text):
+                outcome = self._offers(text, request_id=key)
+            elif self._dots is None or COMMAND.search(text):
                 outcome = self._send(text)
             else:
                 outcome = self._dots(text, request_id=key)

@@ -1,10 +1,11 @@
 /**
- * "Remember this mapping?" offers over Hermes's own Telegram bot (issue #723).
+ * "Remember this mapping?" offers, shown in Dots as an approval card (issue #723).
  *
  * The model relays notifications and reads email, so it must never hold the
- * call that turns an offer into a fact. This module only SENDS the offer
- * (sendMessage; Hermes owns getUpdates, and Telegram allows one poller per
- * token). The user taps /remember_<id> or /forget_<id>; a Hermes plugin that
+ * call that turns an offer into a fact. This module only SENDS the offer, to
+ * the Hermes `learning-offer` webhook, which delivers it verbatim without the
+ * model. Approve or Refuse on the card sends /remember_<id> or /forget_<id> as
+ * the owner (typing the command on Telegram still works); a Hermes plugin that
  * runs before the model sees the message calls POST /learning/answer with an
  * HMAC the model cannot compute. Failures are logged, never thrown.
  */
@@ -43,25 +44,28 @@ export function offerSubject(offer) {
 }
 
 export class LearningNotifier {
-    constructor({ token, chatId, fetchFn = fetch }) {
-        this._token = token;
-        this._chatId = String(chatId);
+    /** `url` is the learning-offer webhook; `secret` signs the body like notify_user does. */
+    constructor({ url, secret, fetchFn = fetch }) {
+        this._url = url;
+        this._secret = secret;
         this._fetch = fetchFn;
     }
 
     async sendOffer({ offer }) {
         const runnerUp = offer.runnerUp ? ` (runner-up: ${offer.runnerUp})` : "";
         const id = offer.id.toLowerCase();
-        const response = await this._fetch(`https://api.telegram.org/bot${this._token}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                chat_id: this._chatId,
-                text: `Remember ${offerSubject(offer)}?${runnerUp} Tap /remember_${id} or /forget_${id}. Nothing is saved until you choose.`,
-            }),
+        const body = JSON.stringify({
+            message: `Remember ${offerSubject(offer)}?${runnerUp} Tap /remember_${id} or /forget_${id}. Nothing is saved until you choose.`,
         });
-        const json = await response.json();
-        if (!json?.ok) throw new Error("telegram sendMessage failed");
+        const response = await this._fetch(this._url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "X-Webhook-Signature": createHmac("sha256", this._secret).update(body).digest("hex"),
+            },
+            body,
+        });
+        if (!response.ok) throw new Error(`learning-offer webhook failed: HTTP ${response.status}`);
     }
 }
 

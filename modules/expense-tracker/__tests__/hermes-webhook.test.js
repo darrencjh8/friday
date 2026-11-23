@@ -102,6 +102,17 @@ describe("hermes webhook config", () => {
         expect(routes.notify.mirror_to_session).toBe("true");
     });
 
+    test("learning offers reach Dots verbatim, without the model", () => {
+        // The simple parser loses nested routes after notify, so read the raw block.
+        const raw = readFileSync(configPath, "utf8");
+        const block = raw.match(/\n(\s+)learning-offer:\n((?:\1\s+.*\n)+)/)?.[2];
+        expect(block).toBeDefined();
+        expect(block).toContain('prompt: "{message}"');
+        expect(block).toContain("deliver: dots");
+        expect(block).toContain("deliver_only: true");
+        expect(block).toContain('chat_id: "${DOTS_HOME_CHANNEL}"');
+    });
+
     test("notify webhook prompt prevents table wrapping for single-item notifications", () => {
         // The simple YAML parser truncates multi-line strings, so read raw content
         const raw = readFileSync(configPath, "utf8");

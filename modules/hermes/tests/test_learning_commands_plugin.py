@@ -175,10 +175,20 @@ class LearningCommandsPluginTest(unittest.TestCase):
         with patch.object(plugin, "_call_tracker", return_value=(200, {"ok": True, "result": "forgotten"})):
             self.assertEqual(run(make_event("/forget_abc"), self.gateway)["action"], "skip")
 
+    def test_dots_owner_command_is_answered_in_dots(self):
+        with patch.object(plugin, "_call_tracker", return_value=(200, {
+            "ok": True, "result": "forgotten", "descriptor": "X", "payee": "Y",
+        })) as call:
+            result = run(make_event("/forget_abc", platform="dots", chat_id="owner", user_id="owner"), self.gateway)
+        self.assertEqual(result["action"], "skip")
+        call.assert_called_once_with("forget", "abc", TOKEN)
+        self.adapter.send.assert_awaited_once_with("owner", 'Not remembered: "X"')
+
     def test_everything_else_passes_through_without_calling_the_tracker(self):
         events = [
             make_event("hello"),
             make_event("/remember_abc", platform="slack"),
+            make_event("/remember_abc", platform="dots", chat_id="owner", user_id="someone"),
             make_event("/remember_abc", chat_id="999"),
             make_event("/remember_abc", user_id="555"),
             make_event("/remember_abc extra"),

@@ -79,7 +79,8 @@ class LiveMessagesTest(unittest.TestCase):
         h.journal.checkpoint("INBOX", 1, 0, account="acct")
         self.telegram = FakeTelegram()
         self.dots = FakeTelegram()
-        h.outbox = notify.Outbox(h.journal, self.telegram, dots=self.dots)
+        self.offers = FakeTelegram()
+        h.outbox = notify.Outbox(h.journal, self.telegram, dots=self.dots, offers=self.offers)
         return h
 
     def run_all(self, h):
@@ -93,11 +94,12 @@ class LiveMessagesTest(unittest.TestCase):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer(), tracker)
         self.run_all(h)
         self.run_all(h)
-        # The booking goes to Dots; the offer stays on Telegram, the only place /remember_ is handled.
+        # The booking goes to Dots; the offer goes to the learning-offer route, which Dots shows as a card.
         self.assertEqual(self.dots.sent, ["S$5.00 at Alpha Cafe, logged"])
-        self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn("/remember_abcd1234", self.telegram.sent[0])
-        self.assertNotIn("Alpha Cafe, logged", self.telegram.sent[0])
+        self.assertEqual(self.telegram.sent, [])
+        self.assertEqual(len(self.offers.sent), 1)
+        self.assertIn("/remember_abcd1234", self.offers.sent[0])
+        self.assertNotIn("Alpha Cafe, logged", self.offers.sent[0])
 
     def test_a_portfolio_booking_is_confirmed(self):
         tracker = FakeTracker({"http://portfolio.test/process/portfolio": {
@@ -239,6 +241,7 @@ class OutboxWiringTest(unittest.TestCase):
             self.addCleanup(runner._dispatcher._journal.close)
             self.assertIsInstance(runner._outbox._dots, notify.WebhookSender)
             self.assertEqual(runner._outbox._dots._url, "http://127.0.0.1:8644/webhooks/notify")
+            self.assertEqual(runner._outbox._offers._url, "http://127.0.0.1:8644/webhooks/learning-offer")
 
 
 class OutboxTest(unittest.TestCase):
@@ -278,6 +281,18 @@ class OutboxTest(unittest.TestCase):
         outbox.flush()
         self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
         self.assertEqual(len(telegram.sent), 2)
+
+    def test_offers_go_to_the_offer_route_and_replays_stay_on_telegram(self):
+        telegram, dots, offers = FakeTelegram(), FakeTelegram(), FakeTelegram()
+        outbox = notify.Outbox(self.journal, telegram, dots=dots, offers=offers)
+        self.journal.queue_notification("a", "S$5.00 at Alpha Cafe, logged")
+        self.journal.queue_notification("b", "Tap /remember_abcd1234 or /forget_abcd1234.")
+        self.journal.queue_notification("c", "Book it with /replay_0123456789_tx")
+        outbox.flush()
+        self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
+        self.assertEqual(offers.sent, ["Tap /remember_abcd1234 or /forget_abcd1234."])
+        self.assertEqual(offers.request_ids, ["b"])
+        self.assertEqual(telegram.sent, ["Book it with /replay_0123456789_tx"])
 
     def test_dots_messages_carry_their_journal_key_as_request_id(self):
         # #238: a retry after an ambiguous failure reuses the id, so the gateway drops the duplicate.
