@@ -1110,7 +1110,10 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
     [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
   elif ! docker inspect hermes >/dev/null 2>&1; then
     echo "  (hermes container not present; skipping skill sync)" >&2
-    [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
+    # With HERMES_RUNNER_LABEL set, hermes lives on another runner and its own
+    # deploy syncs the skills there, so a missing container here is expected.
+    # ponytail: a codex-router-only deploy reaches that hermes at its next deploy.
+    [ -n "${GITHUB_ACTIONS:-}" ] && [ -z "${HERMES_RUNNER_LABEL:-}" ] && failed=$((failed + 1))
   else
     ready=false
     for _ in $(seq 1 15); do
@@ -1538,7 +1541,7 @@ echo "--- MCP Reconnect ---"
 sleep 5
 
 for mcp_name in expense-tracker portfolio-tracker; do
-  if should_deploy "$mcp_name" || should_deploy "all"; then
+  if { should_deploy "$mcp_name" || should_deploy "all"; } && docker inspect hermes >/dev/null 2>&1; then
     echo -n "  $mcp_name ... "
     if docker exec hermes hermes mcp test "$mcp_name" > /dev/null 2>&1; then
       echo -e "${GREEN}connected${NC}"

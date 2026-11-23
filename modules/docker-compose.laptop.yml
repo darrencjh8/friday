@@ -1,0 +1,27 @@
+# Override for running hermes alone on a second machine (the laptop), with the
+# modules still on the server. Only the deploy-hermes job uses it, through
+# COMPOSE_FILE; the server never reads this file.
+#
+# SERVER_LAN_HOST: the server's LAN address, where the modules are published.
+# LAPTOP_LAN_HOST: this machine's LAN address, where the server's tailscale
+# serve entries reach the Hermes ports.
+services:
+    hermes:
+        # expense-tracker and portfolio-tracker run on the server, so the
+        # server-side depends_on would start a second copy of each here.
+        depends_on: !reset {}
+        # Hermes calls the modules by compose service name; point those names
+        # at the server instead of this project's network.
+        extra_hosts:
+            - "codex-router:${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}"
+            - "expense-tracker:${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}"
+            - "portfolio-tracker:${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}"
+            - "actual-api:${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}"
+            - "whisper:${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}"
+        # The ports the server's tailscale serve entries proxy to, added to the
+        # 127.0.0.1 bindings in the base file.
+        ports:
+            - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:8642:8642"
+            - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:8300:8300"
+            - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:8788:8788"
+            - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:9120:9120"
