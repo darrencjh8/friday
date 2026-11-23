@@ -96,9 +96,9 @@ Skipping step 1 loses everything Friday did on the laptop since cutover.
 - **Availability.** Laptop sleep, Windows updates and travel take Hermes offline; modules on the server keep running but are only reachable through Hermes.
 - **Whisper stays on the server as the speech-to-text backup only.** Parakeet is on the same machine as Hermes, so the backup is used only if the Parakeet process fails. Idle, Whisper unloads its model (24 MB measured).
 
-## Separate change: retire `dots-web`
+## `dots-web` stays on the server
 
-The `dots-web` service (the Dots web app on tailnet port 8789) is no longer needed. Retiring it is its own PR, independent of this move: remove the service and its build from `modules/docker-compose.yml` and `deploy.yml` (the hermes-dots pin bump that rebuilds it), its health check and tests, the `tailscale serve` 8789 entry, and the docs that list it. The Dots Android app and the desktop bar talk to Hermes directly and are unaffected; the build confirms this before removing anything.
+`dots-web` (tailnet port 8789) stays. Besides the web app, it hosts the `/api/pair` relay that the desktop bar and the Android app use to pair; Hermes has no equivalent endpoint. After pairing, both clients talk to Hermes directly.
 
 ## Open decisions
 
