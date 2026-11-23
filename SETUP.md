@@ -170,6 +170,7 @@ Never run `modules/deploy.sh` (or `git pull`) manually on this host. Without `--
 | `actual-backup` | `0 0 1 * *` (1st of the month 00:00) | Back up Actual Budget data |
 | `proactive-tick` | `0 8-21 * * *` (hourly 08:00–21:00) | Proactive check-in tick |
 | `proactive-tick-volume` | `0 9 * * 0` (Sunday 09:00) | Weekly proactive message vs silence count (no_agent) |
+| `muse-requests` | every 10m | Muse purchase requests from friday-persona as Buy/Refuse cards in Dots (no_agent) |
 
 Check status:
 

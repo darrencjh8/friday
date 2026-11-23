@@ -170,12 +170,26 @@ def _text(lang: str, key: str, **args: Any) -> str:
 TAKEOVER_TIMEOUT_S = 15 * 60
 # clarify already has its own card in the app.
 _HIDDEN_TOOLS = frozenset({"clarify"})
-# Friday patch: an expense-tracker learning offer ("Tap /remember_<id> or /forget_<id>") is shown as an
-# approval card. Approve sends /remember_<id> as the owner and Refuse /forget_<id>; the learning-commands
-# plugin answers them before the model sees them. The card id carries the offer id, so a tap still works
-# after a gateway restart.
-_OFFER_RE = re.compile(r" ?Tap /remember_([a-z0-9]{1,16}) or /forget_\1\.?")
-_OFFER_CARD = "learn_"
+# Friday patch: some notices are shown as approval cards. An expense-tracker learning offer ("Tap
+# /remember_<id> or /forget_<id>") sends /remember_<id> or /forget_<id> as the owner, for the
+# learning-commands plugin to answer before the model sees them. A Muse purchase request from the
+# muse-requests cron ("Tap /buy_<n> or /skip_<n>") tells the agent, as the owner, to buy or refuse
+# issue <n> in friday-persona. The card id carries the kind and id, so a tap still works after a
+# gateway restart.
+_OFFER_RE = re.compile(r" ?Tap /(remember|buy)_([a-z0-9]{1,16}) or /(?:forget|skip)_\2\.?")
+_OFFERS = {  # verb -> card prefix, title, Approve label, Refuse label, Approve text, Refuse text
+    "remember": ("learn_", "Remember this mapping?", "Remember", "Forget", "/remember_{}", "/forget_{}"),
+    "buy": ("muse_", "Muse asks Friday to buy", "Buy", "Refuse",
+            "Muse's purchase request darrencjh8/friday-persona#{} is approved. Buy it with the shopping skill "
+            "(Requests from Muse).",
+            "Muse's purchase request darrencjh8/friday-persona#{} is refused. Comment that the owner refused "
+            "it and close the issue; buy nothing."),
+}
+_OFFER_KIND = {prefix: verb for verb, (prefix, *_rest) in _OFFERS.items()}
+
+
+def _offer_kind(card_id: str) -> Optional[str]:
+    return next((verb for prefix, verb in _OFFER_KIND.items() if card_id.startswith(prefix)), None)
 
 
 def _now_ms() -> int:
@@ -2026,7 +2040,7 @@ class DotsAdapter(BasePlatformAdapter):
                 "", "",
                 "\U0001F3FB\U0001F3FC\U0001F3FD\U0001F3FE\U0001F3FF\uFE0F"))
             choice = {"👍": "once", "👎": "deny"}.get(normalized)
-            if choice is not None and (message_id in self._approvals or message_id.startswith(_OFFER_CARD)):
+            if choice is not None and (message_id in self._approvals or _offer_kind(message_id)):
                 await self._on_approval({"approval_id": message_id, "choice": choice})
         if self._reaction_handler is None or not message_id:
             return
@@ -2038,15 +2052,17 @@ class DotsAdapter(BasePlatformAdapter):
 
     async def _on_approval(self, frame: dict[str, Any]) -> None:
         approval_id, choice = str(frame.get("approval_id", "")), str(frame.get("choice", "deny"))
-        if approval_id.startswith(_OFFER_CARD):  # Friday patch: answer a learning offer once
+        verb = _offer_kind(approval_id)
+        if verb is not None:  # Friday patch: answer an offer card once
             card = self._history.get(approval_id)
             if card is None or card.get("type") != "approval" or card.get("resolved") or choice not in ("once", "deny"):
                 return
             self._history.update(approval_id, resolved=choice)
             await self._push({"type": "approval_resolved", "approval_id": approval_id, "choice": choice})
-            action = "forget" if choice == "deny" else "remember"
+            prefix, _title, _yes, _no, approve, refuse = _OFFERS[verb]
+            text = (refuse if choice == "deny" else approve).format(approval_id[len(prefix):])
             await self.handle_message(MessageEvent(
-                text=f"/{action}_{approval_id[len(_OFFER_CARD):]}", message_type=MessageType.TEXT,
+                text=text, message_type=MessageType.TEXT,
                 source=self._source(card.get("chat") or OWNER), message_id=uuid.uuid4().hex,
                 timestamp=datetime.now(tz=UTC)))
             return
@@ -2175,13 +2191,15 @@ class DotsAdapter(BasePlatformAdapter):
         lines = [line for line in content.splitlines() if line.strip()]
         if lines and all(_OFFER_RE.search(line) for line in lines):  # Friday patch: offer cards
             for line in lines:
-                card = _OFFER_CARD + _OFFER_RE.search(line).group(1)
+                match = _OFFER_RE.search(line)
+                prefix, title, yes, no, _approve, _refuse = _OFFERS[match.group(1)]
+                card = prefix + match.group(2)
                 event = self._history.add({
                     "type": "approval", "id": card, "approval_id": card, "ts": _now_ms(), "chat": chat,
-                    "title": "Remember this mapping?", "description": "Remember this mapping?",
+                    "title": title, "description": title,
                     "command": _OFFER_RE.sub("", line).strip(),
-                    "actions": [{"label": "Remember", "choice": "once", "style": "primary"},
-                                {"label": "Forget", "choice": "deny", "style": "danger"}],
+                    "actions": [{"label": yes, "choice": "once", "style": "primary"},
+                                {"label": no, "choice": "deny", "style": "danger"}],
                 })
                 await self._push(event)
                 self._notify("approval", card, event["command"], chat)
