@@ -251,13 +251,13 @@ describe("resolve_merchant while an offer waits", () => {
 });
 
 describe("offer text and answer carry the category", () => {
-    it("Telegram offer names the key, the example and the category", async () => {
-        const fetchFn = vi.fn(async () => ({ json: async () => ({ ok: true }) }));
-        await new LearningNotifier({ token: "t", chatId: "1", fetchFn }).sendOffer({
+    it("the offer names the key, the example and the category", async () => {
+        const fetchFn = vi.fn(async () => ({ ok: true, status: 200 }));
+        await new LearningNotifier({ url: "http://hermes.test/webhooks/learning-offer", secret: "s", fetchFn }).sendOffer({
             offer: { id: "AB23CD45", descriptor: "ACMECHICK", example: "ACMECHICK@T3", payee: "Food", category: "Food" },
         });
-        const { text } = JSON.parse(fetchFn.mock.calls[0][1].body);
-        expect(text).toContain('Remember "ACMECHICK" (from ACMECHICK@T3) as Food, category Food?');
+        const { message } = JSON.parse(fetchFn.mock.calls[0][1].body);
+        expect(message).toContain('Remember "ACMECHICK" (from ACMECHICK@T3) as Food, category Food?');
     });
 
     it("the answer route returns the category", async () => {

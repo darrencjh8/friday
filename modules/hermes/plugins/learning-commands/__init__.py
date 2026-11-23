@@ -156,6 +156,10 @@ def _reply_text(status: int, body: dict) -> str:
 
 def _is_home_chat(source) -> bool:
     platform = getattr(getattr(source, "platform", None), "value", None)
+    # Dots has one user, the owner: the adapter admits only clients holding DOTS_TOKEN.
+    # Its offer cards send the command as the owner when Approve or Refuse is tapped.
+    if platform == "dots":
+        return str(getattr(source, "user_id", "")) == "owner"
     home = os.environ.get("TELEGRAM_HOME_CHANNEL", "")
     if platform != "telegram" or not home or str(getattr(source, "chat_id", "")) != home:
         return False

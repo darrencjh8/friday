@@ -33,6 +33,7 @@ DEFAULT_PORTFOLIO_URL = "http://portfolio-tracker:8081"
 DEFAULT_DEDUP_DB = "/opt/data/expense-tracker-data/dedup.db"
 # Intake runs inside the Hermes gateway, so its own webhook platform is on loopback.
 NOTIFY_URL = "http://127.0.0.1:8644/webhooks/notify"
+OFFER_URL = "http://127.0.0.1:8644/webhooks/learning-offer"
 
 
 @dataclass
@@ -229,5 +230,6 @@ def build_runner(settings: Settings):
         outbox = notify.Outbox(journal, notify.TelegramSender(
             settings.telegram_token, settings.telegram_chat,
             post=lambda url, body, headers: dispatch.http_post(url, body, headers, timeout=30)),
-            dots=notify.WebhookSender(NOTIFY_URL, settings.webhook_secret))
+            dots=notify.WebhookSender(NOTIFY_URL, settings.webhook_secret),
+            offers=notify.WebhookSender(OFFER_URL, settings.webhook_secret))
     return Runner(classifier, dispatcher, outbox=outbox, cleanup=refresh_box.close)

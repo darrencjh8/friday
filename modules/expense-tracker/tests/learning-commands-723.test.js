@@ -7,6 +7,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import { createHmac } from "crypto";
 
 vi.mock("mailparser", () => ({ simpleParser: vi.fn() }));
 vi.mock("better-sqlite3", () => ({ default: vi.fn() }));
@@ -40,13 +41,15 @@ const PAYEES = [
 
 let dir;
 let memory;
-let telegram;
+let sent;
+const OFFER_URL = "http://hermes:8644/webhooks/learning-offer";
+const SECRET = "webhook-secret";
 
-function telegramFetch() {
-    telegram = [];
+function webhookFetch() {
+    sent = [];
     return vi.fn(async (url, init) => {
-        telegram.push({ method: String(url).split("/").pop(), body: JSON.parse(init.body) });
-        return { ok: true, json: async () => ({ ok: true, result: { message_id: 7 } }) };
+        sent.push({ url, headers: init.headers, raw: init.body, body: JSON.parse(init.body) });
+        return { ok: true, status: 200 };
     });
 }
 
@@ -68,8 +71,8 @@ function registry(config = {}) {
 
 function setup(config = commandsConfig) {
     const reg = registry(config);
-    const fetchFn = telegramFetch();
-    const notifier = new LearningNotifier({ token: TOKEN, chatId: CHAT, fetchFn });
+    const fetchFn = webhookFetch();
+    const notifier = new LearningNotifier({ url: OFFER_URL, secret: SECRET, fetchFn });
     reg.setLearningNotifier(notifier);
     const handler = createAnswerHandler({ registry: reg, token: config.telegramBotToken, chatId: config.telegramHomeChannel });
     return { reg, notifier, handler, fetchFn };
@@ -122,27 +125,31 @@ describe("answer signing (#723)", () => {
 });
 
 describe("sending an offer (#723)", () => {
-    it("sends one plain message with tappable commands and no buttons", async () => {
+    it("posts one signed message with the commands to the learning-offer webhook", async () => {
         const { reg } = setup();
         const { id } = await reg.executeTool("propose_learning", {
             descriptor: "360 SAVE BONUS", payee: "Bank Interest", runner_up: "Salary", budget_id: "b",
         });
-        expect(telegram).toHaveLength(1);
-        const { method, body } = telegram[0];
-        expect(method).toBe("sendMessage");
-        expect(body.chat_id).toBe(CHAT);
-        expect(body).not.toHaveProperty("reply_markup");
-        expect(body.text).toContain("360 SAVE BONUS");
-        expect(body.text).toContain("Bank Interest");
-        expect(body.text).toContain("Salary");
-        expect(body.text).toContain(`/remember_${id.toLowerCase()}`);
-        expect(body.text).toContain(`/forget_${id.toLowerCase()}`);
+        expect(sent).toHaveLength(1);
+        const { url, headers, raw, body } = sent[0];
+        expect(url).toBe(OFFER_URL);
+        expect(headers["X-Webhook-Signature"]).toBe(createHmac("sha256", SECRET).update(raw).digest("hex"));
+        expect(Object.keys(body)).toEqual(["message"]);
+        expect(body.message).toContain("360 SAVE BONUS");
+        expect(body.message).toContain("Bank Interest");
+        expect(body.message).toContain("Salary");
+        // The Dots adapter turns exactly this phrase into an approval card.
+        expect(body.message).toContain(`Tap /remember_${id.toLowerCase()} or /forget_${id.toLowerCase()}.`);
         expect(`remember_${id.toLowerCase()}`).toMatch(/^[a-z0-9_]{1,32}$/);
     });
 
-    it("never polls", async () => {
-        await offered();
-        expect(telegram.map((c) => c.method)).toEqual(["sendMessage"]);
+    it("a refused webhook does not fail the offer", async () => {
+        const { reg, notifier } = setup();
+        notifier._fetch = vi.fn(async () => ({ ok: false, status: 401 }));
+        const result = await reg.executeTool("propose_learning", {
+            descriptor: "360 SAVE BONUS", payee: "Bank Interest", budget_id: "b",
+        });
+        expect(result.offered).toBe(true);
     });
 
     it("a failed send does not fail the offer", async () => {

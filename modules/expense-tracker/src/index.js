@@ -173,10 +173,11 @@ async function main() {
 
     // With commands on, the user's /remember is the only confirm (#723). The
     // answer route is not a tool: it needs a signature only Hermes's plugin
-    // (holding the bot token) can compute.
-    if (learningCommandsOn) {
+    // (holding the bot token) can compute. Offers go to Dots through the
+    // learning-offer webhook, next to the notify route.
+    if (learningCommandsOn && cfg.notifyUrl && cfg.notifySecret) {
         registry.setLearningNotifier(
-            new LearningNotifier({ token: cfg.telegramBotToken, chatId: cfg.telegramHomeChannel }),
+            new LearningNotifier({ url: new URL("learning-offer", cfg.notifyUrl).href, secret: cfg.notifySecret }),
         );
     }
     app.post(
