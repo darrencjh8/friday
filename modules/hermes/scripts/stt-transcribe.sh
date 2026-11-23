@@ -3,8 +3,8 @@
 #
 # Parakeet first: the laptop's voice server (the Friday desktop app's server.py)
 # takes a 16 kHz mono WAV on POST /transcribe and answers {"text": "..."}. If it
-# does not answer (on the server host.docker.internal does not resolve, so this
-# fails at once), errors, or replies with something that is not that JSON, the
+# does not answer (on the server host.docker.internal does not resolve, so it
+# is not even tried), errors, or replies with something that is not that JSON, the
 # original file goes to the server's Whisper, which answers plain text. Either
 # way the transcript is written to <output> as plain text.
 #
@@ -19,11 +19,17 @@ set -u
 input=$1
 output=$2
 parakeet=${PARAKEET_URL:-http://host.docker.internal:8765}
+# Bare host of the URL: on the server it does not resolve, so skip the
+# conversion and the connect attempt and go straight to Whisper.
+host=${parakeet#*://}
+host=${host%%/*}
+host=${host%:*}
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-if ffmpeg -nostdin -loglevel error -y -i "$input" -ar 16000 -ac 1 -f wav "$work/audio.wav" \
+if getent hosts "$host" >/dev/null \
+    && ffmpeg -nostdin -loglevel error -y -i "$input" -ar 16000 -ac 1 -f wav "$work/audio.wav" \
     && curl --fail -sS --connect-timeout 2 --max-time 120 -H 'Content-Type: audio/wav' \
         --data-binary @"$work/audio.wav" -o "$work/reply.json" "$parakeet/transcribe" \
     && python3 -c '

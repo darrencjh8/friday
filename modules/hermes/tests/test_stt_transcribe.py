@@ -44,6 +44,13 @@ for last; do :; done
 printf 'RIFF' > "$last"
 """
 
+# Resolves every host unless GETENT_MODE=fail; records the lookup.
+GETENT = r"""#!/bin/sh
+echo "getent $*" >> "$STUB_LOG"
+[ "$GETENT_MODE" = fail ] && exit 2
+echo "192.0.2.1 $2"
+"""
+
 
 class TestSttTranscribe(unittest.TestCase):
     def setUp(self):
@@ -52,7 +59,7 @@ class TestSttTranscribe(unittest.TestCase):
         self.dir = Path(tmp.name)
         bin_dir = self.dir / "bin"
         bin_dir.mkdir()
-        for name, body in (("curl", CURL), ("ffmpeg", FFMPEG)):
+        for name, body in (("curl", CURL), ("ffmpeg", FFMPEG), ("getent", GETENT)):
             (bin_dir / name).write_text(body)
             (bin_dir / name).chmod(0o755)
         self.input = self.dir / "voice.ogg"
@@ -60,7 +67,7 @@ class TestSttTranscribe(unittest.TestCase):
         self.output = self.dir / "transcript.txt"
         self.log = self.dir / "calls.log"
         self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "STUB_LOG": str(self.log),
-                    "PARAKEET_URL": "http://parakeet.test:8765", "FFMPEG_MODE": "ok"}
+                    "PARAKEET_URL": "http://parakeet.test:8765", "FFMPEG_MODE": "ok", "GETENT_MODE": "ok"}
 
     def run_stt(self, parakeet, whisper, **env):
         result = subprocess.run(["bash", str(SCRIPT), str(self.input), str(self.output)], capture_output=True,
@@ -76,17 +83,19 @@ class TestSttTranscribe(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("hello from parakeet", self.transcript())
         self.assertIn("served by parakeet", result.stderr)
-        self.assertIn("-ar 16000 -ac 1 -f wav", calls[0])
-        self.assertTrue(calls[1].startswith("http://parakeet.test:8765/transcribe "))
-        self.assertTrue(calls[1].endswith("audio.wav"))
-        self.assertEqual(2, len(calls))  # Whisper never called
+        self.assertEqual("getent hosts parakeet.test", calls[0])
+        self.assertIn("-ar 16000 -ac 1 -f wav", calls[1])
+        self.assertTrue(calls[2].startswith("http://parakeet.test:8765/transcribe "))
+        self.assertTrue(calls[2].endswith("audio.wav"))
+        self.assertEqual(3, len(calls))  # Whisper never called
 
     def test_default_url_is_docker_desktop_host(self):
         env = dict(self.env)
         del env["PARAKEET_URL"]
         self.env = env
         _, calls = self.run_stt("ok-parakeet", "ok-whisper")
-        self.assertTrue(calls[1].startswith("http://host.docker.internal:8765/transcribe "))
+        self.assertEqual("getent hosts host.docker.internal", calls[0])
+        self.assertTrue(calls[2].startswith("http://host.docker.internal:8765/transcribe "))
 
     def test_parakeet_down_falls_back_to_whisper_with_the_original_file(self):
         result, calls = self.run_stt("down", "ok-whisper")
@@ -94,6 +103,13 @@ class TestSttTranscribe(unittest.TestCase):
         self.assertEqual("hello from whisper", self.transcript())
         self.assertEqual(f"http://whisper:8000/transcribe {self.input}", calls[-1])
         self.assertIn("served by whisper", result.stderr)
+
+    def test_unresolvable_parakeet_host_goes_straight_to_whisper(self):
+        # The server: no conversion, no connect attempt, just Whisper with the original file.
+        result, calls = self.run_stt("ok-parakeet", "ok-whisper", GETENT_MODE="fail")
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual("hello from whisper", self.transcript())
+        self.assertEqual(["getent hosts parakeet.test", f"http://whisper:8000/transcribe {self.input}"], calls)
 
     def test_parakeet_http_error_falls_back(self):
         result, _ = self.run_stt("500", "ok-whisper")
@@ -111,7 +127,7 @@ class TestSttTranscribe(unittest.TestCase):
         result, calls = self.run_stt("ok-parakeet", "ok-whisper", FFMPEG_MODE="fail")
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual("hello from whisper", self.transcript())
-        self.assertFalse(any("parakeet.test" in call for call in calls))
+        self.assertFalse(any(call.startswith("http://parakeet.test") for call in calls))
 
     def test_empty_parakeet_transcript_is_kept(self):
         # Parakeet's voice check found no speech; Whisper would only say the same, slower.
