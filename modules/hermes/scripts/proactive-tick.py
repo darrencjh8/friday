@@ -247,8 +247,27 @@ def friday_tasks():
     if result.returncode != 0:
         if "not found" in (result.stdout + result.stderr).lower():
             return []
+        if result.returncode == 3:
+            raise TasksAuthExpired
         raise RuntimeError(f"gtasks failed: {(result.stderr or result.stdout).strip()[:200]}")
     return tuple(t for t in json.loads(result.stdout or "[]") if t.get("status") != "completed")
+
+
+class TasksAuthExpired(Exception):
+    """The gtasks subprocess exited 3: the Google token expired or was revoked."""
+
+
+AUTH_EXPIRED_LINE = "Google Tasks reminders are paused — run `google login` again to reconnect."
+
+
+def gtasks_auth_expired():
+    """AuthExpired from the repo's gtasks module.
+
+    Same lazy SCRIPTS-on-sys.path import google() uses; google("gtasks")
+    would not work because gtasks.py has no enabled().
+    """
+    sys.path.insert(0, SCRIPTS)
+    return __import__("gtasks").AuthExpired
 
 
 def task_line(task):
@@ -385,6 +404,9 @@ def main():
     for source, collect in SOURCES.items():
         try:
             items = collect(today, seen, cursors)
+        except (TasksAuthExpired, gtasks_auth_expired()):
+            key = "google:auth-expired"
+            items = [] if seen.get(key) == today.isoformat() else [(key, AUTH_EXPIRED_LINE)]
         except Exception as error:  # a broken source is reported, never hidden
             key = f"error:{source}"
             items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
@@ -397,6 +419,8 @@ def main():
         return 0
     try:
         open_tasks = friday_tasks()
+    except TasksAuthExpired:
+        open_tasks = []
     except Exception as error:
         open_tasks = []
         sections.append(f"## Friday tasks\nunavailable: {error}")

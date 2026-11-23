@@ -29,6 +29,23 @@ RULES = (
 )
 
 
+# Prompts that must carry the expired-Google-token carve-out (#320). Kept
+# separate from AGENT_PROMPTS: the proactive-tick prompt does not carry the
+# "comes after it" failure-marker wording, so it cannot join that map.
+EXPIRY_CARVEOUT_PROMPTS = {
+    "wiki-due-reminders": 'PROMPT = """Check the private wiki for payment, action, and habit dates',
+    "proactive-tick": 'PROMPT = """The data block above lists what changed since the last tick',
+}
+
+EXPIRY_CARVEOUT = (
+    "Expired Google token",
+    "says the Google token expired",
+    "never a [CRON_FAILURE]",
+    "Google Tasks reminders are paused — run `google login` again to reconnect.",
+    "Never name scheduler commands",
+)
+
+
 def prompt_text(seed: str, start: str) -> str:
     head, sep, rest = seed.partition(start)
     if not sep:
@@ -50,6 +67,15 @@ class CronFailureMarkerTest(unittest.TestCase):
             if not all(rule in prompt_text(seed, start) for rule in RULES)
         ]
         self.assertEqual(missing, [], "agent cron prompts without the failure marker")
+
+
+    def test_expired_google_token_carveout_in_prompts(self):
+        seed = SEED.read_text(encoding="utf-8")
+        missing = [
+            job for job, start in EXPIRY_CARVEOUT_PROMPTS.items()
+            if not all(rule in prompt_text(seed, start) for rule in EXPIRY_CARVEOUT)
+        ]
+        self.assertEqual(missing, [], "agent cron prompts without the expired-token carve-out")
 
 
 if __name__ == "__main__":
