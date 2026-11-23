@@ -12,7 +12,10 @@ with `browser_exec`. Attach failures are logged as a warning.
 Local change: `DotsAdapter.send` shows an expense-tracker learning offer ("Tap /remember_<id> or
 /forget_<id>") as an approval card, and `_on_approval` answers a `learn_<id>` card once by sending
 `/remember_<id>` (Approve) or `/forget_<id>` (Refuse) as the owner, for the `learning-commands` plugin.
-Both are marked "Friday patch".
+A Muse purchase request from the `muse-requests` cron ("Tap /buy_<n> or /skip_<n>") becomes a
+`muse_<n>` card the same way: Buy tells the agent, as the owner, to buy friday-persona issue `<n>`
+with the shopping skill, and Refuse tells it to comment and close the issue. Both are marked
+"Friday patch".
 
 Local addition: `release_proxy.py` and the `/dots/releases/*` routes relay the private
 `DOTS_UPDATE_REPO` release to the Android updater (master token), and `/dots/desktop/latest` and

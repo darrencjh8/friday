@@ -2224,6 +2224,31 @@ PY
 [ "$volume" = "pass" ] && ok "proactive-tick-volume seeded: no_agent script, deliver dots, Sunday 9am, no prompt" \
     || nope "proactive-tick-volume seed" "$volume"
 
+echo "--- muse-requests poller (from real seed) ---"
+prime_seed_jobs
+muse_snippet="$(extract_seed_block "# Seed muse-requests")"
+python3 -c "$muse_snippet" >/dev/null
+python3 -c "$muse_snippet" >/dev/null
+muse=$(python3 - "$TMPDIR/cron/jobs.json" <<'PY'
+import json, sys
+jobs = [j for j in json.load(open(sys.argv[1]))["jobs"] if j.get("name") == "muse-requests"]
+job = jobs[0] if len(jobs) == 1 else {}
+checks = {
+    "one_job_after_two_runs": len(jobs) == 1,
+    "script": job.get("script") == "muse-requests.py",
+    "no_agent": job.get("no_agent") is True,
+    "deliver_dots": job.get("deliver") == "dots",
+    "every_10m": job.get("schedule") == {"kind": "interval", "minutes": 10, "display": "every 10m"},
+    "enabled": job.get("enabled") is True,
+    "no_prompt": "prompt" not in job,
+}
+bad = [k for k, v in checks.items() if not v]
+print("pass" if not bad else "fail " + repr(bad))
+PY
+)
+[ "$muse" = "pass" ] && ok "muse-requests seeded once: no_agent script, deliver dots, every 10m" \
+    || nope "muse-requests seed" "$muse"
+
 echo ""
 echo "=== friday-memory restore runs before the SOUL template seed ==="
 

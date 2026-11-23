@@ -94,6 +94,28 @@ class LearningOfferCardTest(unittest.TestCase):
         self.assertEqual(self.pushed[0]["type"], "message")
         self.assertEqual(json.dumps(self.pushed[0]).count("/remember_2ygwaxkd"), 1)
 
+    def test_a_muse_request_becomes_a_buy_card(self):
+        self.send("USB-C cable (friday-persona#12). Tap /buy_12 or /skip_12.")
+        card = self.pushed[0]
+        self.assertEqual(card["approval_id"], "muse_12")
+        self.assertEqual(card["title"], "Muse asks Friday to buy")
+        self.assertEqual(card["command"], "USB-C cable (friday-persona#12).")
+        self.assertEqual([a["label"] for a in card["actions"]], ["Buy", "Refuse"])
+
+    def test_buy_tells_the_agent_once_to_buy_that_issue(self):
+        self.send("cable (friday-persona#12). Tap /buy_12 or /skip_12.")
+        self.tap("once", card="muse_12")
+        self.tap("once", card="muse_12")
+        self.assertEqual(len(self.handled), 1)
+        self.assertIn("darrencjh8/friday-persona#12 is approved", self.handled[0].text)
+        self.assertIn("shopping skill", self.handled[0].text)
+
+    def test_refuse_tells_the_agent_to_close_and_buy_nothing(self):
+        self.send("cable (friday-persona#12). Tap /buy_12 or /skip_12.")
+        self.tap("deny", card="muse_12")
+        self.assertIn("#12 is refused", self.handled[0].text)
+        self.assertIn("buy nothing", self.handled[0].text)
+
 
 if __name__ == "__main__":
     unittest.main()
