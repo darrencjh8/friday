@@ -8,9 +8,11 @@
 # - Pre-release gate: hermes-dots-release.yml calls this workflow with
 #   the hermes-dots HEAD SHA before building the release.
 #
-# All jobs run on GitHub-hosted cloud runners (ubuntu-latest), never on
-# the self-hosted runner. Steps are copied from the deleted hermes-dots
-# workflows android-test.yml (unit) and android-emulator.yml (smoke).
+# All jobs run on GitHub-hosted cloud runners; unit and smoke on
+# ubuntu-latest, rust on windows-latest (the app ships on Windows, so the
+# check runs where it ships), never on the self-hosted runner.
+# Steps are copied from the deleted hermes-dots workflows
+# android-test.yml (unit) and android-emulator.yml (smoke).
 name: Hermes-Dots CI
 
 on:
@@ -82,6 +84,74 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest
+
+  rust:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          repository: darrencjh8/hermes-dots
+          ref: ${{ inputs.ref }}
+          token: ${{ secrets.SUBMODULE_PAT }}
+
+      # Friday's clips and icons come from the friday-persona release pinned in
+      # persona-media.version; refs from before the move still carry the files.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          path: .friday
+          sparse-checkout: scripts/fetch-persona-media.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch persona media
+        env:
+          GH_TOKEN: ${{ secrets.SUBMODULE_PAT }}
+        shell: bash
+        run: |
+          bash .friday/scripts/fetch-persona-media.sh dots-web web
+          rm -rf .friday
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+
+      - name: Build the web dist
+        shell: bash
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      # The app icon is Friday's launcher icon, never committed (persona media).
+      - name: Icons
+        shell: bash
+        run: npx --yes @tauri-apps/cli@2.12.6 icon web/dist/icons/nova-default-512.png -o desktop/src-tauri/icons
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: desktop/src-tauri
+
+      # The voice installer (desktop/voice) ships uv, which fetches Python,
+      # PyTorch and the speech models on the user's PC into the folder they
+      # choose. Pinned and checked here; never committed. tauri.conf.json
+      # lists uv/uv.exe as a resource, so cargo check needs it present.
+      # Copied from hermes-dots-desktop.yml.
+      - name: uv for the voice installer
+        shell: bash
+        working-directory: desktop/src-tauri
+        env:
+          UV_VERSION: '0.13.9'
+          UV_SHA256: 'edd61f7f5728a56cc62455386661860bdfc7bab65872f39b0c25bdcc1d8e1beb'
+        run: |
+          curl -fsSLo uv.zip "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-x86_64-pc-windows-msvc.zip"
+          echo "$UV_SHA256  uv.zip" | sha256sum -c -
+          7z e uv.zip uv.exe -ouv -y
+          rm uv.zip
+
+      - name: Check the desktop Rust
+        shell: bash
+        working-directory: desktop/src-tauri
+        run: cargo check
 
   smoke:
     if: ${{ inputs.smoke }}
