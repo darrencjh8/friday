@@ -101,5 +101,30 @@ class ServerLanOverrideTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
 
 
+class DeployAlwaysRaisesLanServicesTests(unittest.TestCase):
+    """deploy.sh adds the override's services to every `up` while it is active."""
+
+    def up_targets(self, compose_file, up_targets):
+        script = (MODULES / "deploy.sh").read_text()
+        start = script.index("if [[ \":${COMPOSE_FILE:-}:\" == *\":docker-compose.server-lan.yml:\"* ]]")
+        block = script[start:script.index("\nfi\n", start) + 4]
+        result = subprocess.run(
+            ["bash", "-c", block + 'echo "$UP_TARGETS"'],
+            env={"PATH": os.environ["PATH"], "COMPOSE_FILE": compose_file, "UP_TARGETS": up_targets},
+            capture_output=True, text=True, check=True,
+        )
+        return result.stdout.split()
+
+    def test_lan_services_join_a_hermes_only_deploy(self):
+        targets = self.up_targets("docker-compose.yml:docker-compose.server-lan.yml", "hermes expense-tracker ")
+        self.assertEqual(
+            ["hermes", "expense-tracker", "lan-guard", "portfolio-tracker", "actual-api", "whisper"], targets)
+
+    def test_nothing_added_without_the_override(self):
+        for compose_file in ("docker-compose.yml", "docker-compose.yml:docker-compose.laptop.yml", ""):
+            with self.subTest(compose_file=compose_file):
+                self.assertEqual(["hermes"], self.up_targets(compose_file, "hermes"))
+
+
 if __name__ == "__main__":
     unittest.main()
