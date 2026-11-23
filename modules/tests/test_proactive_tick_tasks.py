@@ -20,12 +20,8 @@ from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "modules" / "hermes" / "scripts"
 
-# The real gtasks module, under its own name, so the AuthExpired the stubs
-# raise is the same class object the tick's lazy import resolves.
-_gspec = importlib.util.spec_from_file_location("gtasks", SCRIPTS / "gtasks.py")
-gtasks = importlib.util.module_from_spec(_gspec)
-sys.modules["gtasks"] = gtasks
-_gspec.loader.exec_module(gtasks)
+sys.path.insert(0, str(SCRIPTS))
+import gtasks  # noqa: E402  (canonical import: never replace sys.modules["gtasks"])
 
 _tspec = importlib.util.spec_from_file_location("proactive_tick", SCRIPTS / "proactive-tick.py")
 tick = importlib.util.module_from_spec(_tspec)

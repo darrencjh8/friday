@@ -260,14 +260,16 @@ class TasksAuthExpired(Exception):
 AUTH_EXPIRED_LINE = "Google Tasks reminders are paused — run `google login` again to reconnect."
 
 
-def gtasks_auth_expired():
-    """AuthExpired from the repo's gtasks module.
+def _is_google_auth_expired(error):
+    """True when error is the shared-token AuthExpired from gtasks.
 
-    Same lazy SCRIPTS-on-sys.path import google() uses; google("gtasks")
-    would not work because gtasks.py has no enabled().
+    gmail.py and gcal.py both import gtasks at their top level, so the class
+    is already in sys.modules whenever their code can raise it. Read it
+    there instead of importing gtasks: importing it here would execute its
+    top-level code inside the tick.
     """
-    sys.path.insert(0, SCRIPTS)
-    return __import__("gtasks").AuthExpired
+    module = sys.modules.get("gtasks")
+    return module is not None and isinstance(error, module.AuthExpired)
 
 
 def task_line(task):
@@ -404,12 +406,13 @@ def main():
     for source, collect in SOURCES.items():
         try:
             items = collect(today, seen, cursors)
-        except (TasksAuthExpired, gtasks_auth_expired()):
-            key = "google:auth-expired"
-            items = [] if seen.get(key) == today.isoformat() else [(key, AUTH_EXPIRED_LINE)]
-        except Exception as error:  # a broken source is reported, never hidden
-            key = f"error:{source}"
-            items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
+        except Exception as error:
+            if isinstance(error, TasksAuthExpired) or _is_google_auth_expired(error):
+                key = "google:auth-expired"
+                items = [] if seen.get(key) == today.isoformat() else [(key, AUTH_EXPIRED_LINE)]
+            else:  # a broken source is reported, never hidden
+                key = f"error:{source}"
+                items = [] if seen.get(key) == today.isoformat() else [(key, f"ALERT: source {source} failed: {error}")]
         if items:
             sections.append(f"## {source}\n" + "\n\n".join(text for _, text in items))
             seen.update({key: today.isoformat() for key, _ in items})
