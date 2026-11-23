@@ -32,6 +32,7 @@ Other workflows:
 - `.github/workflows/test.yml` — unit tests on pull requests: expense-tracker, actual-api, portfolio-tracker, the Java `pp-cli`, Python compose/host tests, Hermes script lint/tests, and image-gen. `deploy.yml` also calls it for non-push events before deploying.
 - `.github/workflows/sync-codex-router.yml` — every five minutes, compares `codex-router` `main` against the last deployed revision and triggers a deploy when they differ.
 - `.github/workflows/recover-codex-router-auth.yml` — manual recovery for a codex-router account slot.
+- `.github/workflows/migrate-hermes.yml` — manual, one-off copy of `/home/runner/data/hermes` between the server and the laptop for the Hermes cutover (`to-laptop`) or its rollback (`to-server`); `dry_run` (default) only archives, copies and verifies. See `docs/plans/move-runtime-to-laptop.md`.
 - `.github/workflows/codex-router-ci.yml` — runs the separate `darrencjh8/codex-router` unit suite against a named, reviewed commit SHA. It fires on `workflow_dispatch` with a `router_ref` input, or on a `codex-router-ci` `repository_dispatch` from that repository.
 - `.github/workflows/secrets-scan.yml` and `.gitleaks.toml` — secret scanning.
 

@@ -53,7 +53,7 @@ Server:
 4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a `hermes-sync` service in `modules/docker-compose.server-lan.yml` (a restarting container like `lan-guard`, rather than a systemd timer, so the deploy installs it without host access), every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. It syncs only when the deploy's `HERMES_TARGET` is `friday-laptop` and idles otherwise. Logged, and alerting through the existing notify webhook after 10 failed minutes.
 5. Remote Docker for module containers: Hermes's scripts that target `modules-*` containers use `DOCKER_HOST=ssh://<user>@<server>` with a dedicated key; commands that target the `hermes` container itself stay local. Each script is updated and tested individually.
 6. `modules/hermes/config.yaml` `stt` command: convert the voice note to 16 kHz mono WAV with `ffmpeg`, send it to Parakeet's `/transcribe` with a 2 s connect timeout, and fall back to `whisper:8000/transcribe` on the server if Parakeet does not answer or errors. Tested with Parakeet up and with it stopped.
-7. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, `dry_run` input defaulting to `true`): archive `/home/runner/data/hermes` (via a root `alpine` container, since `data/` is container-owned), copy to the laptop with `rsync -e "ssh -p 2222"` using a deploy key in the `darren-prod` environment, verify checksums. With `dry_run=false` it stops only the server's `hermes` container first. It never deletes anything.
+7. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, environment `darren-prod`, concurrency group `production-deploy`; inputs `dry_run`, default `true`, and `direction`, `to-laptop` or `to-server`): checks free space on both machines, archives `/home/runner/data/hermes` with `tar --numeric-owner` in a root `alpine` container (since `data/` is container-owned), copies archive and SHA-256 with `rsync -e "ssh -p 2222"` using the `LAPTOP_SSH_KEY` secret, and verifies the checksum on the receiving side. Both directions run on the server, because the laptop key only authorizes server-to-laptop logins: `to-server` pulls. With `dry_run=false`, `to-laptop` first stops only the server's `hermes` container and refuses if hermes runs on the laptop; `to-server` refuses if hermes runs on either machine. It then moves any existing `hermes` directory on the receiving side to `hermes.bak-<UTC timestamp>` and extracts. If a real `to-laptop` run fails or is cancelled after stopping the server's hermes, it starts it again. It deletes only its own archive and checksum. Docker over SSH on the laptop uses `DOCKER_CONFIG=/home/darren/.docker-friday`.
 
 ## Cutover runbook
 
@@ -61,12 +61,12 @@ Preparation (no downtime):
 1. Router reservation for the laptop (done by Darren); Docker Desktop starts at sign-in; Windows auto-login with lock; critical battery action Hibernate.
 2. Merge changes 1 to 7 with the new variables unset: production is unchanged.
 3. Set `SERVER_LAN_HOST`, `LAPTOP_LAN_HOST`; deploy the server so the module ports and firewall rule are in place. From the laptop, `curl` each module health endpoint; from any other LAN device, confirm they are refused.
-4. Dry run `migrate-hermes.yml` to time the copy.
+4. Run `migrate-hermes.yml` with the defaults (`dry_run=true`, `to-laptop`) to time the copy and check free space. Hermes keeps running, so this copy is not consistent; it is deleted at the end and nothing is extracted.
 
 Window (Friday offline, estimate 10 to 20 minutes):
 1. Pause merges.
-2. `migrate-hermes.yml` with `dry_run=false`: stops server `hermes`, archives, copies, verifies.
-3. Extract on the laptop into `/home/runner/data/hermes`.
+2. `migrate-hermes.yml` with `dry_run=false`, `direction=to-laptop`: stops the server's `hermes`, archives, copies, verifies, and extracts into the laptop's `/home/runner/data/hermes` (an existing directory there is moved to `hermes.bak-<timestamp>`). The server's `hermes` stays stopped; on failure the workflow starts it again.
+3. Check the run log: checksum `OK` and the extracted size.
 4. Merge the cutover PR that changes the push default in `deploy.yml` to `friday-laptop`, then run `deploy.yml` with `force_all=true` and `hermes_target=friday-laptop`. The server job skips `hermes`; `deploy-hermes` starts it on the laptop.
 5. The deploy in step 4 starts the sync (target `friday-laptop`); re-point the `tailscale serve` Hermes entries on the server to the laptop.
 6. Verify, then resume merges.
@@ -82,7 +82,7 @@ Window (Friday offline, estimate 10 to 20 minutes):
 
 ## Rollback
 
-1. `migrate-hermes.yml` in reverse (laptop → server) with Hermes stopped on the laptop.
+1. Stop Hermes on the laptop, then run `migrate-hermes.yml` with `dry_run=false`, `direction=to-server`. The server pulls the laptop's data and moves its own stale copy to `hermes.bak-<timestamp>` before extracting.
 2. Run `deploy.yml` with `force_all=true` and `hermes_target=server`, and revert the push default to `server`; `hermes` returns to the server.
 3. Re-point the `tailscale serve` entries to `127.0.0.1`. The deploy in step 2 (target `server`) already recreated the sync idle.
 
