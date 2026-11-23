@@ -969,6 +969,22 @@ printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none 
     mv -f "$tmp" /secrets/dots_fcm_service_account.json
   '
 
+# hermes-sync's key for the laptop's SSH (LAPTOP_SSH_KEY), only on the server
+# under the LAN override that defines that service. Written like the PAT above:
+# a root-only 0400 file from a one-shot root container, the key on stdin only.
+# printf adds the final newline OpenSSH needs and a pasted secret may lack.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
+  printf '%s\n' "${LAPTOP_SSH_KEY:-}" | docker run --rm -i --network none \
+    -v "/home/runner/data/hermes-sync:/secrets" \
+    alpine:3 sh -c '
+      umask 077
+      tmp="$(mktemp /secrets/.laptop_ssh_key.XXXXXX)"
+      cat > "$tmp"
+      chmod 0400 "$tmp"
+      mv -f "$tmp" /secrets/laptop_ssh_key
+    '
+fi
+
 COMPOSE="docker-compose --project-name modules"
 
 if [[ " ${COMPONENTS[*]} " =~ " all " ]] || [[ ${#COMPONENTS[@]} -eq 1 && "${COMPONENTS[0]}" == "all" ]]; then
@@ -1009,8 +1025,10 @@ done | awk '!seen[$0]++' | tr '\n' ' ')
 # deploy, whatever changed: lan-guard must run whenever module ports are on the
 # LAN, and a module only gains its LAN binding when `up` reconciles it. `up`
 # leaves an unchanged container alone, so this costs nothing on most deploys.
+# hermes-sync is among them so that every deploy recreates it with the run's
+# HERMES_TARGET: syncing for friday-laptop, idle for anything else.
 if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
-  for svc in lan-guard expense-tracker portfolio-tracker actual-api whisper; do
+  for svc in lan-guard hermes-sync expense-tracker portfolio-tracker actual-api whisper; do
     [[ " $UP_TARGETS " == *" $svc "* ]] || UP_TARGETS="$UP_TARGETS $svc "
   done
 fi
