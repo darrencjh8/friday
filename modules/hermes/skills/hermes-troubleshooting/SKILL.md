@@ -12,13 +12,15 @@ metadata:
 
 # Hermes Troubleshooting
 
+**Which Docker holds which container.** The module containers (`modules-*`: expense-tracker, codex-router-a/b, portfolio-tracker, actual-api, whisper, dots-web) run on the server. Hermes may run on another machine (the laptop), so reach the modules with `module-docker`, which takes the same arguments as `docker` and sends them to the server's Docker over SSH when Hermes is elsewhere (it is plain `docker` when they share a machine). Plain `docker` reaches only the `hermes` container and whatever else runs on Hermes's own machine.
+
 ## Slow/stuck gateway (Telegram/WhatsApp/etc.) reply — diagnose via docker logs
 
 **Symptom:** A gateway session (Telegram, etc.) takes forever to reply, or appears hung.
 
 **Diagnose (all read-only, no restart needed):**
 
-1. Confirm the container is up: `docker ps -a --format 'table {{.Names}}\t{{.Status}}'`. The `hermes` container being "Up" does NOT rule out a stuck thread — each gateway runs as a thread *inside* that one container.
+1. Confirm the container is up: `docker ps -a --format 'table {{.Names}}\t{{.Status}}'` (the modules: the same with `module-docker`). The `hermes` container being "Up" does NOT rule out a stuck thread — each gateway runs as a thread *inside* that one container.
 2. Tail recent logs, filtering the per-turn noise:
    ```bash
    docker logs hermes --since 20m --tail 80 2>&1 | grep -viE 'check_fn|browser_|kanban|tts|computer_use'
@@ -41,7 +43,7 @@ docker exec hermes sh -c 'cat /opt/data/config.yaml' | sed -n '/^model:/,/^[a-z]
 ```
 Primary = `model.provider` / `model.default`; `fallback_providers` is where it drops after 3 failed attempts. If a primary provider keeps overloading, flip primary to the fallback (e.g. make `deepseek` primary) or switch the failing provider's endpoint.
 
-**Unrelated container states that show up alongside:** `Created` status = never started — check `docker inspect <c> --format '{{.State.Error}}'`. `exec: "/app/foo.sh": is a directory: permission denied` means the container's config was baked at `docker create` time against an OLDER image whose entrypoint path changed after a rebuild — not fixable by restart; fix is `docker rm <c>` then recreate from the current image. `Exited (137)` = SIGKILL (128+9), NOT necessarily OOM — confirm with `docker inspect <c> --format '{{.State.OOMKilled}}'`; `false` means a manual `docker kill`/daemon shutdown, only `true` is a real OOM kill. (On this host the live stack runs as `modules-*` containers; leftover `gateway-*` containers/images are an older generation — safe to `docker rm` / `docker rmi`.)
+**Unrelated container states that show up alongside:** `Created` status = never started — check `docker inspect <c> --format '{{.State.Error}}'`. `exec: "/app/foo.sh": is a directory: permission denied` means the container's config was baked at `docker create` time against an OLDER image whose entrypoint path changed after a rebuild — not fixable by restart; fix is `docker rm <c>` then recreate from the current image. `Exited (137)` = SIGKILL (128+9), NOT necessarily OOM — confirm with `docker inspect <c> --format '{{.State.OOMKilled}}'`; `false` means a manual `docker kill`/daemon shutdown, only `true` is a real OOM kill. (The live module stack runs as `modules-*` containers on the server, reached with `module-docker`; leftover `gateway-*` containers/images are an older generation — safe to `docker rm` / `docker rmi`.)
 
 ## Expense Tracker IMAP socket timeout during LLM processing
 
@@ -85,7 +87,7 @@ Don't answer from the session system-prompt header alone, and don't answer from 
 
 ## Docker cleanup: orphans → images → system prune
 
-Reclaim order after diagnosing leftover containers (this host's live stack is `modules-*`; old `gateway-*` and other tagged-but-unused images are safe to remove):
+Reclaim order after diagnosing leftover containers (use `module-docker` for these commands on the server, where the live stack is `modules-*`; old `gateway-*` and other tagged-but-unused images are safe to remove):
 
 1. `docker rm <orphan>...` — containers stuck in `Created` or `Exited`.
 2. `docker rmi <image>...` — their images (`docker images | grep -i <prefix>` to list).
@@ -120,7 +122,7 @@ When a deployed expense-tracker MCP tool returns errors like "IMAP not connected
 2b. **Run the module's tests inside the container, not on the host.** `npm test` fails on
    the host because the host Node is newer than the container's and `better-sqlite3`
    (a native module) won't build against it. Stage a throwaway dir inside
-   `modules-expense-tracker-1` (container runs Node v22), `docker cp` the `src`, `tests`,
+   `modules-expense-tracker-1` (container runs Node v22, on the server), `module-docker cp` the `src`, `tests`,
    `__tests__` dirs plus `vitest.config.js` and `package.json` into it, `npm install`
    there, then run `./node_modules/.bin/vitest run`. Don't `npm install` on the host (it
    leaves a broken partial `node_modules` and deletes `package-lock.json`), and don't
@@ -139,7 +141,7 @@ When a deployed expense-tracker MCP tool returns errors like "IMAP not connected
    Workaround: also register the tool as an HTTP POST endpoint in the `toolNames`
    array in `index.js`, then call it directly:
    ```bash
-   curl -s -X POST http://modules-expense-tracker-1:8080/tools/<tool-name> \
+   curl -s -X POST http://expense-tracker:8080/tools/<tool-name> \
      -H "Content-Type: application/json" -d '{"arg":"value"}'
    ```
 

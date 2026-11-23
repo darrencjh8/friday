@@ -403,6 +403,12 @@ jobs:
             COMPOSE_FILE: docker-compose.yml:docker-compose.laptop.yml
             SERVER_LAN_HOST: ${{ vars.SERVER_LAN_HOST }}
             LAPTOP_LAN_HOST: ${{ vars.LAPTOP_LAN_HOST }}
+            # Hermes's module-docker reaches the server's Docker over SSH with
+            # this account, key and pinned host key (see deploy.sh). Only this
+            # laptop job receives them; the server deploy never does.
+            SERVER_SSH_USER: ${{ vars.SERVER_SSH_USER }}
+            SERVER_SSH_HOST_KEY: ${{ vars.SERVER_SSH_HOST_KEY }}
+            HERMES_SERVER_SSH_KEY: ${{ secrets.HERMES_SERVER_SSH_KEY }}
         steps:
             - *checkout-friday
             # deploy.sh syncs the codex-router skills into the Hermes container

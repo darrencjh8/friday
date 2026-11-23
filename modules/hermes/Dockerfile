@@ -4,6 +4,7 @@ FROM nousresearch/hermes-agent:stable@sha256:276d44685c65c0cb2a25f190b63c65c8906
 # rebuilding this image does not reinstall them.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libcoap3-bin \
+    openssh-client \
     poppler-utils \
     qpdf \
     sysstat \
@@ -34,6 +35,10 @@ RUN uv_bin="$(python3 -c 'from pm import uv_launcher; print(uv_launcher("uv"))')
 # Wake-on-LAN to the PC, unicast to its saved IP (container broadcasts never reach the LAN).
 COPY scripts/wol.py /usr/local/bin/wol
 RUN chmod 0755 /usr/local/bin/wol
+# `module-docker`: docker for the module containers, which reach the server's
+# Docker over SSH (openssh-client above) when Hermes runs on the laptop.
+COPY scripts/module-docker.sh /usr/local/bin/module-docker
+RUN chmod 0755 /usr/local/bin/module-docker
 # `google` (the one Google login), `gmail` (read-only) and `gcal` (read, add events) import gtasks.py
 # from the seeded scripts directory, so they are wrappers rather than copies.
 RUN for cli in google:google_login gmail:gmail gcal:gcal; do \
