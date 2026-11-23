@@ -32,7 +32,7 @@ Automatic failover is out of scope. While the laptop is off, asleep or away, Fri
 - Runner `friday-laptop` with only the label `friday-laptop`, already registered as a systemd service. It takes no job until the variable points at it.
 - Same `/home/runner/data` layout, owned by `darren` (the laptop runner's user).
 - Tailscale inside the distro, node name `darren` after cutover, with the same `tailscale serve` mappings.
-- SSH on port 2222, key-only, accepting only `darren@192.168.68.51`, for server-to-laptop copy and maintenance.
+- SSH on port 2222, key-only, accepting only `darren@<prod-host>`, for server-to-laptop copy and maintenance.
 
 ## Changes in this repository
 
