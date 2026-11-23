@@ -20,7 +20,7 @@ Switch only what the user asked for, and only on request. Pass each device name 
 
 ## Setting up IKEA
 
-`home` skips a system that is not set up, and says so when none is. IKEA is paired once on the server with `docker exec -it hermes ikea pair <gateway-ip>` and the security code printed on the gateway's label. That saves a key of Friday's own in `/opt/data/ikea.json`; the code is not stored. Do not ask the user to paste the security code into chat; point them to that command instead. Never print or copy `/opt/data/ikea.json`.
+`home` skips a system that is not set up, and says so when none is. IKEA is paired once on the machine that runs Hermes with `docker exec -it hermes ikea pair <gateway-ip>` and the security code printed on the gateway's label. That saves a key of Friday's own in `/opt/data/ikea.json`; the code is not stored. Do not ask the user to paste the security code into chat; point them to that command instead. Never print or copy `/opt/data/ikea.json`.
 
 If the gateway does not answer, say so and suggest checking that it is powered and that its IP has not changed (re-pair with the new IP if it has).
 

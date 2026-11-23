@@ -11,6 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 COLLECTOR = ROOT / "modules/hermes/scripts/log-issue-triage-collect.py"
+MODULE_DOCKER = ROOT / "modules/hermes/scripts/module-docker.sh"
 
 
 class LogIssueTriageCollectorTest(unittest.TestCase):
@@ -300,11 +301,17 @@ class LogIssueTriageSnapshotTest(unittest.TestCase):
 
     SCRIPT = ROOT / "modules/hermes/scripts/log-issue-triage-snapshot.sh"
 
-    def run_snapshot(self, root, component, docker_body, collector_body=None):
+    def run_snapshot(self, root, component, docker_body, collector_body=None, extra_env=None):
         stub_dir = root / "bin"
         stub_dir.mkdir(exist_ok=True)
         stub = stub_dir / "docker"
+        # The image installs the real helper as `module-docker`; it execs the
+        # stub `docker` below.
+        helper = stub_dir / "module-docker"
+        helper.write_text(MODULE_DOCKER.read_text(encoding="utf-8"), encoding="utf-8")
+        helper.chmod(0o755)
         wrapper = """#!/bin/sh
+[ -n "${DOCKER_CALL_LOG:-}" ] && printf '%s %s\\n' "${DOCKER_HOST-unset}" "$1" >> "$DOCKER_CALL_LOG"
 if [ "$1" = inspect ]; then
     case "$3" in *com.docker.compose.project*) echo modules ;; *) echo 'sha256:abc123|test-image:latest|0123456789abcdef' ;; esac
     exit 0
@@ -350,6 +357,9 @@ fi
 
         env = dict(os.environ)
         env["PATH"] = f"{stub_dir}{os.pathsep}{env['PATH']}"
+        env.pop("DOCKER_HOST", None)
+        env.pop("MODULES_DOCKER_HOST", None)
+        env.update(extra_env or {})
         return subprocess.run(
             ["bash", str(script), component],
             capture_output=True,
@@ -534,6 +544,50 @@ fi
                 (root / "state" / "hermes.since").read_text(encoding="utf-8"),
                 "2026-10-08T00:00:00Z",
             )
+
+    def docker_calls(self, component, extra_env):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            log = root / "docker-calls"
+            result = self.run_snapshot(
+                root, component, "#!/bin/sh\necho '2026-10-08T10:00:00Z event'\n",
+                extra_env={"DOCKER_CALL_LOG": str(log), **extra_env},
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return log.read_text(encoding="utf-8").splitlines()
+
+    def test_module_containers_use_the_modules_docker_host_when_set(self):
+        """Hermes on the laptop: module logs come from the server's Docker."""
+        calls = self.docker_calls("expense-tracker", {"MODULES_DOCKER_HOST": "ssh://friday@server"})
+        # The Compose project is read from the local hermes container; the
+        # module container is listed, inspected and read on the server.
+        self.assertEqual(calls, [
+            "unset inspect",
+            "ssh://friday@server ps",
+            "ssh://friday@server inspect",
+            "ssh://friday@server logs",
+        ])
+
+    def test_hermes_stays_on_the_local_docker_when_the_modules_host_is_set(self):
+        calls = self.docker_calls("hermes", {"MODULES_DOCKER_HOST": "ssh://friday@server"})
+        self.assertEqual(calls, ["unset inspect", "unset ps", "unset inspect", "unset logs"])
+
+    def test_unset_or_empty_modules_host_leaves_docker_host_untouched(self):
+        """On the server nothing changes: no DOCKER_HOST is set, and an
+        operator's own DOCKER_HOST is not overridden by an empty value."""
+        expected = ["unset inspect", "unset ps", "unset inspect", "unset logs"]
+        self.assertEqual(self.docker_calls("codex-router", {})[:2], expected[:2])
+        self.assertEqual(self.docker_calls("expense-tracker", {}), expected)
+        self.assertEqual(self.docker_calls("expense-tracker", {"MODULES_DOCKER_HOST": ""}), expected)
+        self.assertEqual(
+            self.docker_calls("expense-tracker", {"MODULES_DOCKER_HOST": "", "DOCKER_HOST": "unix:///x.sock"}),
+            ["unix:///x.sock inspect", "unix:///x.sock ps", "unix:///x.sock inspect", "unix:///x.sock logs"],
+        )
+
+    def test_image_ships_module_docker_and_an_ssh_client(self):
+        dockerfile = (ROOT / "modules/hermes/Dockerfile").read_text(encoding="utf-8")
+        self.assertIn("COPY scripts/module-docker.sh /usr/local/bin/module-docker", dockerfile)
+        self.assertIn("openssh-client", dockerfile)
 
     def test_docker_failure_does_not_publish_empty_snapshot(self):
         with tempfile.TemporaryDirectory() as tmp:

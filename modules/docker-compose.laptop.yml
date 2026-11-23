@@ -5,6 +5,8 @@
 # SERVER_LAN_HOST: the server's LAN address, where the modules are published.
 # LAPTOP_LAN_HOST: this machine's LAN address, where the server's tailscale
 # serve entries reach the Hermes ports.
+# SERVER_SSH_USER: the server account (in its docker group) that hermes's
+# `module-docker` logs in as to run docker against the module containers.
 services:
     hermes:
         # expense-tracker and portfolio-tracker run on the server, so the
@@ -25,3 +27,12 @@ services:
             - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:8300:8300"
             - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:8788:8788"
             - "${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required on the hermes runner}:9120:9120"
+        # The module containers are on the server: `module-docker` sends its
+        # docker commands there over SSH, while plain `docker` stays on this
+        # machine for the hermes container. deploy.sh writes the key, pinned
+        # host key and ssh client config under server-ssh before compose runs.
+        environment:
+            - MODULES_DOCKER_HOST=ssh://${SERVER_SSH_USER:?SERVER_SSH_USER is required on the hermes runner}@${SERVER_LAN_HOST:?SERVER_LAN_HOST is required on the hermes runner}
+        volumes:
+            - /home/runner/data/hermes/server-ssh:/run/secrets/server-ssh:ro
+            - /home/runner/data/hermes/server-ssh/config:/etc/ssh/ssh_config.d/friday-server.conf:ro
