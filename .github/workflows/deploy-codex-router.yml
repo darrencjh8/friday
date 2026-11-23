@@ -50,6 +50,7 @@ jobs:
       - name: Deploy services
         env:
           GITHUB_ACTIONS: true
+          HERMES_RUNNER_LABEL: ${{ vars.HERMES_RUNNER_LABEL }}
           HERMES_WORKSPACE: /home/darren/workspace/hermes
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

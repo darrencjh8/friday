@@ -213,6 +213,9 @@ jobs:
               if: steps.changes.outputs.components != ''
               env: &deploy-env
                   GITHUB_ACTIONS: true
+                  # Set when hermes runs on its own runner; deploy.sh then skips
+                  # the hermes container steps on the server instead of failing.
+                  HERMES_RUNNER_LABEL: ${{ vars.HERMES_RUNNER_LABEL }}
                   HERMES_WORKSPACE: /home/darren/workspace/hermes
                   DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
                   GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -376,6 +379,12 @@ jobs:
             contents: read
         environment:
             name: ${{ github.event.inputs.environment || 'darren-prod' }}
+        # build.sh and deploy.sh run docker-compose from modules/, so COMPOSE_FILE
+        # layers the laptop override on every compose call without touching them.
+        env:
+            COMPOSE_FILE: docker-compose.yml:docker-compose.laptop.yml
+            SERVER_LAN_HOST: ${{ vars.SERVER_LAN_HOST }}
+            LAPTOP_LAN_HOST: ${{ vars.LAPTOP_LAN_HOST }}
         steps:
             - *checkout-friday
             # deploy.sh syncs the codex-router skills into the Hermes container
