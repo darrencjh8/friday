@@ -43,7 +43,7 @@ Server:
 - All modules as today. `expense-tracker`, `portfolio-tracker`, `whisper` also published on the server's LAN address; `codex-router` already is.
 - `DOCKER-USER` rule: those four ports accept the laptop's address only.
 - Synced copy: `/home/runner/data/hermes/data/home/wiki/entities/accounts` (laptop → server, read-only use).
-- `tailscale serve` Hermes entries point at the laptop.
+- Stays on the tailnet as `darren.taila8e105.ts.net` and remains the only address clients use: the Dots Android app, the desktop bar and the phone connect to the server, and its `tailscale serve` Hermes entries proxy to the laptop's LAN address. The laptop does not need to join the tailnet. While the laptop is off, those entries return a gateway error and the app shows Friday offline.
 
 ## Changes in this repository
 
@@ -95,6 +95,10 @@ Skipping step 1 loses everything Friday did on the laptop since cutover.
 - **Docker socket reach.** Under Docker Desktop, Hermes's `docker.sock` can start containers that mount the Windows C: drive. Accepted for now.
 - **Availability.** Laptop sleep, Windows updates and travel take Hermes offline; modules on the server keep running but are only reachable through Hermes.
 - **Whisper stays on the server as the speech-to-text backup only.** Parakeet is on the same machine as Hermes, so the backup is used only if the Parakeet process fails. Idle, Whisper unloads its model (24 MB measured).
+
+## Separate change: retire `dots-web`
+
+The `dots-web` service (the Dots web app on tailnet port 8789) is no longer needed. Retiring it is its own PR, independent of this move: remove the service and its build from `modules/docker-compose.yml` and `deploy.yml` (the hermes-dots pin bump that rebuilds it), its health check and tests, the `tailscale serve` 8789 entry, and the docs that list it. The Dots Android app and the desktop bar talk to Hermes directly and are unaffected; the build confirms this before removing anything.
 
 ## Open decisions
 
