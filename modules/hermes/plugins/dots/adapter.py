@@ -174,7 +174,7 @@ _HIDDEN_TOOLS = frozenset({"clarify"})
 # approval card. Approve sends /remember_<id> as the owner and Refuse /forget_<id>; the learning-commands
 # plugin answers them before the model sees them. The card id carries the offer id, so a tap still works
 # after a gateway restart.
-_OFFER_RE = re.compile(r"\s*Tap /remember_([a-z0-9]{1,16}) or /forget_\1\.?")
+_OFFER_RE = re.compile(r" ?Tap /remember_([a-z0-9]{1,16}) or /forget_\1\.?")
 _OFFER_CARD = "learn_"
 
 
