@@ -1,92 +1,98 @@
 QUESTIONS
-q: How is the server stack stopped and its data copied during the cutover, given that manual stop/restart on production is not allowed? | assumption: a one-off `workflow_dispatch` workflow (`migrate-host.yml`) running on the server runner does the stop, archive and copy, so the cutover goes through CI like every other production change. The alternative, a one-time manual run with Darren's explicit approval for that window, is listed under "Open decisions".
-q: Should the laptop take over the `darren` tailnet name so phone, Dots and desktop clients keep their URLs? | assumption: yes. Rename the server node to `darren-server` and the laptop node to `darren`, then re-create the same `tailscale serve` mappings on the laptop. No client or `WEBAPP_PUBLIC_URL` change is needed.
-q: Which host-level cron jobs on the server move with the stack? | assumption: only `fetch-claude-usage.py` (it feeds `/home/runner/data/codex-router`, which codex-router mounts). The other entries are owner tooling for the server's Claude/opencode sessions and stay. The `trigger-worker` entry posts to `localhost:8082`, where nothing listens today, so it is dead and is not ported.
+q: How does the email-intake plugin keep deduplicating against `dedup.db` once Hermes no longer shares a disk with expense-tracker? | assumption: a one-way sync copies expense-tracker's `data/` (including `dedup.db` and `wiki-proposals.jsonl`) from the server to the laptop every minute, read-only on the laptop as today. The build confirms that expense-tracker also rejects a duplicate booking on its own side, so a snapshot up to a minute old cannot double-book; if it does not, the plugin reads booked UIDs from an expense-tracker endpoint instead.
+q: How do the module ports get reached from the laptop without opening them to the whole LAN? | assumption: the server binds `expense-tracker` (8080), `portfolio-tracker` (8081) and `whisper` (8000) to its LAN address in addition to `127.0.0.1`, and a `DOCKER-USER` iptables rule accepts those ports, plus `codex-router` (4100), only from the laptop's reserved address. Laptop address and server address come from repository variables, never literals in the repo.
+q: Do clients (phone, Dots, desktop bar) need new URLs? | assumption: no. The server keeps the `darren` tailnet name and its `tailscale serve` entries; the entries that point at Hermes ports (8642, 8788, 9120, 8300) are re-pointed from `127.0.0.1` to the laptop's LAN address.
 
-# Move the Friday runtime from the server to the laptop
+# Move Hermes to the laptop; keep the modules on the server
 
-The production stack runs on a Celeron J3455 (4 cores, 8 GB, max 8 GB RAM) and is slow between model calls: Python request handling, the 2.3 GB `state.db`, tool runs and startup all run on a 2016 low-power CPU. Darren's laptop (Intel Core Ultra, 22 threads, 32 GB) is far faster. This plan moves the whole Docker Compose stack to a dedicated WSL2 distro on the laptop, keeps "merge to main, CI deploys" as the only shipping path, and keeps the server as a standby that can take the stack back.
+The server is a Celeron J3455 (4 cores, 8 GB, 8 GB maximum). Hermes is slow between model calls because its Python work, the 2.3 GB `state.db`, tool runs and startup all run on that CPU. Darren's laptop (Intel Core Ultra, 22 threads, 32 GB) is mostly unused and far faster.
 
-Automatic failover is out of scope. While the laptop is off, asleep or away, Friday is down until it returns or the stack is moved back by hand (see Rollback).
+This plan moves only the `hermes` service to a Linux container on the laptop (WSL2 plus Docker Compose). `codex-router`, `expense-tracker`, `actual-api`, `portfolio-tracker`, `dots-web` and `whisper` stay on the server. Hermes keeps the same image, seed and config, and "merge to main, CI deploys" stays the only shipping path for both machines.
+
+Automatic failover is out of scope. While the laptop is off, Friday is down; the modules keep running on the server. Rollback moves Hermes back (see Rollback).
+
+This replaces the earlier version of this plan, which moved the whole stack.
 
 ## Decisions already made
 
-- **Docker Compose, not k3s.** One machine, one copy of Hermes, a SQLite state file and a Compose-based deploy. k3s plus replicated storage (Piraeus/DRBD, Mayastor) needs three nodes, custom WSL kernels and synchronous writes over Wi-Fi; it is reconsidered only with three always-on wired nodes.
-- **Docker Desktop with WSL integration** provides the engine inside the distro. Compose files are unchanged.
-- **The whole stack moves**, not Hermes alone. Hermes reaches `codex-router`, `whisper` and the modules by compose service name; splitting machines would mean rewiring all of them.
-- **Deploy target is a repository variable.** The deploy job's `runs-on` reads `vars.DEPLOY_RUNNER_LABEL`, defaulting to `self-hosted` (the server). Cutover and rollback are a variable change, not a code change.
+- **Hermes runs as the same Linux container**, not a native Windows install. A Windows install would be stock Hermes without Friday's seed, skills, scripts, plugins, cron jobs and CI-injected secrets, and merged PRs would no longer reach it.
+- **No Swarm or k3s.** Hermes already calls the modules by compose service name (`codex-router:4100`, `expense-tracker:8080`, `portfolio-tracker:8081`, `whisper:8000`). On the laptop, `extra_hosts` maps those names to the server's LAN address, so no Hermes config or code changes. An overlay network would need Docker Engine instead of Docker Desktop and a deploy rewrite.
+- **Docker Desktop with WSL integration** runs the laptop's container.
+- **Deploy target per service.** The deploy job's runner comes from `vars.DEPLOY_RUNNER_LABEL` (default `self-hosted`, the server). A second job deploys `hermes` to the runner named by `vars.HERMES_RUNNER_LABEL` when it is set; when it is unset, `hermes` deploys to the server exactly as today.
 
 ## Current state (server, 2026-11-23)
 
-- Runner: self-hosted on the server, default labels (`self-hosted`, `Linux`, `X64`). `deploy.yml` job `deploy` uses `runs-on: self-hosted` and environment `darren-prod`.
-- Data on the host, all under `/home/runner/data`: `hermes/` (about 1.1 GB visible plus `hermes/data`, which includes `state.db`), `expense-tracker/`, `portfolio-tracker/` (including `onedrive_token`, `google-service-account.json`), `codex-router/`, plus secret files `hermes/friday_pat.secret` and `hermes/dots_fcm_service_account.json`.
-- Named volumes the compose file uses: `modules_codex_router_state`, `modules_onedrive_data`, `modules_whisper_models` (models only; re-downloads, not copied). Other `modules_*` and `gateway_*` volumes are left over from retired services and are not copied.
-- Published ports: most bind to `127.0.0.1` and are exposed on the tailnet with `tailscale serve` on `darren.taila8e105.ts.net`: `/router` → 4100, `/reminders` → 8300, and ports 8642, 8788, 8789, 9120, 10000 → 4096. `hermes` also binds `0.0.0.0:8644`, `codex-router` binds `0.0.0.0:4100`.
-- Hermes mounts `/var/run/docker.sock`.
-- Host cron entries: `fetch-claude-usage.py` every 5 minutes; others are server tooling (see Questions).
+- Runner on the server with default labels; `deploy.yml` job `deploy` on `runs-on: self-hosted`, environment `darren-prod`, running `modules/deploy.sh --component ...`.
+- Hermes mounts `/home/runner/data/hermes/{data,workspace,sysstat}`, two secret files, `/var/run/docker.sock`, and `/home/runner/data/expense-tracker/data` read-only at `/opt/data/expense-tracker-data` (`dedup.db` for email intake, `wiki-proposals.jsonl` for the wiki refresh job).
+- `expense-tracker` and `portfolio-tracker` mount Hermes's `data/home/wiki/entities/accounts` read-only at `/wiki/accounts` (mappings and `portfolio-sync-targets.md`).
+- Hermes ports: `127.0.0.1` 8642, 8299, 8300, 8788, 9120 and `0.0.0.0:8644`. Tailnet entries on `darren.taila8e105.ts.net`: 8642, 8788, 9120, `/reminders` → 8300, `/router` → 4100, 8789 (dots-web), 10000 → 4096.
+- Hermes's scripts use the Docker CLI for its own container and the module containers (`log-issue-triage-snapshot.sh`, `deploy-gateway-stop.sh`, `slack-manifest.sh`, `tuya.py` and skills).
 
-## Target state (laptop)
+## Target state
 
-- WSL2 distro `Debian` (Debian 13), 16 GB memory, mirrored networking, drive automount and Windows interop off, systemd on.
-- Docker Desktop (engine 29.0.1, Compose v2.40) via WSL integration; starts at sign-in.
-- Runner `friday-laptop` with only the label `friday-laptop`, already registered as a systemd service. It takes no job until the variable points at it.
-- Same `/home/runner/data` layout, owned by `darren` (the laptop runner's user).
-- Tailscale inside the distro, node name `darren` after cutover, with the same `tailscale serve` mappings.
-- SSH on port 2222, key-only, accepting only `darren@<prod-host>`, for server-to-laptop copy and maintenance.
+Laptop (`Debian` WSL2 distro, 16 GB, mirrored networking, automount and interop off):
+- `hermes` container only, same image and mounts under `/home/runner/data/hermes`.
+- `extra_hosts`: `codex-router`, `expense-tracker`, `portfolio-tracker`, `whisper` → server LAN address.
+- Hermes ports bound to the laptop's LAN address (plus `127.0.0.1`), allowed through the Hyper-V firewall from the server only.
+- Runner `friday-laptop` (label `friday-laptop` only), already registered.
+- Synced copies: `/home/runner/data/expense-tracker/data` (server → laptop, read-only use).
+
+Server:
+- All modules as today. `expense-tracker`, `portfolio-tracker`, `whisper` also published on the server's LAN address; `codex-router` already is.
+- `DOCKER-USER` rule: those four ports accept the laptop's address only.
+- Synced copy: `/home/runner/data/hermes/data/home/wiki/entities/accounts` (laptop → server, read-only use).
+- `tailscale serve` Hermes entries point at the laptop.
 
 ## Changes in this repository
 
-1. `.github/workflows/deploy.yml`: `runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}`. No other change; behaviour is identical until the variable is set.
-2. `.github/workflows/migrate-host.yml` (new, `workflow_dispatch` only, environment `darren-prod`, runs on the server runner):
-   - `docker compose stop` for the modules project (data left in place).
-   - Archive `/home/runner/data` and the two named volumes (`docker run --rm -v <vol>:/v alpine tar`).
-   - Copy the archives to the laptop over the LAN with `rsync -e "ssh -p 2222"` using a deploy key held in the `darren-prod` environment, then verify checksums on both ends.
-   - Never deletes anything on the server.
-3. Port `fetch-claude-usage.py`'s cron to the laptop (a systemd timer created by the deploy, or a documented one-time step).
+1. `deploy.yml`: `deploy` job `runs-on: ${{ vars.DEPLOY_RUNNER_LABEL || 'self-hosted' }}` and excludes `hermes` from its component list when `vars.HERMES_RUNNER_LABEL` is set. New `deploy-hermes` job on `runs-on: ${{ vars.HERMES_RUNNER_LABEL }}`, `if: vars.HERMES_RUNNER_LABEL != ''`, running `deploy.sh --component hermes` with the same secrets and variables. With the variable unset, behaviour is unchanged.
+2. `modules/docker-compose.laptop.yml` (override, used only by `deploy-hermes`): `extra_hosts` from `vars.SERVER_LAN_HOST`, Hermes ports also bound to `vars.LAPTOP_LAN_HOST`.
+3. `modules/docker-compose.yml` (server): `expense-tracker`, `portfolio-tracker`, `whisper` also published on `${SERVER_LAN_HOST}` when set; unset keeps today's bindings.
+4. Folder sync, both directions over the existing laptop SSH (port 2222, key restricted to the server): a systemd timer on the server, every minute, `rsync` of `expense-tracker/data` to the laptop and of the laptop's `wiki/entities/accounts` back to the server. Installed by the deploy, logged, and alerting through the existing notify webhook after 10 failed minutes.
+5. Remote Docker for module containers: Hermes's scripts that target `modules-*` containers use `DOCKER_HOST=ssh://<user>@<server>` with a dedicated key; commands that target the `hermes` container itself stay local. Each script is updated and tested individually.
+6. `.github/workflows/migrate-hermes.yml` (`workflow_dispatch`, server runner, `dry_run` input defaulting to `true`): archive `/home/runner/data/hermes` (via a root `alpine` container, since `data/` is container-owned), copy to the laptop with `rsync -e "ssh -p 2222"` using a deploy key in the `darren-prod` environment, verify checksums. With `dry_run=false` it stops only the server's `hermes` container first. It never deletes anything.
 
 ## Cutover runbook
 
 Preparation (no downtime):
-1. Tailscale in the laptop distro; disable key expiry for the node.
-2. Docker Desktop "Start when you sign in"; Windows auto-login with the lock screen; critical battery action "Hibernate"; BIOS power-on with AC if available.
-3. `mkdir -p /home/runner/data` on the laptop, owned by `darren`.
-4. Merge change 1 (no-op) and change 2.
-5. Dry run: `migrate-host.yml` with a `dry_run` input that archives and copies without stopping, to time the copy and confirm the laptop can restore it.
+1. Router reservation for the laptop (done by Darren); Docker Desktop starts at sign-in; Windows auto-login with lock; critical battery action Hibernate.
+2. Merge changes 1 to 6 with the new variables unset: production is unchanged.
+3. Set `SERVER_LAN_HOST`, `LAPTOP_LAN_HOST`; deploy the server so the module ports and firewall rule are in place. From the laptop, `curl` each module health endpoint; from any other LAN device, confirm they are refused.
+4. Dry run `migrate-hermes.yml` to time the copy.
 
-Window (Friday offline, estimate 15 to 30 minutes):
-1. Pause merges to `main`.
-2. Run `migrate-host.yml` (stops the server stack, archives, copies, verifies).
-3. On the laptop, extract into `/home/runner/data` and restore the two volumes.
-4. Set `DEPLOY_RUNNER_LABEL=friday-laptop`, then run `deploy.yml` with `force_all=true`.
-5. Tailscale: rename the server node to `darren-server`, the laptop node to `darren`; re-create the `tailscale serve` mappings on the laptop.
-6. Verify (below), then resume merges.
+Window (Friday offline, estimate 10 to 20 minutes):
+1. Pause merges.
+2. `migrate-hermes.yml` with `dry_run=false`: stops server `hermes`, archives, copies, verifies.
+3. Extract on the laptop into `/home/runner/data/hermes`.
+4. Set `HERMES_RUNNER_LABEL=friday-laptop`; run `deploy.yml` with `force_all=true`. The server job skips `hermes`; `deploy-hermes` starts it on the laptop.
+5. Enable the sync timer; re-point the `tailscale serve` Hermes entries on the server to the laptop.
+6. Verify, then resume merges.
 
 ## Verification
 
-- The deploy's own health checks pass on the laptop (`:4100/health/liveliness`, gateway `s6-svstat`).
-- Telegram: a message gets a reply; a voice note is transcribed.
-- Dots app and the desktop bar connect at the unchanged tailnet URLs.
-- A cron job fires on schedule (next proactive tick).
-- `state.db` row counts and the latest session match the server's copy at stop time.
-- Server stack is stopped and stays stopped (no duplicate Telegram polling: no `409 Conflict` in either log).
+- `deploy-hermes` health checks pass on the laptop (gateway `s6-svstat`); the server deploy's checks pass for the modules.
+- From inside the laptop's `hermes` container: `codex-router:4100/health/liveliness`, `expense-tracker:8080`, `portfolio-tracker:8081`, `whisper:8000/health` all answer.
+- Telegram reply, voice note transcribed, Dots and the desktop bar connect at unchanged URLs, the next proactive tick fires.
+- Email intake in shadow mode books nothing twice against a test message already in `dedup.db`.
+- `expense-tracker` and `portfolio-tracker` read a mapping change made in the laptop's wiki within two minutes.
+- Only one `hermes` container is running across both machines (no Telegram `409 Conflict`).
 
 ## Rollback
 
-1. Stop the laptop stack (workflow or by hand on the laptop).
-2. Copy the laptop's `/home/runner/data` and volumes back to the server (reverse of `migrate-host.yml`).
-3. Set `DEPLOY_RUNNER_LABEL=self-hosted`, run `deploy.yml` with `force_all=true`.
-4. Swap the Tailscale node names back.
+1. `migrate-hermes.yml` in reverse (laptop → server) with Hermes stopped on the laptop.
+2. Unset `HERMES_RUNNER_LABEL`; run `deploy.yml` with `force_all=true`; `hermes` returns to the server.
+3. Re-point the `tailscale serve` entries to `127.0.0.1`; disable the sync timer.
 
-Skipping step 2 loses everything Friday did on the laptop since cutover.
+Skipping step 1 loses everything Friday did on the laptop since cutover.
 
 ## Known effects
 
-- **Production inspection moves.** Claude sessions on the server inspect production through the local `docker.sock` today, and `hermes-wiki-sync.sh` copies the wiki out of the `hermes` container. Both need to go through SSH to the laptop after cutover.
-- **Docker socket reach.** Hermes mounts `docker.sock`; under Docker Desktop that socket can start containers that mount the Windows C: drive. Accepted for now; the alternative is Docker Engine installed inside the distro.
-- **Availability.** Laptop sleep, Windows updates and travel take Friday offline.
-- **Parakeet.** The laptop already serves Parakeet speech-to-text on `127.0.0.1:8765` (CPU, about 1x real time on a 2.5 s clip). Wiring Hermes's `stt` command to it is a separate follow-up; the stack's own Whisper keeps working after the move.
+- **Production inspection splits.** Hermes, its logs and `/opt/data` are on the laptop; modules are on the server. Claude sessions and `hermes-wiki-sync.sh` reach Hermes over SSH to the laptop.
+- **Every model call crosses Wi-Fi** to `codex-router` on the server and back. That is a few milliseconds against multi-second model calls.
+- **Docker socket reach.** Under Docker Desktop, Hermes's `docker.sock` can start containers that mount the Windows C: drive. Accepted for now.
+- **Availability.** Laptop sleep, Windows updates and travel take Hermes offline; modules on the server keep running but are only reachable through Hermes.
+- **Parakeet** is already serving on the laptop (`127.0.0.1:8765`); wiring Hermes's `stt` to it is a separate follow-up.
 
 ## Open decisions
 
-- Cutover mechanism: `migrate-host.yml` (recommended, through CI) or a one-time manual stop and copy on the server with Darren's explicit approval for that window.
 - Cutover time.
