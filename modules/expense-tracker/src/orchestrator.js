@@ -13,6 +13,7 @@ import { extractEmailContent } from "./extractors.js";
 import { composeNotes } from "./transaction-notes.js";
 import {
     identityMappingsFromFacts,
+    destinationMappingFact,
     looksLikePersonName,
     parseBankMovement,
     resolveMovementAccounts,
@@ -33,7 +34,7 @@ import {
 import { factNamesMerchant } from "./memory.js";
 import { amazeDescriptor, isAmaze } from "./amaze.js";
 import { leftoverWords } from "./jev.js";
-import { descriptorOf } from "./learning.js";
+import { descriptorOf, incomingKey } from "./learning.js";
 import { offerSubject } from "./learning-notify.js";
 import {
     bookableAmountCents,
@@ -1108,6 +1109,9 @@ export class AgentOrchestrator {
             );
         const mappings = identityMappingsFromFacts(facts, accounts);
         const resolved = resolveMovementAccounts(movement, accounts, ctx?.payees || [], mappings);
+        // #319: the stored mapping fact that resolved the destination leg, if
+        // one did — carried only on the internal-transfer return below.
+        const rememberedDestinationFact = destinationMappingFact(movement, accounts, mappings);
         const source = resolved.source_account;
         const destination = resolved.destination_account;
         const suffixMappings = allowSuffixLearning
@@ -1429,6 +1433,7 @@ export class AgentOrchestrator {
                 _structured_movement: true,
                 _is_transfer: true,
                 _is_paynow: movement.is_paynow === true,
+                ...(rememberedDestinationFact ? { _remembered_destination_fact: rememberedDestinationFact } : {}),
                 _transfer: {
                     budget_id: budgetId,
                     source_account_id: source.id,
@@ -3669,6 +3674,26 @@ export class AgentOrchestrator {
                     // Picker failed — leave category blank
                 }
             }
+        }
+
+        // #319: name the remembered mapping this row relied on, so the booking
+        // carries its own provenance. The payee line names the memory rule
+        // (the rule's own key for an incoming amount rule, the fact key the
+        // memory tier used, else the counterparty name the structured route
+        // resolved); the destination line names the stored suffix/recipient
+        // fact, when one resolved the destination leg. Both flow to the
+        // insert through `composeNotes`, which keeps non-Merchant/Statement
+        // lines as user lines.
+        if (output.payee_source === "memory" || output.payee_source === "incoming_rule") {
+            const key = output.payee_source === "incoming_rule"
+                ? incomingKey(output.merchant, { currency: output.currency, amount_cents: output.amount_cents })
+                : (memoryKey || output.merchant);
+            if (key) {
+                output.notes = [output.notes, `Remembered: ${key} maps to ${output.payee_name} payee`].filter(Boolean).join("\n");
+            }
+        }
+        if (output._remembered_destination_fact) {
+            output.notes = [output.notes, `Remembered: ${output._remembered_destination_fact}`].filter(Boolean).join("\n");
         }
 
         return output;
