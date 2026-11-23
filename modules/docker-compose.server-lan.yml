@@ -1,0 +1,40 @@
+# Override for the server while hermes runs on another machine (the laptop).
+# The deploy jobs on the server add it through COMPOSE_FILE only when the
+# repository variable SERVER_LAN_HOST is set; unset, the server reads only
+# docker-compose.yml and nothing here applies.
+#
+# SERVER_LAN_HOST: the server's LAN address, where the modules are published.
+# LAPTOP_LAN_HOST: the hermes machine's LAN address, the only one lan-guard
+# lets reach those ports.
+services:
+    expense-tracker:
+        ports:
+            - "${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}:8080:8080"
+    portfolio-tracker:
+        ports:
+            - "${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}:8081:8081"
+    actual-api:
+        ports:
+            - "${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}:3000:3000"
+    whisper:
+        ports:
+            - "${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}:8000:8000"
+
+    # Drops connections to the ports above unless they come from the hermes
+    # machine. A restarting container rather than a deploy step, so the rules
+    # come back with Docker after a reboot.
+    lan-guard:
+        image: alpine:3.22
+        network_mode: host
+        cap_add:
+            - NET_ADMIN
+            - NET_RAW
+        restart: unless-stopped
+        mem_limit: 64m
+        environment:
+            - SERVER_LAN_HOST=${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}
+            - LAPTOP_LAN_HOST=${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}
+            - GUARDED_PORTS=8080 8081 3000 8000
+        volumes:
+            - ./lan-guard/guard.sh:/guard.sh:ro
+        command: ["sh", "/guard.sh"]

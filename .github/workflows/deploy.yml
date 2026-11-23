@@ -75,6 +75,12 @@ jobs:
             actions: write
         environment:
             name: ${{ github.event.inputs.environment || 'darren-prod' }}
+        # With SERVER_LAN_HOST set, every compose call here also reads the
+        # server LAN override (module ports for the hermes machine, lan-guard).
+        env:
+            COMPOSE_FILE: ${{ vars.SERVER_LAN_HOST != '' && 'docker-compose.yml:docker-compose.server-lan.yml' || 'docker-compose.yml' }}
+            SERVER_LAN_HOST: ${{ vars.SERVER_LAN_HOST }}
+            LAPTOP_LAN_HOST: ${{ vars.LAPTOP_LAN_HOST }}
         steps:
             - &checkout-friday
               uses: actions/checkout@v4

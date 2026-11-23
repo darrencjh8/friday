@@ -34,6 +34,12 @@ jobs:
       actions: write
     environment:
       name: ${{ github.event.inputs.environment || 'darren-prod' }}
+    # Same compose files as deploy.yml's server job, so `up --remove-orphans`
+    # here never removes lan-guard.
+    env:
+      COMPOSE_FILE: ${{ vars.SERVER_LAN_HOST != '' && 'docker-compose.yml:docker-compose.server-lan.yml' || 'docker-compose.yml' }}
+      SERVER_LAN_HOST: ${{ vars.SERVER_LAN_HOST }}
+      LAPTOP_LAN_HOST: ${{ vars.LAPTOP_LAN_HOST }}
     steps:
       - uses: actions/checkout@v4
         with:
