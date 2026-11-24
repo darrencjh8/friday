@@ -39,6 +39,9 @@ RUN chmod 0755 /usr/local/bin/wol
 # Docker over SSH (openssh-client above) when Hermes runs on the laptop.
 COPY scripts/module-docker.sh /usr/local/bin/module-docker
 RUN chmod 0755 /usr/local/bin/module-docker
+# `opencode-host`: hands coding tasks to the host's `opencode serve` over its API.
+COPY scripts/opencode_host.py /usr/local/bin/opencode-host
+RUN chmod 0755 /usr/local/bin/opencode-host
 # Speech to text: Parakeet on the laptop, the server's Whisper as backup (config.yaml stt).
 COPY scripts/stt-transcribe.sh /usr/local/bin/stt-transcribe
 RUN chmod 0755 /usr/local/bin/stt-transcribe

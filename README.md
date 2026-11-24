@@ -107,7 +107,7 @@ friday/
 │   │   ├── opencode/                 # opencode/Codex CLI defaults
 │   │   ├── profiles/                 # code-reviewer (the seed retires static-analyst, qa-engineer, quality-assurance, architect, project-manager, spec-auditor)
 │   │   ├── scripts/                  # github-auth, memory-backup/restore/triage, portfolio-sync, slack-manifest, skill sync
-│   │   ├── skills/                   # expense-tracker, experience-wiki, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, home, hermes-troubleshooting, image-gen, pdf-reading, shopping, skill-merge-approval, spec-auditor, wol
+│   │   ├── skills/                   # expense-tracker, experience-wiki, gcal-readonly, gmail-readonly, goals, google-login, gtasks-cli, home, hermes-troubleshooting, image-gen, opencode-host, pdf-reading, shopping, skill-merge-approval, spec-auditor, wol
 │   │   └── tests/
 │   ├── portfolio-tracker/
 │   │   ├── src/                      # orchestrator, imap, tools, mcp-server, onedrive, ibkr, sheets
@@ -215,7 +215,7 @@ Other workflows:
 | [modules/hermes/SLACK.md](modules/hermes/SLACK.md) | Slack app setup, Socket Mode, and token/scopes. |
 | [modules/portfolio-tracker/README.md](modules/portfolio-tracker/README.md) | Portfolio tracker details and local run instructions. |
 | [modules/expense-tracker/docs/design.md](modules/expense-tracker/docs/design.md) | Expense tracker design. |
-| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `experience-wiki`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `home`, `hermes-troubleshooting`, `image-gen`, `pdf-reading`, `shopping`, `skill-merge-approval`, `spec-auditor`, `wol`. |
+| [modules/hermes/skills/](modules/hermes/skills/) | Skill packs: `expense-tracker`, `experience-wiki`, `gcal-readonly`, `gmail-readonly`, `goals`, `google-login`, `gtasks-cli`, `home`, `hermes-troubleshooting`, `image-gen`, `opencode-host`, `pdf-reading`, `shopping`, `skill-merge-approval`, `spec-auditor`, `wol`. |
 | [.agents/skills/full-deploy/SKILL.md](.agents/skills/full-deploy/SKILL.md) | Full-deploy operator runbook. |
 
 ## Ports
