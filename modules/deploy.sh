@@ -973,7 +973,9 @@ printf '%s' "${DOTS_FCM_SERVICE_ACCOUNT:-}" | docker run --rm -i --network none 
 # under the LAN override that defines that service. Written like the PAT above:
 # a root-only 0400 file from a one-shot root container, the key on stdin only.
 # printf adds the final newline OpenSSH needs and a pasted secret may lack.
-if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
+# A deploy that does not carry the secret (Deploy Codex Router) keeps the key
+# already on disk; writing an empty file would cut hermes-sync off the laptop.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* && -n "${LAPTOP_SSH_KEY:-}" ]]; then
   printf '%s\n' "${LAPTOP_SSH_KEY:-}" | docker run --rm -i --network none \
     -v "/home/runner/data/hermes-sync:/secrets" \
     alpine:3 sh -c '
