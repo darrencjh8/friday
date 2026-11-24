@@ -221,7 +221,7 @@ class SyncServiceTests(unittest.TestCase):
 class DeployWritesTheKeyTests(unittest.TestCase):
     """deploy.sh writes LAPTOP_SSH_KEY to a file only under the server LAN override."""
 
-    def run_block(self, compose_file):
+    def run_block(self, compose_file, key="KEY"):
         script = (MODULES / "deploy.sh").read_text()
         start = script.index("# hermes-sync's key for the laptop")
         block = script[start:script.index("\nfi\n", start) + 4]
@@ -233,7 +233,7 @@ class DeployWritesTheKeyTests(unittest.TestCase):
         subprocess.run(
             ["bash", "-c", block],
             env={"PATH": f"{tmp}:{os.environ['PATH']}", "COMPOSE_FILE": compose_file,
-                 "LAPTOP_SSH_KEY": "KEY", "OUT": str(tmp / "out")},
+                 "LAPTOP_SSH_KEY": key, "OUT": str(tmp / "out")},
             check=True,
         )
         return tmp / "out.args", tmp / "out.stdin"
@@ -249,6 +249,10 @@ class DeployWritesTheKeyTests(unittest.TestCase):
             with self.subTest(compose_file=compose_file):
                 args, _ = self.run_block(compose_file)
                 self.assertFalse(args.exists())
+
+    def test_a_deploy_without_the_secret_keeps_the_key_on_disk(self):
+        args, _ = self.run_block("docker-compose.yml:docker-compose.server-lan.yml", key="")
+        self.assertFalse(args.exists())
 
     def test_deploy_env_carries_the_key(self):
         workflow = yaml.safe_load((ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8"))
