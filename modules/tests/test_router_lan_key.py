@@ -24,6 +24,21 @@ class TestRouterLanToken(unittest.TestCase):
         # The guard must come before the proxy, or caddy would never reach it first.
         self.assertLess(caddy.index("respond @lan_without_token"), caddy.index("reverse_proxy"))
 
+    def test_laptop_hermes_is_trusted_without_the_key(self):
+        # Hermes on the laptop calls the router from the LAN with `api_key: local`,
+        # so the front trusts that one address, and only on the server-lan layout.
+        caddy = (ROOT / "modules/codex-router-front/Caddyfile").read_text(encoding="utf-8")
+        self.assertIn("100.64.0.0/10 {$CODEX_ROUTER_TRUSTED_IP}", caddy)
+        lan = yaml.safe_load((ROOT / "modules/docker-compose.server-lan.yml").read_text(encoding="utf-8"))
+        self.assertIn(
+            "CODEX_ROUTER_TRUSTED_IP=${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}",
+            lan["services"]["codex-router"]["environment"],
+        )
+        base = yaml.safe_load((ROOT / "modules/docker-compose.yml").read_text(encoding="utf-8"))
+        self.assertFalse(
+            any("CODEX_ROUTER_TRUSTED_IP" in e for e in base["services"]["codex-router"]["environment"])
+        )
+
     def test_one_key_reaches_the_front_and_both_colours_from_secrets(self):
         compose = yaml.safe_load((ROOT / "modules/docker-compose.yml").read_text(encoding="utf-8"))
         for service in ("codex-router", "codex-router-a", "codex-router-b"):
