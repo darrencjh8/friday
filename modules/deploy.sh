@@ -985,6 +985,42 @@ if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
     '
 fi
 
+# ---- hermes -> server SSH for the module containers (laptop only) ----
+# With the laptop override in COMPOSE_FILE, hermes runs here and the modules on
+# the server. `module-docker` in the container reaches the server's Docker over
+# SSH (MODULES_DOCKER_HOST, set by the override) with a dedicated key. The key
+# comes from the HERMES_SERVER_SSH_KEY secret on stdin, never argv or the log,
+# and is written by a throwaway root container like the secrets above, owned by
+# the gateway uid. The server's host key is pinned from SERVER_SSH_HOST_KEY
+# rather than trusted on first use: the laptop reaches the server over Wi-Fi,
+# and a first connection to a spoofed address would otherwise be remembered.
+# The ssh client config names that key and file for the server's address only,
+# so no other ssh use in the container changes. A missing key or host key only
+# warns: Friday still deploys, and module-docker fails until they are set.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]; then
+  if [ -z "${HERMES_SERVER_SSH_KEY:-}" ] || [ -z "${SERVER_SSH_HOST_KEY:-}" ]; then
+    echo -e "  ${YELLOW}⚠ HERMES_SERVER_SSH_KEY or SERVER_SSH_HOST_KEY is unset: module-docker cannot reach the server${NC}"
+  fi
+  printf '%s\n' "${HERMES_SERVER_SSH_KEY:-}" | docker run --rm -i --network none \
+    -e SERVER_LAN_HOST -e SERVER_SSH_HOST_KEY \
+    -v "/home/runner/data/hermes:/secrets" \
+    alpine:3 sh -c '
+    umask 077
+    dir=/secrets/server-ssh
+    mkdir -p "$dir"
+    tmp="$(mktemp "$dir/.id.XXXXXX")"
+    cat > "$tmp"
+    chown 10000:10000 "$tmp"
+    chmod 0400 "$tmp"
+    mv -f "$tmp" "$dir/id"
+    printf "%s %s\n" "$SERVER_LAN_HOST" "$SERVER_SSH_HOST_KEY" > "$dir/known_hosts"
+    printf "Host %s\n    IdentityFile /run/secrets/server-ssh/id\n    IdentitiesOnly yes\n    UserKnownHostsFile /run/secrets/server-ssh/known_hosts\n    StrictHostKeyChecking yes\n    BatchMode yes\n    ConnectTimeout 10\n" \
+      "$SERVER_LAN_HOST" > "$dir/config"
+    chmod 0444 "$dir/known_hosts" "$dir/config"
+    chmod 0755 "$dir"
+  '
+fi
+
 COMPOSE="docker-compose --project-name modules"
 
 if [[ " ${COMPONENTS[*]} " =~ " all " ]] || [[ ${#COMPONENTS[@]} -eq 1 && "${COMPONENTS[0]}" == "all" ]]; then
