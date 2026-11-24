@@ -998,6 +998,11 @@ fi
 # so no other ssh use in the container changes. A missing key or host key only
 # warns: Friday still deploys, and module-docker fails until they are set.
 if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]; then
+  # The server's hermes-sync reads wiki/entities/accounts over SSH as the laptop's
+  # login user, who must be able to pass through data/ (0700, owned by the
+  # container user). o+x allows only that: data/ still cannot be listed.
+  docker run --rm --network none -v "/home/runner/data/hermes:/h" alpine:3 \
+    sh -c '[ ! -d /h/data ] || chmod o+x /h/data'
   if [ -z "${HERMES_SERVER_SSH_KEY:-}" ] || [ -z "${SERVER_SSH_HOST_KEY:-}" ]; then
     echo -e "  ${YELLOW}⚠ HERMES_SERVER_SSH_KEY or SERVER_SSH_HOST_KEY is unset: module-docker cannot reach the server${NC}"
   fi
@@ -1155,6 +1160,14 @@ health_ok() {
 
 failed=0
 
+# Whether hermes runs on this machine. With HERMES_TARGET=friday-laptop it runs on
+# the laptop, whose deploy-hermes job reads docker-compose.laptop.yml and does the
+# hermes steps below there; the server only keeps the stopped pre-cutover
+# container, which must not be mistaken for a live one.
+hermes_here() {
+  [ "${HERMES_TARGET:-server}" = server ] || [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]
+}
+
 # ---- codex-router skill payload ----
 # codex-router owns the skills it publishes (dev-loop, code-reviewer, ...). The
 # deploy.yml checkout always provides modules/codex-router, so stage its
@@ -1172,12 +1185,12 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
   elif [ ! -f "$SKILLS_SYNC" ]; then
     echo "  (skill reconciler missing; skipping skill sync)" >&2
     [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
+  elif ! hermes_here; then
+    # ponytail: a codex-router-only deploy reaches the laptop's hermes at its next deploy.
+    echo "  (hermes runs on the laptop; its own deploy syncs the skills)"
   elif ! docker inspect hermes >/dev/null 2>&1; then
     echo "  (hermes container not present; skipping skill sync)" >&2
-    # With HERMES_TARGET=friday-laptop, hermes lives on another runner and its own
-    # deploy syncs the skills there, so a missing container here is expected.
-    # ponytail: a codex-router-only deploy reaches that hermes at its next deploy.
-    [ -n "${GITHUB_ACTIONS:-}" ] && [ "${HERMES_TARGET:-server}" = server ] && failed=$((failed + 1))
+    [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
   else
     ready=false
     for _ in $(seq 1 15); do
@@ -1191,8 +1204,10 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
       docker exec hermes rm -rf /opt/data/.codex-router-skills.new 2>/dev/null || true
       # The reconciler owns the staged swap and the reconcile under one lock, so
       # the boot hook and this run can never race on the same tree.
-      if docker cp "$SKILLS_SRC/." hermes:/opt/data/.codex-router-skills.new \
-          && docker cp "$SKILLS_SYNC" hermes:/tmp/sync-codex-router-skills.sh \
+      # Streamed through docker exec instead of the cp subcommand, which Docker
+      # Desktop on the laptop cannot do into the WSL bind mount behind /opt/data.
+      if tar -C "$SKILLS_SRC" -cf - . | docker exec -i hermes sh -c 'mkdir -p /opt/data/.codex-router-skills.new && tar -xf - --no-same-owner -C /opt/data/.codex-router-skills.new' \
+          && docker exec -i hermes sh -c 'cat > /tmp/sync-codex-router-skills.sh' < "$SKILLS_SYNC" \
           && docker exec hermes sh /tmp/sync-codex-router-skills.sh /opt/data/.codex-router-skills /opt/data/.codex-router-skills.new; then
         sync_ok=true
       fi
@@ -1226,8 +1241,8 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
   elif [ ! -f "$CHECKOUT_SCRIPT" ]; then
     echo "  (checkout refresh script missing; skipping container checkout refresh)" >&2
     [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
-  elif ! docker inspect hermes >/dev/null 2>&1; then
-    echo "  (hermes container not present; skipping container checkout refresh)"
+  elif ! hermes_here || ! docker inspect hermes >/dev/null 2>&1; then
+    echo "  (hermes is not on this machine; skipping container checkout refresh)"
   else
     CHECKOUT_READY=false
     for _ in $(seq 1 15); do
@@ -1241,7 +1256,7 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
     if [ "$CHECKOUT_READY" != true ]; then
       echo -e "  ${RED}✗ hermes container did not become ready for the checkout refresh${NC}"
       failed=$((failed + 1))
-    elif docker cp "$CHECKOUT_SCRIPT" hermes:/tmp/refresh-codex-router-checkout.sh \
+    elif docker exec -i hermes sh -c 'cat > /tmp/refresh-codex-router-checkout.sh' < "$CHECKOUT_SCRIPT" \
         && [ -n "$CHECKOUT_TARGET" ] \
         && CHECKOUT_OUTPUT=$(docker exec -e CODEX_ROUTER_LOCK_WAIT_SECONDS=300 -e GH_TOKEN="${FRIDAY_PAT:-}" -u hermes hermes sh /tmp/refresh-codex-router-checkout.sh "$CHECKOUT_TARGET" 2>&1); then
       printf '%s\n' "$CHECKOUT_OUTPUT"
@@ -1605,7 +1620,7 @@ echo "--- MCP Reconnect ---"
 sleep 5
 
 for mcp_name in expense-tracker portfolio-tracker; do
-  if { should_deploy "$mcp_name" || should_deploy "all"; } && docker inspect hermes >/dev/null 2>&1; then
+  if { should_deploy "$mcp_name" || should_deploy "all"; } && hermes_here && docker inspect hermes >/dev/null 2>&1; then
     echo -n "  $mcp_name ... "
     if docker exec hermes hermes mcp test "$mcp_name" > /dev/null 2>&1; then
       echo -e "${GREEN}connected${NC}"
