@@ -11,7 +11,9 @@ with `browser_exec`. Attach failures are logged as a warning.
 
 Local change: `DotsAdapter.send` shows an expense-tracker learning offer ("Tap /remember_<id> or
 /forget_<id>") as an approval card, and `_on_approval` answers a `learn_<id>` card once by sending
-`/remember_<id>` (Approve) or `/forget_<id>` (Refuse) as the owner, for the `learning-commands` plugin.
+`/remember_<id>` (Approve) or `/forget_<id>` (Refuse) as the owner, for the `learning-commands` plugin. It runs
+that plugin's `pre_gateway_dispatch` hook itself, since a tap while Friday is mid-turn would
+otherwise steer the running turn and the model would see the bare command.
 A Muse purchase request from the `muse-requests` cron ("Tap /buy_<n> or /skip_<n>") becomes a
 `muse_<n>` card the same way: Buy tells the agent, as the owner, to buy friday-persona issue `<n>`
 with the shopping skill, and Refuse tells it to comment and close the issue. Both are marked

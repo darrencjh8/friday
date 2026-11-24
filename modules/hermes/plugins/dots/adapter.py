@@ -2061,10 +2061,18 @@ class DotsAdapter(BasePlatformAdapter):
             await self._push({"type": "approval_resolved", "approval_id": approval_id, "choice": choice})
             prefix, _title, _yes, _no, approve, refuse = _OFFERS[verb]
             text = (refuse if choice == "deny" else approve).format(approval_id[len(prefix):])
-            await self.handle_message(MessageEvent(
+            event = MessageEvent(
                 text=text, message_type=MessageType.TEXT,
                 source=self._source(card.get("chat") or OWNER), message_id=uuid.uuid4().hex,
-                timestamp=datetime.now(tz=UTC)))
+                timestamp=datetime.now(tz=UTC))
+            # A tap while Friday is mid-turn takes the busy path, which steers the running turn and
+            # never runs pre_gateway_dispatch, so learning-commands would not see /remember. Run the
+            # hook here; None means the plugin answered it.
+            runner = getattr(self, "gateway_runner", None)
+            if verb == "remember" and runner is not None and await runner._hm_pre_gateway_dispatch_hook(
+                    event, event.source) is None:
+                return
+            await self.handle_message(event)
             return
         from tools.approval import resolve_gateway_approval
         session_key = self._approvals.pop(approval_id, None)
