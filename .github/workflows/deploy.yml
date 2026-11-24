@@ -284,6 +284,8 @@ jobs:
                   # budget under 300 always pre-empts the lane. Not a secret: it is
                   # a duration, and a repository variable overrides it.
                   CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS: ${{ vars.CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS || '300' }}
+                  # 1 turns on the router's per-request timing and access logs.
+                  CODEX_ROUTER_REQUEST_LOGS: ${{ vars.CODEX_ROUTER_REQUEST_LOGS || '0' }}
                   LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'litellm' }}
                   LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'http://codex-router:4100/v1' }}
                   LLM_MODEL: ${{ vars.LLM_MODEL || 'auto-thinking' }}
