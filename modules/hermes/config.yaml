@@ -22,6 +22,11 @@ compression:
 
 agent:
     reasoning_effort: none
+    # `none` suits the router pools, which set each hop's effort themselves. The
+    # direct DeepSeek fallback has no pool behind it, so it would answer without
+    # thinking; the override applies when the fallback takes over a turn.
+    reasoning_overrides:
+        deepseek-flash: high
     # Prompt/cost trim: headless server, text-plus-finance use. Re-enable per
     # platform with `hermes tools enable` if a task needs one back.
     disabled_toolsets:
