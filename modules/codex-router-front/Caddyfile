@@ -14,8 +14,10 @@
 	# before. Any other caller must send the router's master key (the one the
 	# manager's hop edits use). An unset key matches nothing ("Bearer " is
 	# never a sent value), so the LAN is refused rather than let in.
+	# CODEX_ROUTER_TRUSTED_IP adds one more address: the hermes machine when
+	# hermes runs on the laptop (docker-compose.server-lan.yml); unset, nothing.
 	@lan_without_token {
-		not remote_ip 127.0.0.0/8 172.16.0.0/12 100.64.0.0/10
+		not remote_ip 127.0.0.0/8 172.16.0.0/12 100.64.0.0/10 {$CODEX_ROUTER_TRUSTED_IP}
 		not header Authorization "Bearer {$LITELLM_MASTER_KEY}"
 	}
 	respond @lan_without_token "codex-router: send the router key as a Bearer token" 401

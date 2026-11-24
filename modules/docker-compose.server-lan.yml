@@ -7,6 +7,12 @@
 # LAPTOP_LAN_HOST: the hermes machine's LAN address, the only one lan-guard
 # lets reach those ports.
 services:
+    # Hermes on the laptop calls the router from the LAN with no router key,
+    # as it did from the Docker network on the server; the front lets that one
+    # address in, the same trust lan-guard gives it for the module ports.
+    codex-router:
+        environment:
+            - CODEX_ROUTER_TRUSTED_IP=${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}
     expense-tracker:
         ports:
             - "${SERVER_LAN_HOST:?SERVER_LAN_HOST is required}:8080:8080"
