@@ -109,6 +109,22 @@ class DeployChangeDetectionTests(unittest.TestCase):
         # the safe "deploy everything" default.
         self.assertEqual("all", self.components_for_change("modules/docker-compose.yml.bak"))
 
+    def test_docs_only_change_deploys_nothing(self):
+        self.assertEqual("none", self.components_for_change("docs/operations.md", "DEPLOY.md"))
+
+    def test_docs_with_any_other_unmatched_change_still_deploys_everything(self):
+        self.assertEqual("all", self.components_for_change("docs/operations.md", "modules/build.sh"))
+
+    def test_split_step_turns_none_into_an_empty_list(self):
+        steps = yaml.safe_load(DEPLOY_WORKFLOW.read_text(encoding="utf-8"))["jobs"]["deploy"]["steps"]
+        split = next(s for s in steps if s.get("name") == "Split hermes off to its own runner")
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "out"
+            subprocess.run(["bash", "-eo", "pipefail", "-c", split["run"]], check=True,
+                           env={"PATH": os.environ["PATH"], "GITHUB_OUTPUT": str(out),
+                                "DETECTED": "none", "HERMES_TARGET": "friday-laptop"})
+            self.assertEqual(["hermes=false", "components="], out.read_text().splitlines())
+
     def test_deploy_script_change_redeploys_everything(self):
         self.assertEqual("all", self.components_for_change("modules/deploy.sh"))
 

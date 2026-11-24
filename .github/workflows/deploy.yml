@@ -172,7 +172,12 @@ jobs:
                   echo "$CHANGED" | grep -qE "^(\.github/workflows/deploy\.yml|modules/(docker-compose\.yml|deploy\.sh))$" && COMPONENTS="$COMPONENTS codex-router"
                   # A bump of the hermes-dots pin rebuilds the tailnet web app.
                   echo "$CHANGED" | grep -q "^modules/hermes-dots\.sha$" && COMPONENTS="$COMPONENTS dots-web"
-                  if [ -z "$COMPONENTS" ] || echo "$CHANGED" | grep -qE "^(Dockerfile|deploy\.sh|modules/(docker-compose\.yml|deploy\.sh)$)"; then
+                  # Only documentation changed: deploy nothing. `none`, because an
+                  # empty output reads as `all` downstream. Any other unmatched
+                  # change keeps the safe default below and deploys everything.
+                  if [ -z "$COMPONENTS" ] && [ -n "$CHANGED" ] && ! echo "$CHANGED" | grep -qvE '(^docs/|\.md$)'; then
+                      COMPONENTS=none
+                  elif [ -z "$COMPONENTS" ] || echo "$CHANGED" | grep -qE "^(Dockerfile|deploy\.sh|modules/(docker-compose\.yml|deploy\.sh)$)"; then
                       COMPONENTS="all"
                   fi
                   echo "components=$COMPONENTS" >> "$GITHUB_OUTPUT"
@@ -188,6 +193,12 @@ jobs:
               env:
                   DETECTED: ${{ steps.detect.outputs.components || 'all' }}
               run: |
+                  if [ "$DETECTED" = none ]; then
+                      echo "nothing to deploy"
+                      echo "hermes=false" >> "$GITHUB_OUTPUT"
+                      echo "components=" >> "$GITHUB_OUTPUT"
+                      exit 0
+                  fi
                   case " $DETECTED " in
                       *" all "*|*" hermes "*) echo "hermes=true" >> "$GITHUB_OUTPUT" ;;
                       *) echo "hermes=false" >> "$GITHUB_OUTPUT" ;;
@@ -212,7 +223,8 @@ jobs:
                   bash ./scripts/fetch-persona-media.sh dots-web modules/hermes-dots/web
                   bash ./scripts/fetch-persona-media.sh android modules/hermes-dots
 
-            # Empty only when hermes was the whole list and deploys elsewhere.
+            # Empty when nothing deployable changed, or when hermes was the whole
+            # list and deploys elsewhere.
             - name: Build images
               if: steps.changes.outputs.components != ''
               env:
