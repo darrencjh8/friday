@@ -21,7 +21,11 @@ SCRIPT = MODULES / "hermes-sync" / "sync.sh"
 # Each stub appends "<name> <args>" to $CALLS. rsync fails while $FAIL exists;
 # sleep heals it (removes $FAIL) once it has been called $HEAL_AFTER times.
 STUBS = {
-    "rsync": 'echo "rsync $*" >> "$CALLS"; [ ! -e "$FAIL" ] || { echo "connection refused" >&2; exit 12; }',
+    "rsync": (
+        'echo "rsync $*" >> "$CALLS"; [ ! -e "$FAIL" ] || { echo "connection refused" >&2; exit 12; }; '
+        'case "$*" in *@*:*/accounts/" "*) [ -z "${RSYNC_REFUSE_PULL:-}" ] || grep -q "chmod o+x" "$CALLS" '
+        '|| { echo "Permission denied (13)" >&2; exit 23; };; esac'
+    ),
     "ssh": 'echo "ssh $*" >> "$CALLS"',
     "sqlite3": 'echo "sqlite3 $*" >> "$CALLS"',
     "curl": 'echo "curl $*" >> "$CALLS"',
@@ -76,6 +80,20 @@ class SyncScriptTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         calls = (tmp / "calls").read_text().splitlines() if (tmp / "calls").exists() else []
         return calls, result.stdout, tmp
+
+    def test_refused_accounts_read_grants_traverse_and_retries_once(self):
+        # Only the accounts pull (the one reading from the laptop) is refused,
+        # and only until the ssh chmod has run.
+        calls, out, tmp = self.run_sync(failing=False, RSYNC_REFUSE_PULL="1")
+        pulls = [c for c in calls if c.startswith("rsync") and str(tmp / "accounts") in c]
+        self.assertEqual(2, len(pulls), calls)
+        chmods = [c for c in calls if c.startswith("ssh") and "chmod o+x /d" in c]
+        self.assertEqual(1, len(chmods), calls)
+        self.assertIn("/home/runner/data/hermes/data:/d", chmods[0])
+        # The two pulls are identical lines, so order by position, not by value.
+        order = [c for c in calls if c in pulls or c in chmods]
+        self.assertEqual([pulls[0], chmods[0], pulls[1]], order)
+        self.assertIn("hermes-sync: ok", out)
 
     def test_idle_unless_hermes_is_on_the_laptop(self):
         for target in (None, "server", ""):
