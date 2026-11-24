@@ -56,6 +56,9 @@ assert config["model"].get("default") == "auto-thinking"
 assert "base_url" not in config["model"]
 assert "api_key" not in config["model"]
 assert config["agent"]["reasoning_effort"] == "none"
+assert config["agent"]["reasoning_overrides"] == {"deepseek-flash": "high"}, (
+    "the direct DeepSeek fallback must think at high effort"
+)
 assert "moa" not in (config["agent"].get("disabled_toolsets") or []), (
     "main agent must not disable the moa toolset"
 )
