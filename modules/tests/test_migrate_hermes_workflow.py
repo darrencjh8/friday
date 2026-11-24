@@ -1,11 +1,12 @@
 """migrate-hermes.yml moves Hermes's data between the server and the laptop.
 
-The migrate step runs here against stubbed docker, ssh, rsync, df and hostname.
+The migrate step runs here against stubbed docker, ssh, df and hostname.
 Both "machines" share one temporary DATA_ROOT; the ssh stub runs the remote
 command locally with SIDE=laptop so the stubs can tell the two apart.
 """
 from pathlib import Path
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -47,7 +48,8 @@ STUBS = {
         'for last; do :; done\n'
         'SIDE=laptop exec bash -c "$last"\n'
     ),
-    "rsync": 'echo "${SIDE:-server} rsync $*" >> "$LOG"\n',
+    # The server has no rsync: any use fails the run.
+    "rsync": 'echo "rsync: command not found" >&2; exit 127\n',
     "df": (
         'side=${SIDE:-server}\n'
         'var="FREE_$side"\n'
@@ -55,20 +57,20 @@ STUBS = {
         'echo "disk 1 1 ${!var} 1% /"\n'
     ),
     # docker: hermes state per side lives in $STATE/<side>; `run` emulates
-    # du and the archive; everything is logged with the side it ran on.
+    # du and rsync; everything is logged with the side it ran on. rsync's
+    # dry run prints $STATE/diff, and a copy exits with $STATE/rsync_rc.
     "docker": (
         'side=${SIDE:-server}\n'
         'echo "$side docker $*" >> "$LOG"\n'
         'case "$1" in\n'
         '  inspect) cat "$STATE/$side" 2>/dev/null || exit 1 ;;\n'
         '  stop) echo false > "$STATE/$side" ;;\n'
+        '  build) cat > /dev/null ;;\n'
         '  run)\n'
         '    case "$*" in\n'
         '      *"du -sk"*) printf "1000\\t/src\\n" ;;\n'
-        '      *"-cpf"*)\n'
-        '        out=$(printf "%s\\n" "$@" | sed -n "s/:\\/out$//p")\n'
-        '        echo archive > "$out/hermes.tar"\n'
-        '        (cd "$out" && sha256sum hermes.tar > hermes.tar.sha256) ;;\n'
+        '      *"--dry-run"*) cat "$STATE/diff" 2>/dev/null || true ;;\n'
+        '      *" rsync "*) exit "$(cat "$STATE/rsync_rc" 2>/dev/null || echo 0)" ;;\n'
         '    esac ;;\n'
         'esac\n'
     ),
@@ -76,7 +78,8 @@ STUBS = {
 
 
 def migrate(direction="to-laptop", dry_run="true", server="true", laptop="false",
-            free_server=10_000_000, free_laptop=10_000_000, hostname_ip="server-ip"):
+            free_server=10_000_000, free_laptop=10_000_000, hostname_ip="server-ip",
+            diff="", rsync_rc=0):
     """Run the migrate step; return (returncode, log lines, outputs, data root)."""
     script = step("Migrate hermes data")["run"]
     td = tempfile.mkdtemp()
@@ -91,6 +94,8 @@ def migrate(direction="to-laptop", dry_run="true", server="true", laptop="false"
     state.mkdir()
     (state / "server").write_text(server + "\n")
     (state / "laptop").write_text(laptop + "\n")
+    (state / "diff").write_text(diff)
+    (state / "rsync_rc").write_text(f"{rsync_rc}\n")
     data_root = Path(td) / "data"
     (data_root / "hermes" / "data").mkdir(parents=True)
     log = Path(td) / "log"
@@ -113,6 +118,12 @@ def has(lines, *parts):
     return any(all(p in line for p in parts) for line in lines)
 
 
+def copies(lines):
+    """rsync runs that copy (not the final dry-run check), in order."""
+    return [line for line in lines if " docker run " in f" {line}" and " rsync -aH " in line
+            and "--dry-run" not in line]
+
+
 class MigrateHermesWorkflowTests(unittest.TestCase):
     def test_inputs_default_to_a_dry_run_to_the_laptop(self):
         inputs = workflow()[True]["workflow_dispatch"]["inputs"]
@@ -129,72 +140,100 @@ class MigrateHermesWorkflowTests(unittest.TestCase):
         self.assertEqual(deploy["concurrency"], workflow()["concurrency"])
         self.assertEqual("production-deploy", workflow()["concurrency"]["group"])
 
-    def test_dry_run_copies_and_verifies_but_never_stops_or_extracts(self):
+    def test_dry_run_fills_the_stage_but_never_stops_or_moves_anything(self):
         for direction in ("to-laptop", "to-server"):
             with self.subTest(direction=direction):
                 rc, log, outputs, _ = migrate(direction, "true", server="true", laptop="true")
                 self.assertEqual(0, rc, log)
-                self.assertTrue(has(log, "rsync"))
-                self.assertTrue(has(log, "-cpf"))
+                self.assertEqual(1, len(copies(log)))
                 self.assertFalse(has(log, "docker stop"))
-                self.assertFalse(has(log, "-xpf"))
-                self.assertFalse(has(log, "mv /d/hermes"))
+                self.assertFalse(has(log, "mv /d/"))
                 self.assertNotIn("stopped_hermes", outputs)
 
-    def test_to_laptop_stops_only_server_hermes_then_extracts_on_the_laptop(self):
-        rc, log, outputs, root = migrate("to-laptop", "false")
+    def test_dry_run_tolerates_files_vanishing_while_hermes_runs(self):
+        rc, log, _, _ = migrate("to-laptop", "true", rsync_rc=24)
+        self.assertEqual(0, rc, log)
+
+    def test_to_laptop_copies_twice_around_the_stop_then_renames_the_stage_on_the_laptop(self):
+        rc, log, outputs, _ = migrate("to-laptop", "false")
         self.assertEqual(0, rc, log)
         self.assertEqual("true", outputs["stopped_hermes"])
         stops = [line for line in log if "docker stop" in line]
         self.assertEqual(["server docker stop -t 60 hermes"], stops)
+        # The two copies log identical lines, so compare positions.
+        first, final = [i for i, line in enumerate(log) if line in copies(log)]
         stop = log.index(stops[0])
-        archive = next(i for i, line in enumerate(log) if " docker run " in line and not line.startswith("ssh ") and "-cpf" in line)
-        self.assertLess(stop, archive)
-        self.assertTrue(log[archive].startswith("server "))
-        extract = [line for line in log if " docker run " in line and not line.startswith("ssh ") and "-xpf" in line]
-        self.assertEqual(1, len(extract))
-        self.assertTrue(extract[0].startswith("laptop "))
-        self.assertIn("mv /d/hermes /d/hermes.bak-", extract[0])
-        # Only the run's own stage directory is removed.
-        self.assertFalse((root / ".migrate-hermes-42").exists())
-        self.assertTrue((root / "hermes" / "data").is_dir())
+        check = next(i for i, line in enumerate(log) if "--dry-run" in line)
+        self.assertLess(first, stop)
+        self.assertLess(stop, final)
+        self.assertLess(final, check)
+        for line in (log[first], log[final], log[check]):
+            self.assertTrue(line.startswith("server docker run"))
+            self.assertIn("/d/hermes/ darren@laptop-ip:/d/.migrate-hermes-stage/", line)
+        finish = [line for line in log if "mv /d/.migrate-hermes-stage /d/hermes" in line and not line.startswith("ssh ")]
+        self.assertEqual(1, len(finish))
+        self.assertTrue(finish[0].startswith("laptop docker run"))
+        self.assertIn("mv /d/hermes /d/hermes.bak-", finish[0])
+        self.assertLess(check, log.index(finish[0]))
+
+    def test_a_remaining_difference_stops_before_the_stage_is_moved(self):
+        rc, log, outputs, _ = migrate("to-laptop", "false", diff=">f.st...... data/state.db\n")
+        self.assertNotEqual(0, rc)
+        self.assertEqual("true", outputs["stopped_hermes"])
+        self.assertFalse(has(log, "mv /d/"))
+
+    def test_a_failed_final_copy_stops_before_the_stage_is_moved(self):
+        rc, log, _, _ = migrate("to-laptop", "false", rsync_rc=24)
+        self.assertNotEqual(0, rc)
+        self.assertFalse(has(log, "mv /d/"))
+
+    def test_rsync_runs_as_root_on_both_sides_and_keeps_owners(self):
+        _, log, _, _ = migrate("to-laptop", "true")
+        line = copies(log)[0]
+        self.assertIn("rsync -aH --numeric-ids --delete", line)
+        self.assertIn("--rsync-path=export DOCKER_CONFIG=/home/darren/.docker-friday; docker run --rm -i -v", line)
+        self.assertIn("StrictHostKeyChecking=yes", line)
+        for side in ("server", "laptop"):
+            self.assertTrue(has(log, f"{side} docker build -q -t friday-rsync:1 -"))
+
+    def test_skips_only_the_uv_caches(self):
+        excludes = re.findall(r"--exclude=(\S+)", step("Migrate hermes data")["run"])
+        self.assertEqual(["/data/cache/uv/", "/data/.cache/uv/"], excludes)
 
     def test_to_laptop_refuses_while_hermes_runs_on_the_laptop(self):
         rc, log, outputs, _ = migrate("to-laptop", "false", laptop="true")
         self.assertNotEqual(0, rc)
         self.assertFalse(has(log, "docker stop"))
-        self.assertFalse(has(log, "-cpf"))
+        self.assertEqual([], copies(log))
         self.assertNotIn("stopped_hermes", outputs)
 
     def test_to_server_refuses_while_hermes_runs_on_the_laptop(self):
         rc, log, _, _ = migrate("to-server", "false", server="false", laptop="true")
         self.assertNotEqual(0, rc)
         self.assertFalse(has(log, "docker stop"))
-        self.assertFalse(has(log, "-cpf"))
+        self.assertEqual([], copies(log))
 
     def test_to_server_refuses_while_hermes_runs_on_the_server(self):
         rc, log, _, _ = migrate("to-server", "false", server="true", laptop="false")
         self.assertNotEqual(0, rc)
-        self.assertFalse(has(log, "-cpf"))
+        self.assertEqual([], copies(log))
 
-    def test_to_server_pulls_from_the_laptop_and_extracts_on_the_server(self):
+    def test_to_server_pulls_from_the_laptop_and_renames_the_stage_on_the_server(self):
         rc, log, outputs, _ = migrate("to-server", "false", server="false", laptop="false")
         self.assertEqual(0, rc, log)
         self.assertNotIn("stopped_hermes", outputs)
         self.assertFalse(has(log, "docker stop"))
-        self.assertTrue(next(line for line in log if " docker run " in line and not line.startswith("ssh ") and "-cpf" in line).startswith("laptop "))
-        self.assertTrue(has(log, "rsync", "darren@laptop-ip:"))
-        extract = next(line for line in log if " docker run " in line and not line.startswith("ssh ") and "-xpf" in line)
-        self.assertTrue(extract.startswith("server "))
-        self.assertIn("mv /d/hermes /d/hermes.bak-", extract)
+        for line in copies(log):
+            self.assertIn("darren@laptop-ip:/d/hermes/ /d/.migrate-hermes-stage/", line)
+        finish = next(line for line in log if "mv /d/.migrate-hermes-stage /d/hermes" in line and not line.startswith("ssh "))
+        self.assertTrue(finish.startswith("server docker run"))
+        self.assertIn("mv /d/hermes /d/hermes.bak-", finish)
 
-    def test_fails_before_stopping_when_either_side_lacks_space(self):
-        for kwargs in ({"free_server": 10}, {"free_laptop": 10}):
-            with self.subTest(**kwargs):
-                rc, log, _, _ = migrate("to-laptop", "false", **kwargs)
-                self.assertNotEqual(0, rc)
-                self.assertFalse(has(log, "docker stop"))
-                self.assertFalse(has(log, "-cpf"))
+    def test_fails_before_copying_when_the_receiving_side_lacks_space(self):
+        rc, log, _, _ = migrate("to-laptop", "false", free_laptop=10)
+        self.assertNotEqual(0, rc)
+        self.assertFalse(has(log, "docker stop"))
+        self.assertEqual([], copies(log))
 
     def test_refuses_on_a_runner_that_is_not_the_server(self):
         rc, log, _, _ = migrate("to-laptop", "false", hostname_ip="elsewhere")
@@ -208,13 +247,12 @@ class MigrateHermesWorkflowTests(unittest.TestCase):
         for line in ssh:
             self.assertIn("export DOCKER_CONFIG=/home/darren/.docker-friday;", line)
 
-    def test_deletes_nothing_but_its_own_archive(self):
+    def test_deletes_nothing_outside_the_stage(self):
         text = WORKFLOW.read_text(encoding="utf-8")
-        self.assertNotIn("rm -rf", text)
-        self.assertNotIn("rm -r ", text)
+        self.assertNotIn("rm -r", text)
         for line in text.splitlines():
-            if "rm -f" in line and "KEY" not in line:
-                self.assertIn("hermes.tar", line)
+            if "rm -f" in line:
+                self.assertIn("KEY", line)
 
     def test_failure_restarts_the_server_hermes_it_stopped(self):
         restart = step("Restart the server's hermes after a failure")

@@ -6,13 +6,19 @@ name: Migrate Hermes data
 # only authorizes logins from the server, so the server starts every transfer,
 # pushing for to-laptop and pulling for to-server.
 #
-# dry_run (the default) archives, copies and verifies the checksum without
-# stopping hermes or extracting anything; the copy is then not consistent and
-# only measures time and size. dry_run=false stops the server's hermes first
-# (to-laptop) or requires the laptop's hermes to be stopped already (to-server),
-# then extracts on the receiving side after moving any existing hermes directory
-# aside to hermes.bak-<timestamp>. Nothing is deleted except the archive and
-# checksum this run created.
+# rsync runs as root in a small alpine container on each side (the data is
+# owned by the container user, and the server host has no rsync), copying into
+# a stage directory, .migrate-hermes-stage, on the receiving side. The stage is
+# kept between runs, so each run copies only what changed since the last one.
+#
+# dry_run (the default) copies into the stage while hermes keeps running and
+# stops there. Run it first: it moves the bulk of the data with no downtime.
+# dry_run=false copies again while hermes still runs, then stops the server's
+# hermes (to-laptop) or requires the laptop's hermes to be stopped already
+# (to-server), makes a final pass, checks that nothing differs, moves any
+# existing hermes directory on the receiving side aside to
+# hermes.bak-<timestamp>, and renames the stage into place. rsync --delete
+# only ever applies inside the stage; nothing else is deleted.
 
 on:
     workflow_dispatch:
@@ -67,37 +73,50 @@ jobs:
                   hostname -I | tr ' ' '\n' | grep -xF "$SERVER_LAN_HOST" >/dev/null \
                       || { echo "this runner is not the server ($SERVER_LAN_HOST)" >&2; exit 1; }
 
-                  # Same path on both machines. The stage directory holds the
-                  # only files this run ever deletes.
-                  STAGE="$DATA_ROOT/.migrate-hermes-$GITHUB_RUN_ID"
-                  IMAGE=alpine:3
+                  STAGE=.migrate-hermes-stage
+                  IMAGE=friday-rsync:1
                   KEY=$(mktemp)
                   chmod 600 "$KEY"
                   printf '%s\n' "$LAPTOP_SSH_KEY" > "$KEY"
+                  trap 'rm -f "$KEY"' EXIT
                   SSH="ssh -p 2222 -i $KEY -o BatchMode=yes -o StrictHostKeyChecking=accept-new"
 
                   # On the laptop, Docker Desktop's default config names a Windows
                   # credential helper that cannot run over SSH, so docker there
                   # reads the same config the friday-laptop runner uses.
+                  LAPTOP_ENV="export DOCKER_CONFIG=/home/darren/.docker-friday;"
                   run_on() { # run_on server|laptop <command>
                       if [ "$1" = server ]; then bash -c "$2"
-                      else $SSH "darren@$LAPTOP_LAN_HOST" "export DOCKER_CONFIG=/home/darren/.docker-friday; $2"; fi
+                      else $SSH "darren@$LAPTOP_LAN_HOST" "$LAPTOP_ENV $2"; fi
                   }
-                  cleanup() {
-                      for side in server laptop; do
-                          run_on "$side" "rm -f '$STAGE/hermes.tar' '$STAGE/hermes.tar.sha256'; rmdir '$STAGE' 2>/dev/null; true" || true
-                      done
-                      rm -f "$KEY"
-                  }
-                  trap cleanup EXIT
                   hermes_running() { # hermes_running server|laptop
                       [ "$(run_on "$1" "docker inspect -f '{{.State.Running}}' hermes 2>/dev/null || true")" = true ]
                   }
                   free_kb() { run_on "$1" "df -Pk '$DATA_ROOT' | awk 'NR==2 {print \$4}'"; }
                   phase() { echo "== $1 (+${SECONDS}s)"; }
 
+                  # The server's end of rsync runs here; the laptop's end runs in
+                  # the same image there, started over ssh as rsync's remote
+                  # command. Both see DATA_ROOT as /d. The uv caches are skipped:
+                  # uv downloads them again.
+                  if [ "$SRC" = server ]; then
+                      FROM=/d/hermes/ TO="darren@$LAPTOP_LAN_HOST:/d/$STAGE/"
+                  else
+                      FROM="darren@$LAPTOP_LAN_HOST:/d/hermes/" TO="/d/$STAGE/"
+                  fi
+                  copy() { # copy [rsync options]: bring the stage in line with the source
+                      docker run --rm --network host -v "$DATA_ROOT:/d" -v "$KEY:/key:ro" \
+                          -v "$HOME/.ssh/known_hosts:/known_hosts:ro" "$IMAGE" \
+                          rsync -aH --numeric-ids --delete \
+                          --exclude=/data/cache/uv/ --exclude=/data/.cache/uv/ \
+                          -e "ssh -p 2222 -i /key -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/known_hosts" \
+                          --rsync-path="$LAPTOP_ENV docker run --rm -i -v $DATA_ROOT:/d $IMAGE rsync" \
+                          "$@" "$FROM" "$TO"
+                  }
+
                   phase "preflight: $DIRECTION, dry_run=$DRY_RUN"
-                  run_on laptop "command -v docker rsync sha256sum >/dev/null"
+                  # Also records the laptop's host key, which copy() then requires.
+                  run_on laptop "command -v docker >/dev/null"
                   run_on "$SRC" "test -d '$DATA_ROOT/hermes'" || { echo "no $DATA_ROOT/hermes on the $SRC" >&2; exit 1; }
                   if [ "$DRY_RUN" != true ]; then
                       if hermes_running "$DST"; then
@@ -108,50 +127,48 @@ jobs:
                       fi
                   fi
 
+                  for side in server laptop; do
+                      run_on "$side" "printf 'FROM alpine:3\nRUN apk add --no-cache rsync openssh-client\n' | docker build -q -t $IMAGE - >/dev/null"
+                  done
+
                   # Source size, read as root: data/ is owned by the container user.
                   SIZE_KB=$(run_on "$SRC" "docker run --rm -v '$DATA_ROOT/hermes:/src:ro' $IMAGE du -sk /src" | awk 'END {print $1}')
                   MARGIN_KB=$((1024 * 1024))
-                  SRC_FREE=$(free_kb "$SRC")
                   DST_FREE=$(free_kb "$DST")
-                  echo "hermes data: $((SIZE_KB / 1024)) MiB; free: $SRC $((SRC_FREE / 1024)) MiB, $DST $((DST_FREE / 1024)) MiB"
-                  # The source holds the archive; the destination holds the
-                  # archive and, unless dry run, the extracted copy.
-                  NEED_DST=$((SIZE_KB + MARGIN_KB))
-                  [ "$DRY_RUN" = true ] || NEED_DST=$((2 * SIZE_KB + MARGIN_KB))
-                  [ "$SRC_FREE" -ge $((SIZE_KB + MARGIN_KB)) ] || { echo "not enough free space on the $SRC" >&2; exit 1; }
-                  [ "$DST_FREE" -ge "$NEED_DST" ] || { echo "not enough free space on the $DST" >&2; exit 1; }
+                  echo "hermes data: $((SIZE_KB / 1024)) MiB; free on the $DST: $((DST_FREE / 1024)) MiB"
+                  # The stage becomes the new hermes by a rename, so the receiving
+                  # side needs room for one copy (less any earlier stage).
+                  [ "$DST_FREE" -ge $((SIZE_KB + MARGIN_KB)) ] || { echo "not enough free space on the $DST" >&2; exit 1; }
 
-                  if [ "$DRY_RUN" != true ] && [ "$SRC" = server ] && hermes_running server; then
+                  phase "copying to the $DST's stage while hermes runs"
+                  # 24: files vanished mid-copy, expected while hermes writes.
+                  copy --info=stats1 || [ $? -eq 24 ]
+                  if [ "$DRY_RUN" = true ]; then
+                      phase "dry run done: the stage is ready; hermes was not stopped"
+                      exit 0
+                  fi
+
+                  if [ "$SRC" = server ] && hermes_running server; then
                       phase "stopping the server's hermes"
                       echo "stopped_hermes=true" >> "$GITHUB_OUTPUT"
                       docker stop -t 60 hermes
                       ! hermes_running server || { echo "hermes did not stop" >&2; exit 1; }
                   fi
 
-                  phase "archiving on the $SRC"
-                  run_on "$SRC" "mkdir -p '$STAGE' && docker run --rm -v '$DATA_ROOT/hermes:/src:ro' -v '$STAGE:/out' $IMAGE sh -c 'cd /src && tar --numeric-owner -cpf /out/hermes.tar . && cd /out && sha256sum hermes.tar > hermes.tar.sha256'"
-                  run_on "$SRC" "ls -l '$STAGE'"
-
-                  phase "copying to the $DST"
-                  run_on "$DST" "mkdir -p '$STAGE'"
-                  if [ "$SRC" = server ]; then
-                      rsync -t --info=stats1 -e "$SSH" "$STAGE/hermes.tar" "$STAGE/hermes.tar.sha256" "darren@$LAPTOP_LAN_HOST:$STAGE/"
-                  else
-                      rsync -t --info=stats1 -e "$SSH" "darren@$LAPTOP_LAN_HOST:$STAGE/hermes.tar" "darren@$LAPTOP_LAN_HOST:$STAGE/hermes.tar.sha256" "$STAGE/"
-                  fi
-
-                  phase "verifying the checksum on the $DST"
-                  run_on "$DST" "cd '$STAGE' && sha256sum -c hermes.tar.sha256"
-
-                  if [ "$DRY_RUN" = true ]; then
-                      phase "dry run done: nothing stopped or extracted"
-                      exit 0
+                  phase "final copy with hermes stopped"
+                  copy --info=stats1
+                  phase "checking that nothing differs"
+                  DIFF=$(copy --dry-run --itemize-changes)
+                  if [ -n "$DIFF" ]; then
+                      echo "the stage still differs from the source:" >&2
+                      printf '%s\n' "$DIFF" | head -20 >&2
+                      exit 1
                   fi
 
                   # Never delete the receiving side's data: move it aside.
                   BAK="hermes.bak-$(date -u +%Y%m%dT%H%M%SZ)"
-                  phase "extracting on the $DST"
-                  run_on "$DST" "docker run --rm -v '$DATA_ROOT:/d' $IMAGE sh -c 'if [ -e /d/hermes ]; then mv /d/hermes /d/$BAK && echo moved existing hermes to $BAK; fi; mkdir /d/hermes && tar --numeric-owner -xpf /d/.migrate-hermes-$GITHUB_RUN_ID/hermes.tar -C /d/hermes && du -sh /d/hermes'"
+                  phase "moving the stage into place on the $DST"
+                  run_on "$DST" "docker run --rm -v '$DATA_ROOT:/d' $IMAGE sh -c 'if [ -e /d/hermes ]; then mv /d/hermes /d/$BAK && echo moved existing hermes to $BAK; fi; mv /d/$STAGE /d/hermes'"
                   phase "done"
 
             # Brings Friday back on the server when a real to-laptop run fails or is cancelled
