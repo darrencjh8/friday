@@ -14,6 +14,10 @@ on:
         description: "Deployment environment"
         type: environment
         default: "darren-prod"
+      request_logs:
+        description: "Router per-request timing and access logs (more disk writes; the next deploy without this turns them off)"
+        type: boolean
+        default: false
       hermes_target:
         description: "Where hermes runs: friday-laptop (the laptop runner) or server"
         type: choice
@@ -93,7 +97,7 @@ jobs:
           CLINE_API_KEY: ${{ secrets.CLINE_API_KEY }}
           CODEX_ROUTER_OPENCODE_ZEN_MODELS: ${{ vars.CODEX_ROUTER_OPENCODE_ZEN_MODELS || 'space-bunny-free' }}
           CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS: ${{ vars.CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS || '300' }}
-          CODEX_ROUTER_REQUEST_LOGS: ${{ vars.CODEX_ROUTER_REQUEST_LOGS || '0' }}
+          CODEX_ROUTER_REQUEST_LOGS: ${{ inputs.request_logs && '1' || vars.CODEX_ROUTER_REQUEST_LOGS || '0' }}
           LLM_PROVIDER: ${{ vars.LLM_PROVIDER || 'litellm' }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL || 'http://codex-router:4100/v1' }}
           LLM_MODEL: ${{ vars.LLM_MODEL || 'auto-thinking' }}
