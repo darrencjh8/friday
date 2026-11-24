@@ -238,6 +238,7 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
             "MODEL_API_KEY",
             "CODEX_ROUTER_OPENCODE_ZEN_MODELS",
             "CODEX_ROUTER_AUTO_THINKING_TIMEOUT_SECONDS",
+            "CODEX_ROUTER_REQUEST_LOGS",
         ):
             with self.subTest(key=key):
                 self.assertTrue(
