@@ -42,6 +42,13 @@ class HermesHereTests(unittest.TestCase):
         text = DEPLOY.read_text(encoding="utf-8")
         self.assertLess(text.index("elif ! hermes_here; then"), text.index(lines[0]))
 
+    def test_laptop_lets_the_sync_user_pass_through_hermes_data(self):
+        text = DEPLOY.read_text(encoding="utf-8")
+        block = text[text.index('if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]; then'):]
+        block = block[:block.index("\nfi\n")]
+        self.assertIn("chmod o+x /h/data", block)
+        self.assertNotIn("chmod -R", block)
+
 
 if __name__ == "__main__":
     unittest.main()

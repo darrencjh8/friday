@@ -998,6 +998,11 @@ fi
 # so no other ssh use in the container changes. A missing key or host key only
 # warns: Friday still deploys, and module-docker fails until they are set.
 if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]; then
+  # The server's hermes-sync reads wiki/entities/accounts over SSH as the laptop's
+  # login user, who must be able to pass through data/ (0700, owned by the
+  # container user). o+x allows only that: data/ still cannot be listed.
+  docker run --rm --network none -v "/home/runner/data/hermes:/h" alpine:3 \
+    sh -c '[ ! -d /h/data ] || chmod o+x /h/data'
   if [ -z "${HERMES_SERVER_SSH_KEY:-}" ] || [ -z "${SERVER_SSH_HOST_KEY:-}" ]; then
     echo -e "  ${YELLOW}⚠ HERMES_SERVER_SSH_KEY or SERVER_SSH_HOST_KEY is unset: module-docker cannot reach the server${NC}"
   fi
