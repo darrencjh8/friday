@@ -85,7 +85,7 @@ jobs:
                   }
                   cleanup() {
                       for side in server laptop; do
-                          run_on "$side" "rm -f '$STAGE/hermes.tar' '$STAGE/hermes.tar.sha256'; rmdir '$STAGE' 2>/dev/null; true" || true
+                          run_on "$side" "rm -f '$STAGE'/hermes.tar '$STAGE'/hermes.tar.sha256 '$STAGE'/*.part; rmdir '$STAGE' 2>/dev/null; true" || true
                       done
                       rm -f "$KEY"
                   }
@@ -97,7 +97,7 @@ jobs:
                   phase() { echo "== $1 (+${SECONDS}s)"; }
 
                   phase "preflight: $DIRECTION, dry_run=$DRY_RUN"
-                  run_on laptop "command -v docker rsync sha256sum >/dev/null"
+                  run_on laptop "command -v docker sha256sum >/dev/null"
                   run_on "$SRC" "test -d '$DATA_ROOT/hermes'" || { echo "no $DATA_ROOT/hermes on the $SRC" >&2; exit 1; }
                   if [ "$DRY_RUN" != true ]; then
                       if hermes_running "$DST"; then
@@ -134,11 +134,15 @@ jobs:
 
                   phase "copying to the $DST"
                   run_on "$DST" "mkdir -p '$STAGE'"
-                  if [ "$SRC" = server ]; then
-                      rsync -t --info=stats1 -e "$SSH" "$STAGE/hermes.tar" "$STAGE/hermes.tar.sha256" "darren@$LAPTOP_LAN_HOST:$STAGE/"
-                  else
-                      rsync -t --info=stats1 -e "$SSH" "darren@$LAPTOP_LAN_HOST:$STAGE/hermes.tar" "darren@$LAPTOP_LAN_HOST:$STAGE/hermes.tar.sha256" "$STAGE/"
-                  fi
+                  # Streamed over ssh: the server has no rsync, and the checksum
+                  # below verifies the copy. Each file lands as .part first.
+                  for f in hermes.tar hermes.tar.sha256; do
+                      if [ "$SRC" = server ]; then
+                          run_on laptop "cat > '$STAGE/$f.part' && mv '$STAGE/$f.part' '$STAGE/$f'" < "$STAGE/$f"
+                      else
+                          run_on laptop "cat '$STAGE/$f'" > "$STAGE/$f.part" && mv "$STAGE/$f.part" "$STAGE/$f"
+                      fi
+                  done
 
                   phase "verifying the checksum on the $DST"
                   run_on "$DST" "cd '$STAGE' && sha256sum -c hermes.tar.sha256"

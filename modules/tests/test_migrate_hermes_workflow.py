@@ -1,6 +1,6 @@
 """migrate-hermes.yml moves Hermes's data between the server and the laptop.
 
-The migrate step runs here against stubbed docker, ssh, rsync, df and hostname.
+The migrate step runs here against stubbed docker, ssh, df and hostname.
 Both "machines" share one temporary DATA_ROOT; the ssh stub runs the remote
 command locally with SIDE=laptop so the stubs can tell the two apart.
 """
@@ -47,7 +47,8 @@ STUBS = {
         'for last; do :; done\n'
         'SIDE=laptop exec bash -c "$last"\n'
     ),
-    "rsync": 'echo "${SIDE:-server} rsync $*" >> "$LOG"\n',
+    # The server has no rsync: any use fails the run.
+    "rsync": 'echo "rsync: command not found" >&2; exit 127\n',
     "df": (
         'side=${SIDE:-server}\n'
         'var="FREE_$side"\n'
@@ -134,7 +135,7 @@ class MigrateHermesWorkflowTests(unittest.TestCase):
             with self.subTest(direction=direction):
                 rc, log, outputs, _ = migrate(direction, "true", server="true", laptop="true")
                 self.assertEqual(0, rc, log)
-                self.assertTrue(has(log, "rsync"))
+                self.assertTrue(has(log, "ssh ", "cat ", "hermes.tar"))
                 self.assertTrue(has(log, "-cpf"))
                 self.assertFalse(has(log, "docker stop"))
                 self.assertFalse(has(log, "-xpf"))
@@ -183,7 +184,7 @@ class MigrateHermesWorkflowTests(unittest.TestCase):
         self.assertNotIn("stopped_hermes", outputs)
         self.assertFalse(has(log, "docker stop"))
         self.assertTrue(next(line for line in log if " docker run " in line and not line.startswith("ssh ") and "-cpf" in line).startswith("laptop "))
-        self.assertTrue(has(log, "rsync", "darren@laptop-ip:"))
+        self.assertTrue(has(log, "ssh ", "darren@laptop-ip", "cat '"))
         extract = next(line for line in log if " docker run " in line and not line.startswith("ssh ") and "-xpf" in line)
         self.assertTrue(extract.startswith("server "))
         self.assertIn("mv /d/hermes /d/hermes.bak-", extract)
