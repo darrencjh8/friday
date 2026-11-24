@@ -26,9 +26,12 @@ STUBS = {
         'case "$*" in *@*:*/accounts/" "*) [ -z "${RSYNC_REFUSE_PULL:-}" ] || grep -q "chmod o+x" "$CALLS" '
         '|| { echo "Permission denied (13)" >&2; exit 23; };; esac'
     ),
-    "ssh": 'echo "ssh $*" >> "$CALLS"',
+    "ssh": 'echo "ssh $*" >> "$CALLS"; [ -z "${SSH_DOWN:-}" ] || exit 255',
     "sqlite3": 'echo "sqlite3 $*" >> "$CALLS"',
-    "curl": 'echo "curl $*" >> "$CALLS"',
+    "curl": (
+        'echo "curl $*" >> "$CALLS"; '
+        'while [ $# -gt 0 ]; do [ "$1" = -T ] && cp "$2" "$(dirname "$CALLS")/mail"; shift; done'
+    ),
     "openssl": 'cat >/dev/null; echo "HMAC-SHA2-256(stdin)= feedface"',
     "sleep": (
         'n=$(( $(cat "$SLEEPS" 2>/dev/null || echo 0) + 1 )); echo "$n" > "$SLEEPS"; '
@@ -139,6 +142,39 @@ class SyncScriptTests(unittest.TestCase):
             self.assertTrue(alert.endswith("http://hermes:8644/webhooks/notify"))
         self.assertIn("failed (10 in a row)", out)
         self.assertIn("connection refused", out)
+
+    def test_emails_when_the_laptop_does_not_answer(self):
+        # NOTIFY_URL is hermes on the laptop, so a down laptop must reach Darren by email.
+        calls, _, tmp = self.run_sync(
+            runs=10, failing=True, SSH_DOWN="1", NOTIFY_URL="http://hermes:8644/webhooks/notify",
+            SMTP_USERNAME="friday@example.com", SMTP_PASSWORD="pw", ALERT_EMAIL_TO="owner@example.com",
+        )
+        mails = [c for c in calls if c.startswith("curl ") and "smtps://" in c]
+        self.assertEqual(1, len(mails), calls)
+        self.assertIn("--mail-rcpt owner@example.com", mails[0])
+        self.assertNotIn("pw", mails[0].split())  # the password goes on stdin only
+        message = (tmp / "mail").read_text()
+        self.assertIn("Subject: Friday: the laptop is down", message)
+        self.assertIn("To: owner@example.com", message)
+
+    def test_every_server_deploy_reloads_the_sync_script(self):
+        # A single-file mount pins the old sync.sh until the container is recreated.
+        deploy = (MODULES / "deploy.sh").read_text(encoding="utf-8")
+        self.assertIn("$COMPOSE up -d --remove-orphans --no-deps --force-recreate hermes-sync", deploy)
+
+    def test_deploy_passes_the_alert_mail_settings(self):
+        lan = yaml.safe_load((MODULES / "docker-compose.server-lan.yml").read_text(encoding="utf-8"))
+        env = lan["services"]["hermes-sync"]["environment"]
+        for line in ("SMTP_USERNAME=${IMAP_USERNAME:-}", "SMTP_PASSWORD=${IMAP_PASSWORD:-}",
+                     "ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}"):
+            self.assertIn(line, env)
+        workflow = (ROOT / ".github/workflows/deploy.yml").read_text(encoding="utf-8")
+        self.assertIn("ALERT_EMAIL_TO: ${{ secrets.PII_SCAN_EMAIL_TO }}", workflow)
+
+    def test_no_email_without_mail_settings(self):
+        calls, out, _ = self.run_sync(runs=10, failing=True)
+        self.assertFalse([c for c in calls if "smtps://" in c])
+        self.assertIn("email settings unset", out)
 
     def test_no_alert_before_ten_failures(self):
         calls, _, _ = self.run_sync(runs=9, failing=True, NOTIFY_URL="http://hermes:8644/webhooks/notify")

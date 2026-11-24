@@ -1134,6 +1134,13 @@ if [ -n "$UP_TARGETS" ]; then
     fi
 fi
 
+# hermes-sync mounts sync.sh as a single file, which pins the inode the checkout
+# had when the container started, and `up` leaves an unchanged stanza alone, so a
+# new sync.sh never reached the running loop. It holds no state, so recreate it.
+if [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.server-lan.yml:"* ]]; then
+    $COMPOSE up -d --remove-orphans --no-deps --force-recreate hermes-sync
+fi
+
 # ---- health checks ----
 
 echo ""
