@@ -235,7 +235,7 @@ class DeployWorkflowRouterTests(unittest.TestCase):
         self.assertIn("docker exec hermes true", checkout_block)
         # The copy, the run, the removal and the outcome report are the block's
         # behaviour, so they are pinned rather than left to wording.
-        self.assertIn("docker cp \"$CHECKOUT_SCRIPT\" hermes:/tmp/refresh-codex-router-checkout.sh", checkout_block)
+        self.assertIn("docker exec -i hermes sh -c 'cat > /tmp/refresh-codex-router-checkout.sh' < \"$CHECKOUT_SCRIPT\"", checkout_block)
         self.assertIn("docker exec -e CODEX_ROUTER_LOCK_WAIT_SECONDS=300 -e GH_TOKEN=\"${FRIDAY_PAT:-}\" -u hermes hermes sh /tmp/refresh-codex-router-checkout.sh", checkout_block)
         self.assertIn("docker exec hermes rm -f /tmp/refresh-codex-router-checkout.sh", checkout_block)
         # The recovery recipe is pasted into an interactive shell, where history

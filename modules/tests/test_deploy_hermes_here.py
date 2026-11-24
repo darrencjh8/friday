@@ -49,6 +49,10 @@ class HermesHereTests(unittest.TestCase):
         self.assertIn("chmod o+x /h/data", block)
         self.assertNotIn("chmod -R", block)
 
+    def test_nothing_is_docker_cp_into_hermes(self):
+        # Docker Desktop's docker cp fails on the laptop's WSL bind mounts.
+        self.assertNotIn("docker cp", DEPLOY.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
