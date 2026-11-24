@@ -1155,6 +1155,14 @@ health_ok() {
 
 failed=0
 
+# Whether hermes runs on this machine. With HERMES_TARGET=friday-laptop it runs on
+# the laptop, whose deploy-hermes job reads docker-compose.laptop.yml and does the
+# hermes steps below there; the server only keeps the stopped pre-cutover
+# container, which must not be mistaken for a live one.
+hermes_here() {
+  [ "${HERMES_TARGET:-server}" = server ] || [[ ":${COMPOSE_FILE:-}:" == *":docker-compose.laptop.yml:"* ]]
+}
+
 # ---- codex-router skill payload ----
 # codex-router owns the skills it publishes (dev-loop, code-reviewer, ...). The
 # deploy.yml checkout always provides modules/codex-router, so stage its
@@ -1172,12 +1180,12 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
   elif [ ! -f "$SKILLS_SYNC" ]; then
     echo "  (skill reconciler missing; skipping skill sync)" >&2
     [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
+  elif ! hermes_here; then
+    # ponytail: a codex-router-only deploy reaches the laptop's hermes at its next deploy.
+    echo "  (hermes runs on the laptop; its own deploy syncs the skills)"
   elif ! docker inspect hermes >/dev/null 2>&1; then
     echo "  (hermes container not present; skipping skill sync)" >&2
-    # With HERMES_TARGET=friday-laptop, hermes lives on another runner and its own
-    # deploy syncs the skills there, so a missing container here is expected.
-    # ponytail: a codex-router-only deploy reaches that hermes at its next deploy.
-    [ -n "${GITHUB_ACTIONS:-}" ] && [ "${HERMES_TARGET:-server}" = server ] && failed=$((failed + 1))
+    [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
   else
     ready=false
     for _ in $(seq 1 15); do
@@ -1226,8 +1234,8 @@ if should_deploy "codex-router" || should_deploy "hermes"; then
   elif [ ! -f "$CHECKOUT_SCRIPT" ]; then
     echo "  (checkout refresh script missing; skipping container checkout refresh)" >&2
     [ -n "${GITHUB_ACTIONS:-}" ] && failed=$((failed + 1))
-  elif ! docker inspect hermes >/dev/null 2>&1; then
-    echo "  (hermes container not present; skipping container checkout refresh)"
+  elif ! hermes_here || ! docker inspect hermes >/dev/null 2>&1; then
+    echo "  (hermes is not on this machine; skipping container checkout refresh)"
   else
     CHECKOUT_READY=false
     for _ in $(seq 1 15); do
@@ -1605,7 +1613,7 @@ echo "--- MCP Reconnect ---"
 sleep 5
 
 for mcp_name in expense-tracker portfolio-tracker; do
-  if { should_deploy "$mcp_name" || should_deploy "all"; } && docker inspect hermes >/dev/null 2>&1; then
+  if { should_deploy "$mcp_name" || should_deploy "all"; } && hermes_here && docker inspect hermes >/dev/null 2>&1; then
     echo -n "  $mcp_name ... "
     if docker exec hermes hermes mcp test "$mcp_name" > /dev/null 2>&1; then
       echo -e "${GREEN}connected${NC}"
