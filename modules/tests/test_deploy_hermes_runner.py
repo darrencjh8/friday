@@ -1,9 +1,9 @@
 """deploy.yml can deploy hermes to its own runner (docs/plans/move-runtime-to-laptop.md).
 
 A manual run picks the target from the hermes_target dropdown (default
-friday-laptop). A push to main uses the default in the workflow, `server` until
-the cutover PR changes it: the server job keeps hermes and deploy-hermes is
-skipped, exactly as before.
+friday-laptop). A push to main uses the default in the workflow, `friday-laptop`
+since the cutover: the server job drops hermes and deploy-hermes deploys it on
+the laptop. A rollback sets the default back to `server`.
 """
 from pathlib import Path
 import os
@@ -27,7 +27,7 @@ def jobs():
     return workflow()["jobs"]
 
 
-PUSH_DEFAULT = "server"
+PUSH_DEFAULT = "friday-laptop"
 
 
 def step(job, name):

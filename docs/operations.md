@@ -23,7 +23,7 @@ Production deploys are performed by `.github/workflows/deploy.yml` on a **self-h
 5. Runs `modules/deploy.sh --component ... --non-interactive --skip-build` with secrets and variables injected as environment.
 6. Records the deployed codex-router revision as a workflow artifact.
 
-The runner is the one labelled by the repository variable `DEPLOY_RUNNER_LABEL` (default `self-hosted`). When `HERMES_TARGET` (the `hermes_target` dropdown on a manual run, default `friday-laptop`; on a push to main, the default written in `deploy.yml`, `server` until cutover) is `friday-laptop`, `hermes` deploys alone in a separate `deploy-hermes` job on the `friday-laptop` runner and the main job leaves it out; with `server`, everything deploys together as above. Before cutover, pick `server` in the dropdown for manual runs.
+The runner is the one labelled by the repository variable `DEPLOY_RUNNER_LABEL` (default `self-hosted`). When `HERMES_TARGET` (the `hermes_target` dropdown on a manual run, default `friday-laptop`; on a push to main, the default written in `deploy.yml`, `friday-laptop` since the cutover) is `friday-laptop`, `hermes` deploys alone in a separate `deploy-hermes` job on the `friday-laptop` runner and the main job leaves it out; with `server`, everything deploys together as above. To move hermes back to the server, follow Rollback in `docs/plans/move-runtime-to-laptop.md`.
 
 **Do not deploy or restart production by hand.** Merge to `main` and let CI do it. Manual `workflow_dispatch` runs are the intended escape hatch for component-specific or forced deployments.
 
