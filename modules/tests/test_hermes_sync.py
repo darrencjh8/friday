@@ -160,7 +160,7 @@ class SyncScriptTests(unittest.TestCase):
     def test_every_server_deploy_reloads_the_sync_script(self):
         # A single-file mount pins the old sync.sh until the container is recreated.
         deploy = (MODULES / "deploy.sh").read_text(encoding="utf-8")
-        self.assertIn("$COMPOSE up -d --no-deps --force-recreate hermes-sync", deploy)
+        self.assertIn("$COMPOSE up -d --remove-orphans --no-deps --force-recreate hermes-sync", deploy)
 
     def test_deploy_passes_the_alert_mail_settings(self):
         lan = yaml.safe_load((MODULES / "docker-compose.server-lan.yml").read_text(encoding="utf-8"))
