@@ -22,6 +22,7 @@ STATE_DIR="${STATE_DIR:-/state}"
 SNAPSHOT_DIR="${SNAPSHOT_DIR:-/tmp/hermes-sync-snapshot}"
 ET_DATA_DIR="${ET_DATA_DIR:-/home/runner/data/expense-tracker/data}"
 ACCOUNTS_DIR="${ACCOUNTS_DIR:-/home/runner/data/hermes/data/home/wiki/entities/accounts}"
+HERMES_DATA_DIR="${HERMES_DATA_DIR:-/home/runner/data/hermes/data}"
 INTERVAL="${HERMES_SYNC_INTERVAL:-60}"
 ALERT_AFTER="${HERMES_SYNC_ALERT_AFTER:-10}"
 # 0 runs forever; the tests set a count.
@@ -72,6 +73,14 @@ sync_once() {
   # must not be able to remove the server's mappings. --update also skips any
   # file that is newer on the server. A mapping deleted on the laptop therefore
   # stays on the server until it is removed there by hand.
+  #
+  # The read passes through hermes's data/ (0700, owned by the container user),
+  # which needs o+x for the SSH user. Hermes resets it to 0700 when it starts,
+  # so a refused read grants that traverse bit again through a root container
+  # on the laptop and retries once. o+x still does not let data/ be listed.
+  rsync -a --update -e "$SSH" "$REMOTE:$ACCOUNTS_DIR/" "$ACCOUNTS_DIR/" && return 0
+  log "accounts read refused; granting traverse on hermes data/ and retrying"
+  $SSH "$REMOTE" "docker run --rm --network none -v '$HERMES_DATA_DIR:/d' alpine:3 chmod o+x /d" || return 1
   rsync -a --update -e "$SSH" "$REMOTE:$ACCOUNTS_DIR/" "$ACCOUNTS_DIR/" || return 1
 }
 
