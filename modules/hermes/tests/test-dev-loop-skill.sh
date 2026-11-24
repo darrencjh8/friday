@@ -65,8 +65,8 @@ grep -Eq 'should_deploy "codex-router".*should_deploy "hermes"' "$DEPLOY_SCRIPT"
 # test-codex-router-skills-sync.sh, and the host-side moves and failure
 # accounting are pinned here.
 for expected in \
-    'docker cp "$SKILLS_SRC/." hermes:/opt/data/.codex-router-skills.new' \
-    'docker cp "$SKILLS_SYNC" hermes:/tmp/sync-codex-router-skills.sh' \
+    'tar -C "$SKILLS_SRC" -cf - . | docker exec -i hermes sh -c '"'"'mkdir -p /opt/data/.codex-router-skills.new && tar -xf - --no-same-owner -C /opt/data/.codex-router-skills.new'"'"'' \
+    'docker exec -i hermes sh -c '"'"'cat > /tmp/sync-codex-router-skills.sh'"'"' < "$SKILLS_SYNC"' \
     'docker exec hermes sh /tmp/sync-codex-router-skills.sh /opt/data/.codex-router-skills /opt/data/.codex-router-skills.new' \
     'rm -rf /opt/data/.codex-router-skills.new' \
     'failed=$((failed + 1))'; do
