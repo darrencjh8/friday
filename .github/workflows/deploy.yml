@@ -261,6 +261,8 @@ jobs:
                   ACTUAL_BUDGET_PASSWORD: ${{ secrets.ACTUAL_BUDGET_PASSWORD }}
                   IMAP_USERNAME: ${{ secrets.IMAP_USERNAME }}
                   IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+                  # hermes-sync's alert email goes where the PII scan reports go.
+                  ALERT_EMAIL_TO: ${{ secrets.PII_SCAN_EMAIL_TO }}
                   ONEDRIVE_CLIENT_ID: ${{ secrets.ONEDRIVE_CLIENT_ID }}
                   IBKR_FLEX_TOKEN: ${{ secrets.IBKR_FLEX_TOKEN }}
                   GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}

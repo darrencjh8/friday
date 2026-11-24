@@ -62,6 +62,11 @@ services:
             - LAPTOP_LAN_HOST=${LAPTOP_LAN_HOST:?LAPTOP_LAN_HOST is required}
             - NOTIFY_URL=${NOTIFY_URL:-}
             - HERMES_WEBHOOK_SECRET=${HERMES_WEBHOOK_SECRET:-}
+            # The alert also goes by email: NOTIFY_URL is hermes itself, on the
+            # laptop, so it cannot report the laptop being down.
+            - SMTP_USERNAME=${IMAP_USERNAME:-}
+            - SMTP_PASSWORD=${IMAP_PASSWORD:-}
+            - ALERT_EMAIL_TO=${ALERT_EMAIL_TO:-}
         volumes:
             - ./hermes-sync/sync.sh:/sync.sh:ro
             # deploy.sh writes the SSH key here; known_hosts is kept beside it.

@@ -10,8 +10,10 @@
 # laptop's accounts copy is empty or stale and must never reach the server, and
 # a deploy back to the server recreates this container idle.
 #
-# After ALERT_AFTER failed runs in a row it posts once to the Hermes notify
-# webhook, and once more when a run succeeds again.
+# After ALERT_AFTER failed runs in a row it alerts once, and once more when a run
+# succeeds again: to the Hermes notify webhook, and by email when SMTP_USERNAME,
+# SMTP_PASSWORD and ALERT_EMAIL_TO are set. The webhook is hermes on the laptop,
+# so when the laptop is down only the email arrives.
 set -u
 
 : "${LAPTOP_LAN_HOST:?}"
@@ -24,6 +26,7 @@ ET_DATA_DIR="${ET_DATA_DIR:-/home/runner/data/expense-tracker/data}"
 ACCOUNTS_DIR="${ACCOUNTS_DIR:-/home/runner/data/hermes/data/home/wiki/entities/accounts}"
 HERMES_DATA_DIR="${HERMES_DATA_DIR:-/home/runner/data/hermes/data}"
 INTERVAL="${HERMES_SYNC_INTERVAL:-60}"
+SMTP_URL="${SMTP_URL:-smtps://smtp.zoho.com:465}"
 ALERT_AFTER="${HERMES_SYNC_ALERT_AFTER:-10}"
 # 0 runs forever; the tests set a count.
 RUNS="${HERMES_SYNC_RUNS:-0}"
@@ -84,7 +87,24 @@ sync_once() {
   rsync -a --update -e "$SSH" "$REMOTE:$ACCOUNTS_DIR/" "$ACCOUNTS_DIR/" || return 1
 }
 
+email() {
+  if [ -z "${SMTP_USERNAME:-}" ] || [ -z "${SMTP_PASSWORD:-}" ] || [ -z "${ALERT_EMAIL_TO:-}" ]; then
+    log "email settings unset, not emailing"
+    return 0
+  fi
+  mail="${TMPDIR:-/tmp}/hermes-sync-alert.eml"
+  printf 'From: Friday <%s>\r\nTo: %s\r\nSubject: %s\r\n\r\n%s\r\n' \
+    "$SMTP_USERNAME" "$ALERT_EMAIL_TO" "$1" "$2" > "$mail" || return 0
+  # The password reaches curl as a config line on stdin, never on its command line.
+  printf 'user = "%s:%s"\n' "$SMTP_USERNAME" "$SMTP_PASSWORD" \
+    | curl -sS -m 30 --ssl-reqd --url "$SMTP_URL" -K - \
+        --mail-from "$SMTP_USERNAME" --mail-rcpt "$ALERT_EMAIL_TO" -T "$mail" >/dev/null \
+    || log "email not delivered"
+  rm -f "$mail"
+}
+
 notify() {
+  email "$2" "$1"
   if [ -z "${NOTIFY_URL:-}" ]; then
     log "NOTIFY_URL unset, not alerting: $1"
     return 0
@@ -107,14 +127,21 @@ while :; do
   if out=$(sync_once 2>&1); then
     log "ok"
     if [ "$fails" -ge "$ALERT_AFTER" ]; then
-      notify "hermes-sync recovered: the server and laptop folders are syncing again after $fails failed minutes."
+      notify "hermes-sync recovered: the server and laptop folders are syncing again after $fails failed minutes." \
+        "Friday: hermes-sync recovered"
     fi
     fails=0
   else
     fails=$((fails + 1))
     log "failed ($fails in a row): $out"
     if [ "$fails" -eq "$ALERT_AFTER" ]; then
-      notify "hermes-sync has failed for $ALERT_AFTER minutes in a row: expense-tracker data is not reaching the laptop and wiki account mappings are not reaching the server. See docker logs modules-hermes-sync-1 on the server."
+      if $SSH "$REMOTE" true >/dev/null 2>&1; then
+        notify "hermes-sync has failed for $ALERT_AFTER minutes in a row: expense-tracker data is not reaching the laptop and wiki account mappings are not reaching the server. See docker logs modules-hermes-sync-1 on the server." \
+          "Friday: hermes-sync is failing"
+      else
+        notify "The laptop has not answered for $ALERT_AFTER minutes: Hermes is unreachable, and hermes-sync is stalled. It may be off, asleep or off the network." \
+          "Friday: the laptop is down"
+      fi
     fi
   fi
   [ "$RUNS" -gt 0 ] && [ "$run" -ge "$RUNS" ] && exit 0
