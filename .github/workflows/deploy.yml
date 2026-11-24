@@ -42,10 +42,10 @@ on:
                     - server
 
 # Where hermes deploys. A manual run takes the dropdown; a push to main takes
-# the value after `||`, which stays `server` until the cutover PR changes it
-# (here and in deploy-hermes's `if`, where env is not available).
+# the value after `||`: `friday-laptop` since the cutover. A rollback sets it
+# back to `server` here and in deploy-hermes's `if`, where env is not available.
 env:
-    HERMES_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.hermes_target || 'server' }}
+    HERMES_TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.hermes_target || 'friday-laptop' }}
 
 concurrency:
     group: production-deploy
@@ -390,7 +390,7 @@ jobs:
     # is skipped and hermes deploys with everything else on the server.
     # The steps are the deploy job's own, reused through YAML anchors.
     deploy-hermes:
-        if: always() && needs.test.result != 'failure' && (github.event_name == 'workflow_dispatch' && inputs.hermes_target || 'server') == 'friday-laptop'
+        if: always() && needs.test.result != 'failure' && (github.event_name == 'workflow_dispatch' && inputs.hermes_target || 'friday-laptop') == 'friday-laptop'
         needs: test
         runs-on: friday-laptop
         permissions:
