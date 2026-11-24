@@ -141,9 +141,14 @@ services:
                     'node -e ''require("http").get("http://localhost:8080/health",function(r){process.exit(r.statusCode===200?0:1)})''',
                 ]
             interval: 10s
-            timeout: 5s
+            timeout: 15s
             retries: 3
-            start_period: 20s
+            # Hermes waits for this to be healthy. On the server a recreate under
+            # deploy load can take over a minute, and compose then gives up and
+            # leaves hermes created but stopped. Failures during start_period do
+            # not count, and start_interval still reports healthy within seconds.
+            start_period: 180s
+            start_interval: 5s
         logging: *default-logging
 
     actual-api:
@@ -219,9 +224,14 @@ services:
                     "node --input-type=module -e \"import('./src/sync-targets.js').then(({loadSyncTargets})=>loadSyncTargets({wikiDir:process.env.WIKI_DIR})).then(()=>fetch('http://localhost:8081/health').then(r=>process.exit(r.ok?0:1))).catch(()=>process.exit(1))\"",
                 ]
             interval: 10s
-            timeout: 5s
+            timeout: 15s
             retries: 3
-            start_period: 30s
+            # Hermes waits for this to be healthy. On the server a recreate under
+            # deploy load can take over a minute, and compose then gives up and
+            # leaves hermes created but stopped. Failures during start_period do
+            # not count, and start_interval still reports healthy within seconds.
+            start_period: 180s
+            start_interval: 5s
         logging: *default-logging
 
     # Dots web app and its pairing relay. Tailscale Serve exposes it on the tailnet;
