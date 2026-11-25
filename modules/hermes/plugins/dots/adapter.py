@@ -31,11 +31,12 @@ import time
 import urllib.request
 import uuid
 from datetime import UTC, datetime
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Optional
 
 try:
-    from aiohttp import WSMsgType, web
+    from aiohttp import WSMsgType, web, web_protocol, web_server
     AIOHTTP_AVAILABLE = True
 except ImportError:
     AIOHTTP_AVAILABLE = False
@@ -64,6 +65,8 @@ SEND_PATH = "/dots/send"
 WEB_SUBPROTOCOL = "dots.v1"
 WEB_TOKEN_PROTOCOL = "dots.token."
 WEB_UNAUTHORIZED = 4401
+# The gateway is public through Tailscale Funnel, so no reply names the server software or its version.
+GATEWAY_SERVER = "dots"
 MAX_WEB_TOKENS = 20
 WEB_LABEL_MAX = 80
 REPLAY_LIMIT = 600  # events replayed to a reconnecting app; beyond, it gets the latest page and resets
@@ -1000,7 +1003,7 @@ class DotsAdapter(BasePlatformAdapter):
         if not AIOHTTP_AVAILABLE or not self._token:
             logger.warning("[%s] aiohttp missing or DOTS_TOKEN unset", self.name)
             return False
-        self._runner = web.AppRunner(self._app(), access_log=None)
+        self._runner = _GatewayRunner(self._app(), access_log=None)
         await self._runner.setup()
         try:
             await web.TCPSite(self._runner, self._host, self._port).start()
@@ -1041,7 +1044,11 @@ class DotsAdapter(BasePlatformAdapter):
         async def log_refusals(request: "web.Request", handler) -> "web.StreamResponse":
             return await self._log_refusals(request, handler)
 
+        async def hide_server(_request: "web.Request", response: "web.StreamResponse") -> None:
+            response.headers["Server"] = GATEWAY_SERVER
+
         app = web.Application(middlewares=[log_refusals])
+        app.on_response_prepare.append(hide_server)
         app.router.add_get(WS_PATH, self._handle_ws)
         app.router.add_post(SEND_PATH, self._handle_local_send)
         app.router.add_get("/dots/releases/latest", self._handle_release_latest)
@@ -1058,8 +1065,12 @@ class DotsAdapter(BasePlatformAdapter):
         return request.headers.get("X-Forwarded-For", "").split(",")[-1].strip() or str(request.remote)
 
     async def _log_refusals(self, request: "web.Request", handler) -> "web.StreamResponse":
-        """Every refused request is logged, so probing is visible once the gateway is public."""
-        response = await handler(request)
+        """Every refused request is logged, so probing is visible once the gateway is public. A 400 aiohttp
+        raises (a broken WebSocket handshake, say) describes the request; a bare one replaces it."""
+        try:
+            response = await handler(request)
+        except web.HTTPBadRequest:
+            raise web.HTTPBadRequest() from None
         if response.status in (401, 403):
             logger.warning("[%s] Refused %s %s from %s (%d)", self.name, request.method, request.path,
                            self._caller(request), response.status)
@@ -2446,3 +2457,36 @@ def register(ctx) -> None:
             "needs them (login, password, captcha, 2FA, consent wall), call browser_request_takeover "
             "instead of ending your turn. Never ask them to send a password in the chat."
         ))
+
+
+if AIOHTTP_AVAILABLE:
+    class _GatewayRequestHandler(web_protocol.RequestHandler):
+        """Answers a request aiohttp cannot parse (an oversized header, mostly) before any route or
+        middleware sees it, and a handler that crashed: a reply that neither names the server nor
+        echoes the request. A parse error logs one line; a crash keeps its traceback."""
+
+        def handle_error(self, request, status=500, exc=None, message=None):
+            if status >= 500:  # a bug in a handler: keep its traceback
+                logger.error("[Dots] Error handling request from %s", request.remote, exc_info=exc)
+            else:
+                logger.warning("[Dots] Rejected an unparsable request from %s (%d %s)",
+                               request.remote, status, type(exc).__name__ if exc else "")
+            if request.writer.output_size > 0:
+                raise ConnectionError("a response is already being sent")
+            response = web.Response(status=status, text=f"{status}: {HTTPStatus(status).phrase}",
+                                    headers={"Server": GATEWAY_SERVER})
+            response.force_close()
+            return response
+
+    class _GatewayServer(web_server.Server):
+        def __call__(self) -> web_protocol.RequestHandler:
+            return _GatewayRequestHandler(self, loop=self._loop, **self._kwargs)
+
+    class _GatewayRunner(web.AppRunner):
+        # ponytail: aiohttp has no public hook for the handler class, so this swaps the class of
+        # the Server the app builds (same state, one overridden method). test_dots_gateway_hardening
+        # drives a real oversized header through it, so an aiohttp upgrade that moves this fails CI.
+        async def _make_server(self) -> web_server.Server:
+            server = await super()._make_server()
+            server.__class__ = _GatewayServer
+            return server
