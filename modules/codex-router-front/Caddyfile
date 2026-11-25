@@ -5,6 +5,17 @@
 # `lb_policy first` picks the first healthy upstream in the order written here,
 # so codex-router-a wins whenever it is healthy and a roll to `b` is a no-op for
 # the front until `a` stops.
+{
+	# Only one colour runs between rolls, so the active health check logs a
+	# "no such host" for the stopped one every health_interval. Drop that logger.
+	# ponytail: this also hides a running colour's failed checks; its Docker
+	# healthcheck and failing requests still show it. If those prove too late,
+	# switch to a log filter on the message instead.
+	log default {
+		exclude http.handlers.reverse_proxy.health_checker.active
+	}
+}
+
 :4100 {
 	# 4100 is published on every interface, so anything on the home network
 	# can reach it. Docker networks (Hermes and the other modules), the host

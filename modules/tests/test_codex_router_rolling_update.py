@@ -266,6 +266,12 @@ class CodexRouterRollingUpdateTests(unittest.TestCase):
         raw = [line for line in text.splitlines() if line.split("#", 1)[0].strip()]
         lines = [line.split("#", 1)[0].strip() for line in raw]
 
+        # The only global option: the stopped colour's failed health checks are
+        # kept out of the log. Everything after it is the one site block.
+        global_options = ["{", "log default {", "exclude http.handlers.reverse_proxy.health_checker.active", "}", "}"]
+        self.assertEqual(global_options, lines[:5])
+        raw, lines = raw[5:], lines[5:]
+
         self.assertEqual(":4100 {", lines[0])
         self.assertEqual("}", lines[-1])
         proxy = [line for line in lines if line.startswith("reverse_proxy ")]
