@@ -1337,6 +1337,8 @@ class DotsAdapter(BasePlatformAdapter):
                 self._push_sender.register(str(frame.get("token") or ""))
         elif kind in ("web_token_create", "web_sessions_get", "web_revoke"):
             await self._on_web_session_frame(kind, frame, ws)
+        elif kind in ("vault_get", "vault_add", "vault_remove"):
+            await self._on_vault_frame(kind, frame, ws)
         else:
             await self._push({"type": "error", "code": "unknown_type"}, ws)
 
@@ -1374,6 +1376,45 @@ class DotsAdapter(BasePlatformAdapter):
         token, session_id = self._web_tokens.create(str(frame.get("label") or "Browser"), origin)
         logger.info("[%s] Web session %s paired for %s", self.name, session_id, origin)
         await self._push({"type": "web_token", "ref": frame.get("ref"), "token": token, "id": session_id}, ws)
+
+    # -- Vault (logins, cards and addresses the browser fills) -----------------------------------
+
+    async def _on_vault_frame(self, kind: str, frame: dict[str, Any], ws: "web.WebSocketResponse") -> None:
+        """Friday patch: Hermes' encrypted autofill vault, as `hermes vault add/list/rm` manage it.
+        Only the phone (master token) may use it, never a paired browser. Secret values arrive only
+        in a `vault_add` frame and go straight to the store; replies carry metadata (label, site,
+        login name) and nothing here logs a frame or an exception that could hold a value."""
+        if self._clients[ws].get("web") is not None:
+            await self._push({"type": "error", "code": "forbidden"}, ws)
+            return
+        reply: dict[str, Any] = {"type": "vault", "ref": frame.get("ref")}
+        try:
+            from agent.vault_store import VaultError, get_vault_store, scrub_secret_from_text
+        except ImportError:
+            await self._push({**reply, "items": [], "error": "unavailable"}, ws)
+            return
+        store = get_vault_store()
+        if kind == "vault_add":
+            item = frame.get("item") if isinstance(frame.get("item"), dict) else {}
+            raw = item.get("secret") if isinstance(item.get("secret"), dict) else {}
+            secret = {str(k): str(v) for k, v in raw.items() if isinstance(v, (str, int, float))}
+            try:
+                meta = await asyncio.to_thread(
+                    store.add_item, kind=str(item.get("kind") or ""), label=str(item.get("label") or ""),
+                    secret=secret, origin=str(item.get("origin") or "") or None)
+                logger.info("[%s] Vault %s item %s added from the app", self.name, meta.kind, meta.id)
+            except VaultError as exc:
+                reply["error"] = scrub_secret_from_text(str(exc), secret)
+            except Exception as exc:  # a bad site or 2FA key: never echo or log the value
+                logger.warning("[%s] Vault add failed (%s)", self.name, type(exc).__name__)
+                reply["error"] = "invalid"
+        elif kind == "vault_remove":
+            if await asyncio.to_thread(store.remove_item, str(frame.get("id") or "")):
+                logger.info("[%s] Vault item %s removed from the app", self.name, frame.get("id"))
+            else:
+                reply["error"] = "not_found"
+        items = await asyncio.to_thread(store.list_items)
+        await self._push({**reply, "items": [meta.to_dict() for meta in items]}, ws)
 
     # -- Chats (main dot + sub-dots) -------------------------------------------------------------
 
