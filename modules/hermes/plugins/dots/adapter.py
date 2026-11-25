@@ -1000,15 +1000,7 @@ class DotsAdapter(BasePlatformAdapter):
         if not AIOHTTP_AVAILABLE or not self._token:
             logger.warning("[%s] aiohttp missing or DOTS_TOKEN unset", self.name)
             return False
-        app = web.Application()
-        app.router.add_get(WS_PATH, self._handle_ws)
-        app.router.add_post(SEND_PATH, self._handle_local_send)
-        app.router.add_get("/dots/releases/latest", self._handle_release_latest)
-        app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)
-        app.router.add_get("/dots/desktop/latest", self._handle_desktop_latest)
-        app.router.add_get("/dots/desktop/assets/{asset_id}", self._handle_desktop_asset)
-        app.router.add_get("/dots/health", lambda _req: web.json_response({"ok": True, "agent_id": self._agent_id}))
-        self._runner = web.AppRunner(app, access_log=None)
+        self._runner = web.AppRunner(self._app(), access_log=None)
         await self._runner.setup()
         try:
             await web.TCPSite(self._runner, self._host, self._port).start()
@@ -1044,6 +1036,42 @@ class DotsAdapter(BasePlatformAdapter):
 
     # -- HTTP / WebSocket ------------------------------------------------------------------------
 
+    def _app(self) -> "web.Application":
+        @web.middleware
+        async def log_refusals(request: "web.Request", handler) -> "web.StreamResponse":
+            return await self._log_refusals(request, handler)
+
+        app = web.Application(middlewares=[log_refusals])
+        app.router.add_get(WS_PATH, self._handle_ws)
+        app.router.add_post(SEND_PATH, self._handle_local_send)
+        app.router.add_get("/dots/releases/latest", self._handle_release_latest)
+        app.router.add_get("/dots/releases/assets/{asset_id}", self._handle_release_asset)
+        app.router.add_get("/dots/desktop/latest", self._handle_desktop_latest)
+        app.router.add_get("/dots/desktop/assets/{asset_id}", self._handle_desktop_asset)
+        app.router.add_get("/dots/health", self._handle_health)
+        return app
+
+    @staticmethod
+    def _caller(request: "web.Request") -> str:
+        """Who sent the request. Tailscale serve and Funnel append the client to X-Forwarded-For, so the
+        last entry is theirs; earlier ones are whatever the client sent. For logs only, never for access."""
+        return request.headers.get("X-Forwarded-For", "").split(",")[-1].strip() or str(request.remote)
+
+    async def _log_refusals(self, request: "web.Request", handler) -> "web.StreamResponse":
+        """Every refused request is logged, so probing is visible once the gateway is public."""
+        response = await handler(request)
+        if response.status in (401, 403):
+            logger.warning("[%s] Refused %s %s from %s (%d)", self.name, request.method, request.path,
+                           self._caller(request), response.status)
+        return response
+
+    async def _handle_health(self, request: "web.Request") -> "web.Response":
+        """Liveness for anyone; which profile answers (``agent_id``) only for a token holder."""
+        body: dict[str, Any] = {"ok": True}
+        if self._authorized(request):
+            body["agent_id"] = self._agent_id
+        return web.json_response(body)
+
     def _authorized(self, request: "web.Request") -> bool:
         """The master token in ``Authorization`` (the phone, the loopback cron sender)."""
         header = request.headers.get("Authorization", "")
@@ -1074,6 +1102,7 @@ class DotsAdapter(BasePlatformAdapter):
                                    protocols=(WEB_SUBPROTOCOL,) if web_token is not None else ())
         await ws.prepare(request)
         if web_token is not None and web_session is None:
+            logger.warning("[%s] Refused web token from %s", self.name, self._caller(request))
             await ws.send_str(json.dumps({"type": "error", "code": "unauthorized"}))
             await ws.close(code=WEB_UNAUTHORIZED, message=b"unauthorized")
             return ws

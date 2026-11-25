@@ -374,6 +374,8 @@ jobs:
                       "import sys; sys.path.append('/opt/hermes'); from plugins.platforms.dots.adapter import DotsAdapter, register; print('dots adapter imports')"
                   docker cp modules/hermes/tests/test_dots_offer_card.py hermes-image-test:/tmp/test_dots_offer_card.py
                   docker exec hermes-image-test /opt/hermes/.venv/bin/python3 /tmp/test_dots_offer_card.py -v
+                  docker cp modules/hermes/tests/test_dots_gateway_hardening.py hermes-image-test:/tmp/test_dots_gateway_hardening.py
+                  docker exec hermes-image-test /opt/hermes/.venv/bin/python3 /tmp/test_dots_gateway_hardening.py -v
             - name: Hermes image logs on failure
               if: failure() && steps.changed.outputs.run == 'true'
               run: docker logs hermes-image-test 2>&1 | tail -200 || true
