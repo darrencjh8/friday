@@ -1,13 +1,13 @@
 ---
 name: opencode-host
-description: Use to hand a coding task to OpenCode on the host (implement, fix, refactor, review code in friday, codex-router or hermes-dots), and to follow up on it.
+description: Use for any OpenCode or OpenCode CLI request, and to hand a coding task to OpenCode on the host (implement, fix, refactor, review code in friday, codex-router or hermes-dots), and to follow up on it.
 version: 1.0.0
 author: Hermes Agent
 license: MIT-0
 metadata:
   hermes:
     tags: [opencode, coding, delegation]
-    related_skills: [opencode, hermes-troubleshooting]
+    related_skills: [hermes-troubleshooting]
 ---
 
 # OpenCode on the host

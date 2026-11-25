@@ -107,6 +107,9 @@ sessions:
 
 skills:
     guard_agent_created: true
+    # The stock `opencode` skill runs the opencode binary, which this container
+    # does not have; opencode-host drives the OpenCode server on the host instead.
+    disabled: [opencode]
 
 terminal:
     backend: local
