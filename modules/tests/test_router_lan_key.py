@@ -22,7 +22,7 @@ class TestRouterLanToken(unittest.TestCase):
         self.assertIn('not header Authorization "Bearer {$LITELLM_MASTER_KEY}"', caddy)
         self.assertIn("respond @lan_without_token", caddy)
         # The guard must come before the proxy, or caddy would never reach it first.
-        self.assertLess(caddy.index("respond @lan_without_token"), caddy.index("reverse_proxy"))
+        self.assertLess(caddy.index("respond @lan_without_token"), caddy.index("reverse_proxy codex-router-a"))
 
     def test_laptop_hermes_is_trusted_without_the_key(self):
         # Hermes on the laptop calls the router from the LAN with `api_key: local`,
