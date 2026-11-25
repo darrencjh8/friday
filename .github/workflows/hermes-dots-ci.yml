@@ -1,6 +1,9 @@
 # Runs the hermes-dots Android tests here in friday (public repo, free
 # minutes) instead of hermes-dots (private repo, paid minutes).
 #
+# Optional `screenshots` records the matching Roborazzi tests and uploads
+# the images as the `screenshots` artifact, for UI pull requests.
+#
 # Two uses:
 # - On demand: manual dispatch with `ref` (branch, tag, or commit SHA,
 #   default `main`) and optional `smoke` for the emulator smoke test, so
@@ -26,6 +29,10 @@ on:
         description: "Also run the emulator smoke test"
         type: boolean
         default: false
+      screenshots:
+        description: "Gradle test filter of Roborazzi tests to record and upload (e.g. '*SettingsScreenshotTest'); empty skips"
+        type: string
+        default: ""
   workflow_call:
     inputs:
       ref:
@@ -36,6 +43,10 @@ on:
         description: "Also run the emulator smoke test"
         type: boolean
         default: false
+      screenshots:
+        description: "Gradle test filter of Roborazzi tests to record and upload (e.g. '*SettingsScreenshotTest'); empty skips"
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -84,6 +95,20 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest
+
+      # Screenshots for a UI PR: Android builds never run on Darren's machines, so CI records them.
+      - name: Record screenshots
+        if: inputs.screenshots != ''
+        env:
+          FILTER: ${{ inputs.screenshots }}
+        run: ./gradlew --no-daemon recordRoborazziDebug --tests "$FILTER"
+
+      - name: Upload screenshots
+        if: inputs.screenshots != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: app/src/test/roborazzi/
 
   rust:
     runs-on: windows-latest
