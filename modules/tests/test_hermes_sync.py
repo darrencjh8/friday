@@ -26,7 +26,11 @@ STUBS = {
         'case "$*" in *@*:*/accounts/" "*) [ -z "${RSYNC_REFUSE_PULL:-}" ] || grep -q "chmod o+x" "$CALLS" '
         '|| { echo "Permission denied (13)" >&2; exit 23; };; esac'
     ),
-    "ssh": 'echo "ssh $*" >> "$CALLS"; [ -z "${SSH_DOWN:-}" ] || exit 255',
+    # The refused-request scan prints $REFUSED, the hermes log lines a test sets.
+    "ssh": (
+        'echo "ssh $*" >> "$CALLS"; [ -z "${SSH_DOWN:-}" ] || exit 255; '
+        'case "$*" in *"Dots] Refused"*) cat "$REFUSED" 2>/dev/null || true;; esac'
+    ),
     "sqlite3": 'echo "sqlite3 $*" >> "$CALLS"',
     "curl": (
         'echo "curl $*" >> "$CALLS"; '
@@ -156,6 +160,35 @@ class SyncScriptTests(unittest.TestCase):
         message = (tmp / "mail").read_text()
         self.assertIn("Subject: Friday: the laptop is down", message)
         self.assertIn("To: owner@example.com", message)
+
+    MAIL = {"SMTP_USERNAME": "friday@example.com", "SMTP_PASSWORD": "pw", "ALERT_EMAIL_TO": "owner@example.com"}
+
+    def refused(self, count, source="203.0.113.9"):
+        path = Path(tempfile.mkdtemp()) / "refused"
+        self.addCleanup(shutil.rmtree, path.parent)
+        path.write_text("".join(
+            f"2026-11-25 04:0{i % 10}:00,000 WARNING adapter: [Dots] Refused GET /dots/ws from {source} (401)\n"
+            for i in range(count)))
+        return str(path)
+
+    def test_five_refusals_in_an_hour_email_once_with_the_sources(self):
+        calls, out, tmp = self.run_sync(runs=3, REFUSED=self.refused(5), **self.MAIL)
+        mails = [c for c in calls if "smtps://" in c]
+        self.assertEqual(1, len(mails), "one email, not one a minute")
+        message = (tmp / "mail").read_text()
+        self.assertIn("Subject: Friday: 5 refused requests to the Dots gateway in an hour", message)
+        self.assertIn("5 203.0.113.9", message)
+        self.assertIn("tailscale funnel --https=8443 off", message)
+        scans = [c for c in calls if c.startswith("ssh") and "docker logs --since 1h hermes" in c]
+        self.assertEqual(3, len(scans))
+
+    def test_four_refusals_stay_quiet(self):
+        calls, _, _ = self.run_sync(runs=2, REFUSED=self.refused(4), **self.MAIL)
+        self.assertFalse([c for c in calls if "smtps://" in c])
+
+    def test_an_unreachable_laptop_sends_no_probe_email(self):
+        calls, _, _ = self.run_sync(runs=1, SSH_DOWN="1", REFUSED=self.refused(9), **self.MAIL)
+        self.assertFalse([c for c in calls if "smtps://" in c])
 
     def test_every_server_deploy_reloads_the_sync_script(self):
         # A single-file mount pins the old sync.sh until the container is recreated.

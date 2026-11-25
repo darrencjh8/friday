@@ -14,6 +14,11 @@
 # succeeds again: to the Hermes notify webhook, and by email when SMTP_USERNAME,
 # SMTP_PASSWORD and ALERT_EMAIL_TO are set. The webhook is hermes on the laptop,
 # so when the laptop is down only the email arrives.
+#
+# It also watches the Dots gateway, which Tailscale Funnel publishes to the
+# internet: when hermes has logged DOTS_PROBE_ALERT_AT or more refused requests
+# in the last hour, it emails once with the top sources, and arms again once the
+# hour is back under the threshold.
 set -u
 
 : "${LAPTOP_LAN_HOST:?}"
@@ -28,6 +33,7 @@ HERMES_DATA_DIR="${HERMES_DATA_DIR:-/home/runner/data/hermes/data}"
 INTERVAL="${HERMES_SYNC_INTERVAL:-60}"
 SMTP_URL="${SMTP_URL:-smtps://smtp.zoho.com:465}"
 ALERT_AFTER="${HERMES_SYNC_ALERT_AFTER:-10}"
+PROBE_ALERT_AT="${DOTS_PROBE_ALERT_AT:-5}"
 # 0 runs forever; the tests set a count.
 RUNS="${HERMES_SYNC_RUNS:-0}"
 
@@ -120,6 +126,32 @@ notify() {
     || log "alert not delivered"
 }
 
+probes_alerted=0
+check_probes() {
+  # An unreachable laptop keeps the previous state: the sync alert covers it.
+  refused=$($SSH "$REMOTE" "docker logs --since 1h hermes 2>&1 | grep -F '[Dots] Refused' || true") || return 0
+  count=$(printf '%s' "$refused" | grep -c Refused)
+  if [ "$count" -lt "$PROBE_ALERT_AT" ]; then
+    probes_alerted=0
+    return 0
+  fi
+  [ "$probes_alerted" = 1 ] && return 0
+  probes_alerted=1
+  sources=$(printf '%s\n' "$refused" | sed -n 's/.* from \([^ ]*\) (.*/\1/p' | sort | uniq -c | sort -rn | head -5)
+  log "dots gateway refused $count requests in the last hour; emailing"
+  email "Friday: $count refused requests to the Dots gateway in an hour" \
+"The Dots gateway, published to the internet with Tailscale Funnel, refused $count requests in the last hour.
+
+Top sources (requests, address):
+$sources
+
+Latest:
+$(printf '%s\n' "$refused" | tail -5)
+
+If this is not your own devices with an old token, rotate DOTS_TOKEN, or close the public route on the server with: tailscale funnel --https=8443 off
+Full list on the laptop: docker logs --since 1h hermes 2>&1 | grep Refused"
+}
+
 fails=0
 run=0
 while :; do
@@ -144,6 +176,7 @@ while :; do
       fi
     fi
   fi
+  check_probes
   [ "$RUNS" -gt 0 ] && [ "$run" -ge "$RUNS" ] && exit 0
   sleep "$INTERVAL"
 done
