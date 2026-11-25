@@ -19,6 +19,10 @@ A Muse purchase request from the `muse-requests` cron ("Tap /buy_<n> or /skip_<n
 with the shopping skill, and Refuse tells it to comment and close the issue. Both are marked
 "Friday patch".
 
+Local addition: `vault_get`, `vault_add` and `vault_remove` socket frames manage Hermes' encrypted
+autofill vault (the store behind `hermes vault`): logins, cards and addresses. Only the phone may use
+them, never a paired browser; replies carry metadata only and no value is ever logged.
+
 Local addition: `release_proxy.py` and the `/dots/releases/*` routes relay the private
 `DOTS_UPDATE_REPO` release to the Android updater (master token), and `/dots/desktop/latest` and
 `/dots/desktop/assets/{id}` serve the newest signed `desktop-v*` installer to the Windows app's
