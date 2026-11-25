@@ -25,4 +25,7 @@ Local addition: `release_proxy.py` and the `/dots/releases/*` routes relay the p
 Tauri updater (master or web token), as a Tauri manifest (204 when there is none).
 
 It stays dormant until the `DOTS_TOKEN` deploy secret is set. Browsers are refused unless
-their origin is in the `DOTS_WEB_ORIGINS` deploy secret. See `docs/operations.md` for how the port is exposed.
+their origin is in the `DOTS_WEB_ORIGINS` deploy secret. `/dots/health` is the only route open without a
+token, and it names the answering profile (`agent_id`) only to a token holder. Every refused request is
+logged with the address Tailscale saw (the last `X-Forwarded-For` entry), so probing shows in the logs.
+See `docs/operations.md` for how the port is exposed.
