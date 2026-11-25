@@ -28,4 +28,6 @@ It stays dormant until the `DOTS_TOKEN` deploy secret is set. Browsers are refus
 their origin is in the `DOTS_WEB_ORIGINS` deploy secret. `/dots/health` is the only route open without a
 token, and it names the answering profile (`agent_id`) only to a token holder. Every refused request is
 logged with the address Tailscale saw (the last `X-Forwarded-For` entry), so probing shows in the logs.
+No reply names the server software (`Server: dots`) or echoes a malformed request back, and a request
+aiohttp cannot parse logs one line rather than a traceback.
 See `docs/operations.md` for how the port is exposed.
