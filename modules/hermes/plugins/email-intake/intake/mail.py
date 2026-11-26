@@ -32,7 +32,8 @@ class Parsed:
 
 def _html_to_text(markup: str) -> str:
     text = re.sub(r"(?is)<(script|style).*?</\1>", " ", markup)
-    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>", "\n", text)
+    text = re.sub(r"(?i)<li\b[^>]*>", "\n• ", text)  # list items stay readable as bullets
+    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", text)
     return _SPACE.sub(" ", html.unescape(_TAG.sub(" ", text)))
 
 

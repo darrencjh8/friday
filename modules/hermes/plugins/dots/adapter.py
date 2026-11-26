@@ -191,6 +191,14 @@ _OFFERS = {  # verb -> card prefix, title, Approve label, Refuse label, Approve 
 _OFFER_KIND = {prefix: verb for verb, (prefix, *_rest) in _OFFERS.items()}
 
 
+# Friday patch: an email-intake review request ("Book it with /replay_<id>_tx ... or ignore it.") is
+# shown as a choice card. A choice sends /replay_<id>_<tx|stmt|pf> as the owner, once, for the
+# intake-commands plugin to answer; Ignore sends nothing.
+_REVIEW_RE = re.compile(r" ?Book it with /replay_([0-9a-f]{10})_tx .*?or ignore it\.")
+_REVIEW_CARD = "replay_"
+_REVIEW_CHOICES = {"Transaction": "tx", "Statement": "stmt", "Portfolio": "pf", "Ignore": None}
+
+
 def _offer_kind(card_id: str) -> Optional[str]:
     return next((verb for prefix, verb in _OFFER_KIND.items() if card_id.startswith(prefix)), None)
 
@@ -1327,6 +1335,8 @@ class DotsAdapter(BasePlatformAdapter):
             await self._on_user_reaction(frame)
         elif kind == "approval":
             await self._on_approval(frame)
+        elif kind == "clarify" and str(frame.get("clarify_id", "")).startswith(_REVIEW_CARD):
+            await self._on_review(str(frame["clarify_id"]), str(frame.get("response", "")))
         elif kind == "clarify":
             from tools.clarify_gateway import resolve_gateway_clarify
             resolve_gateway_clarify(str(frame.get("clarify_id", "")), str(frame.get("response", "")))
@@ -2269,6 +2279,25 @@ class DotsAdapter(BasePlatformAdapter):
     async def _add_reaction(self, chat_id: str, message_id: str, emoji: str) -> None:
         await self._push({"type": "reaction", "message_id": message_id, "emoji": emoji})
 
+    async def _on_review(self, card_id: str, response: str) -> None:
+        """Friday patch: answer an email-intake review card once."""
+        card = self._history.get(card_id)
+        if card is None or card.get("type") != "clarify" or card.get("answered") or response not in _REVIEW_CHOICES:
+            return
+        self._history.update(card_id, answered=response)
+        choice = _REVIEW_CHOICES[response]
+        if choice is None:
+            return
+        event = MessageEvent(
+            text=f"/{card_id}_{choice}", message_type=MessageType.TEXT,
+            source=self._source(card.get("chat") or OWNER), message_id=uuid.uuid4().hex,
+            timestamp=datetime.now(tz=UTC))
+        # As for offer cards: a tap mid-turn skips pre_gateway_dispatch, so run the hook here.
+        runner = getattr(self, "gateway_runner", None)
+        if runner is not None and await runner._hm_pre_gateway_dispatch_hook(event, event.source) is None:
+            return
+        await self.handle_message(event)
+
     async def _remove_reaction(self, chat_id: str, message_id: str) -> None:
         await self._push({"type": "reaction", "message_id": message_id, "emoji": None})
 
@@ -2292,6 +2321,16 @@ class DotsAdapter(BasePlatformAdapter):
                 })
                 await self._push(event)
                 self._notify("approval", card, event["command"], chat)
+            return SendResult(success=True, message_id=card)
+        review = _REVIEW_RE.search(content)
+        if review:  # Friday patch: review cards
+            card = _REVIEW_CARD + review.group(1)
+            event = self._history.add({
+                "type": "clarify", "id": card, "clarify_id": card, "ts": _now_ms(), "turn": None, "chat": chat,
+                "question": _REVIEW_RE.sub("", content).strip(), "choices": list(_REVIEW_CHOICES),
+            })
+            await self._push(event)
+            self._notify("clarify", card, event["question"], chat)
             return SendResult(success=True, message_id=card)
         if await self._attach_transcript(chat, content):
             return SendResult(success=True, message_id=self._turns.get(chat))

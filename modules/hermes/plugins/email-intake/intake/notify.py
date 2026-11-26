@@ -7,13 +7,12 @@ commands for uncertain mail, a blocked notice for a password-protected
 statement, a notify rule's message, and a failure notice once retries are
 spent. Shadow mode queues nothing.
 
-Learning offers (/remember_, /forget_) go to Dots verbatim through the
-Hermes `learning-offer` webhook, where the adapter shows them as an approval
-card. Review requests (/replay_) go straight to the Bot API sendMessage:
-Hermes owns getUpdates, sendMessage does not conflict with it, and those
-commands are handled only on Telegram. Plain text, never parse_mode. Every
-other message goes to Dots through the Hermes `notify` webhook, the same
-signed route expense-tracker's notify_user uses.
+Learning offers (/remember_, /forget_) and review requests (/replay_) go to
+Dots verbatim through the Hermes `learning-offer` webhook, where the adapter
+shows an offer as an approval card and a review request as a choice card.
+Every other message goes to Dots through the Hermes `notify` webhook, the
+same signed route expense-tracker's notify_user uses. Telegram (the Bot API
+sendMessage, plain text) is only the fallback when no Dots route is set.
 """
 
 import hashlib
@@ -32,7 +31,7 @@ SENT, RETRY, REJECTED = "sent", "retry", "rejected"
 REPLAY_ID_LENGTH = 10
 TELEGRAM_LIMIT = 4000
 COMMAND = re.compile(r"/(remember|forget|replay)_")
-OFFER = re.compile(r"/(remember|forget)_")
+BULLET = re.compile(r"^\s*[•·*\-]\s+(\S.*)$", re.MULTILINE)
 
 
 def replay_id(evidence_hash):
@@ -54,9 +53,15 @@ def offer_text(candidate):
             f"Tap /remember_{offer_id} or /forget_{offer_id}. Nothing is saved until you choose.")
 
 
-def review_text(domain, subject, evidence_hash):
+def _gist(text):
+    """What the email is about when it lists it, e.g. DBS's "Unit Trust/ETF: Redemption"."""
+    items = [redact.scrub(" ".join(m.split()))[:80] for m in BULLET.findall(str(text or ""))[:3]]
+    return f" ({'; '.join(items)})" if items else ""
+
+
+def review_text(domain, subject, evidence_hash, text=""):
     rid = replay_id(evidence_hash)
-    return (f'Needs review: email from {domain or "an unknown sender"}, "{_subject(subject)}". '
+    return (f'Needs review: email from {domain or "an unknown sender"}, "{_subject(subject)}"{_gist(text)}. '
             f"Book it with /replay_{rid}_tx (transaction), /replay_{rid}_stmt (statement) "
             f"or /replay_{rid}_pf (portfolio), or ignore it.")
 
@@ -158,9 +163,9 @@ class WebhookSender:
 class Outbox:
     """Delivers queued messages in order; each is sent at most once.
 
-    Learning offers go to the `learning-offer` route when it is configured,
-    other messages with a tap command to Telegram, the rest to Dots when it is
-    configured. ponytail: one ordered queue for all, so an outage on any
+    Messages with a tap command go to the `learning-offer` route when it is
+    configured, the rest to Dots when it is configured, and anything without
+    its route to Telegram. ponytail: one ordered queue for all, so an outage on any
     holds the others back until the next run; split the queue per channel if
     that ever bites.
     """
@@ -175,12 +180,8 @@ class Outbox:
         """An outage keeps every message for later, in order; a rejected message is dropped and logged."""
         sent = 0
         for key, text, _attempts in self._journal.unsent_notifications():
-            if self._offers is not None and OFFER.search(text):
-                outcome = self._offers(text, request_id=key)
-            elif self._dots is None or COMMAND.search(text):
-                outcome = self._send(text)
-            else:
-                outcome = self._dots(text, request_id=key)
+            route = self._offers if COMMAND.search(text) else self._dots
+            outcome = self._send(text) if route is None else route(text, request_id=key)
             if outcome == SENT:
                 self._journal.mark_notification_sent(key)
                 sent += 1

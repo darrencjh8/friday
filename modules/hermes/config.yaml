@@ -308,7 +308,8 @@ platforms:
                         chat_id: "${DOTS_HOME_CHANNEL}"
                 # Expense-tracker "remember this mapping?" offers, verbatim: the
                 # model never rewrites the /remember_<id> command, and the Dots
-                # adapter turns it into an approval card.
+                # adapter turns it into an approval card. Email-intake review
+                # requests (/replay_<id>_...) use it too and become choice cards.
                 learning-offer:
                     secret: ${HERMES_WEBHOOK_SECRET}
                     prompt: "{message}"

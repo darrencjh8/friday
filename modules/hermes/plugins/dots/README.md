@@ -19,6 +19,11 @@ A Muse purchase request from the `muse-requests` cron ("Tap /buy_<n> or /skip_<n
 with the shopping skill, and Refuse tells it to comment and close the issue. Both are marked
 "Friday patch".
 
+Local change: `DotsAdapter.send` shows an email-intake review request ("Book it with /replay_<id>_tx
+... or ignore it.") as a `replay_<id>` choice card, and `_on_review` answers it once: Transaction,
+Statement or Portfolio sends `/replay_<id>_<tx|stmt|pf>` as the owner for the `intake-commands`
+plugin, running its hook the same way; Ignore sends nothing. Marked "Friday patch".
+
 Local addition: `vault_get`, `vault_add` and `vault_remove` socket frames manage Hermes' encrypted
 autofill vault (the store behind `hermes vault`): logins, cards and addresses. Only the phone may use
 them, never a paired browser; replies carry metadata only and no value is ever logged.
