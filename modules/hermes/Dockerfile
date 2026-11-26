@@ -1,4 +1,4 @@
-FROM nousresearch/hermes-agent:stable@sha256:276d44685c65c0cb2a25f190b63c65c8906f9dc76486fb1c05ae71b5826bda08
+FROM nousresearch/hermes-agent:stable@sha256:3e9fe4c6ef36490f43aa0d0d80f9df64e9c92a576eee3042f1a97c8813c05355
 # gh and ntn live in the persisted /opt/data volume, installed by the
 # "Ensure Hermes container tooling" step in .github/workflows/deploy.yml, so
 # rebuilding this image does not reinstall them.
