@@ -63,6 +63,7 @@ class ShadowRunner:
                 "proposed": result.proposed,
                 "proposed_subtype": result.proposed_subtype,
                 "kind": result.kind,
+                "document": result.document,
                 "sender_domain": parsed.sender_domain,
                 "auth": parsed.auth,
             }

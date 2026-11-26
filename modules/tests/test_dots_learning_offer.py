@@ -117,5 +117,45 @@ class LearningOfferCardTest(unittest.TestCase):
         self.assertIn("buy nothing", self.handled[0].text)
 
 
+REVIEW = ('Needs review: email from dbs.com, "Your eDocument(s) are ready for viewing" (Unit Trust/ETF: Redemption). '
+          "Book it with /replay_3830f7bcc6_tx (transaction), /replay_3830f7bcc6_stmt (statement) "
+          "or /replay_3830f7bcc6_pf (portfolio), or ignore it.")
+
+
+class ReviewCardTest(LearningOfferCardTest):
+    """An email-intake review request becomes a choice card; a choice sends /replay_<id>_<kind> once."""
+
+    def answer(self, response, card="replay_3830f7bcc6"):
+        asyncio.run(self.adapter._on_review(card, response))
+
+    def test_a_review_request_becomes_a_choice_card(self):
+        self.send(REVIEW)
+        card = self.pushed[0]
+        self.assertEqual((card["type"], card["clarify_id"]), ("clarify", "replay_3830f7bcc6"))
+        self.assertEqual(card["question"], 'Needs review: email from dbs.com, "Your eDocument(s) are ready for '
+                                           'viewing" (Unit Trust/ETF: Redemption).')
+        self.assertEqual(card["choices"], ["Transaction", "Statement", "Portfolio", "Ignore"])
+        self.assertEqual(self.notified[0][:2], ("clarify", "replay_3830f7bcc6"))
+
+    def test_a_choice_sends_the_replay_command_once(self):
+        self.send(REVIEW)
+        self.answer("Statement")
+        self.answer("Portfolio")
+        self.assertEqual([e.text for e in self.handled], ["/replay_3830f7bcc6_stmt"])
+        self.assertEqual(self.handled[0].source, {"chat_id": "owner"})
+
+    def test_ignore_sends_nothing_and_closes_the_card(self):
+        self.send(REVIEW)
+        self.answer("Ignore")
+        self.answer("Transaction")
+        self.assertEqual(self.handled, [])
+
+    def test_an_unknown_card_or_choice_does_nothing(self):
+        self.answer("Transaction", card="replay_ffffffffff")
+        self.send(REVIEW)
+        self.answer("Pizza")
+        self.assertEqual(self.handled, [])
+
+
 if __name__ == "__main__":
     unittest.main()

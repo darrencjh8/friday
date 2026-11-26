@@ -1,4 +1,4 @@
-"""Email-intake Telegram messages and /replay (issue #783, cutover PR 2).
+"""Email-intake owner messages and /replay (issue #783, cutover PR 2).
 
 Synthetic mail only: no real sender, merchant, person or account data.
 """
@@ -66,6 +66,21 @@ class ComposeTest(unittest.TestCase):
         self.assertNotIn("0000000000000000", text)
         for suffix in ("tx", "stmt", "pf"):
             self.assertIn(f"/replay_0123456789_{suffix}", text)
+
+    def test_review_notice_names_the_documents_the_email_lists(self):
+        body = "Dear Customer,\nYour eDocument(s) are ready for viewing:\n • Unit Trust/ETF: Redemption \nTo view..."
+        text = notify.review_text("dbs.com", "Your eDocument(s) are ready for viewing", "0123456789abcdef", body)
+        self.assertIn('"Your eDocument(s) are ready for viewing" (Unit Trust/ETF: Redemption).', text)
+
+    def test_review_notice_says_what_jev_thinks_the_document_is(self):
+        text = notify.review_text("uob.com.sg", "eStatement ready", "0123456789abcdef", "",
+                                  "a credit card statement")
+        self.assertIn('"eStatement ready". It looks like a credit card statement. Book it with', text)
+
+    def test_html_list_items_become_bullets(self):
+        from intake import mail
+        text = mail._html_to_text("<p>Ready:</p><ul><li><b>Unit Trust/ETF: Redemption</b></li></ul><p>Login</p>")
+        self.assertIn("• Unit Trust/ETF: Redemption", text)
 
 
 class LiveMessagesTest(unittest.TestCase):
@@ -157,8 +172,9 @@ class LiveMessagesTest(unittest.TestCase):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("uncertain"))
         self.run_all(h)
         self.assertEqual(h.tracker.calls, [])
-        self.assertEqual(len(self.telegram.sent), 1)
-        self.assertIn("/replay_", self.telegram.sent[0])
+        self.assertEqual(self.telegram.sent, [])
+        self.assertEqual(len(self.offers.sent), 1)
+        self.assertIn("/replay_", self.offers.sent[0])
 
     def test_an_encrypted_statement_is_reported_as_blocked(self):
         from test_email_intake import ENCRYPTED_PDF
@@ -167,14 +183,14 @@ class LiveMessagesTest(unittest.TestCase):
         self.assertEqual(len(self.dots.sent), 1)
         self.assertIn("password-protected", self.dots.sent[0])
 
-    def test_a_telegram_failure_is_retried_until_delivered_once(self):
+    def test_a_review_request_failure_is_retried_until_delivered_once(self):
         h = self.harness(StoringImap({"INBOX": [(5, make_mail())]}), good_answer("uncertain"))
-        self.telegram.fail = 1
+        self.offers.fail = 1
         self.run_all(h)
-        self.assertEqual(self.telegram.sent, [])
+        self.assertEqual(self.offers.sent, [])
         h.outbox.flush()
         h.outbox.flush()
-        self.assertEqual(len(self.telegram.sent), 1)
+        self.assertEqual(len(self.offers.sent), 1)
 
     def test_a_crash_after_booking_still_marks_read_and_reports_next_run(self):
         imap = StoringImap({"INBOX": [(5, make_mail())]})
@@ -282,7 +298,7 @@ class OutboxTest(unittest.TestCase):
         self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
         self.assertEqual(len(telegram.sent), 2)
 
-    def test_offers_go_to_the_offer_route_and_replays_stay_on_telegram(self):
+    def test_offers_and_replays_go_to_the_offer_route(self):
         telegram, dots, offers = FakeTelegram(), FakeTelegram(), FakeTelegram()
         outbox = notify.Outbox(self.journal, telegram, dots=dots, offers=offers)
         self.journal.queue_notification("a", "S$5.00 at Alpha Cafe, logged")
@@ -290,9 +306,10 @@ class OutboxTest(unittest.TestCase):
         self.journal.queue_notification("c", "Book it with /replay_0123456789_tx")
         outbox.flush()
         self.assertEqual(dots.sent, ["S$5.00 at Alpha Cafe, logged"])
-        self.assertEqual(offers.sent, ["Tap /remember_abcd1234 or /forget_abcd1234."])
-        self.assertEqual(offers.request_ids, ["b"])
-        self.assertEqual(telegram.sent, ["Book it with /replay_0123456789_tx"])
+        self.assertEqual(offers.sent, ["Tap /remember_abcd1234 or /forget_abcd1234.",
+                                       "Book it with /replay_0123456789_tx"])
+        self.assertEqual(offers.request_ids, ["b", "c"])
+        self.assertEqual(telegram.sent, [])
 
     def test_dots_messages_carry_their_journal_key_as_request_id(self):
         # #238: a retry after an ambiguous failure reuses the id, so the gateway drops the duplicate.
@@ -438,6 +455,11 @@ class ReplayCommandTest(unittest.TestCase):
         self.assertEqual(result["action"], "skip")
         self.assertEqual(self.replays(), [(self.evidence, "actual_budget", "statement")])
         self.assertIn("statement", reply)
+
+    def test_the_dots_owner_can_replay(self):
+        result, _ = self.dispatch("/replay_0123456789_pf", platform="dots", chat_id="owner", user_id="owner")
+        self.assertEqual(result["action"], "skip")
+        self.assertEqual(self.replays(), [(self.evidence, "portfolio", "transaction")])
 
     def test_other_chats_users_and_text_pass_through(self):
         self.assertIsNone(self.dispatch("/replay_0123456789_tx", chat_id="999")[0])

@@ -1,12 +1,12 @@
 """Book an email intake could not classify, as the owner chose (#783, cutover PR 2).
 
-Live intake sends a review request for uncertain mail with three tappable
-commands: /replay_<id>_tx, /replay_<id>_stmt and /replay_<id>_pf. The command
+Live intake sends a review request for uncertain mail, a choice card on Dots,
+for three commands: /replay_<id>_tx, /replay_<id>_stmt and /replay_<id>_pf. The command
 is handled here, before the model sees it: it only queues the owner's choice
 in the intake journal. The intake service books it on its next run (one signed
 tracker request, exactly once) and reports the result like any other email.
 
-Only the home chat and an allowed user can replay, only mail still waiting for
+Only the Dots owner, or the Telegram home chat and an allowed user, can replay, only mail still waiting for
 review can be replayed, and nothing is queued while intake is in shadow mode.
 """
 
@@ -34,6 +34,9 @@ _FAILED = "Something went wrong."
 
 def _is_home_chat(source) -> bool:
     platform = getattr(getattr(source, "platform", None), "value", None)
+    # Dots has one user, the owner: its review cards send the command as the owner.
+    if platform == "dots":
+        return str(getattr(source, "user_id", "")) == "owner"
     home = os.environ.get("TELEGRAM_HOME_CHANNEL", "")
     if platform != "telegram" or not home or str(getattr(source, "chat_id", "")) != home:
         return False

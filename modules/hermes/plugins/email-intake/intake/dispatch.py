@@ -344,7 +344,8 @@ class Dispatcher:
             if destination == "notify":
                 text = (decision.get("message") or "")[:notify.TELEGRAM_LIMIT]
             elif destination == "uncertain":
-                text = notify.review_text(parsed.sender_domain, parsed.subject, evidence_hash)
+                text = notify.review_text(parsed.sender_domain, parsed.subject, evidence_hash, parsed.text,
+                                          decision.get("document", ""))
             else:
                 text = notify.blocked_text(parsed.sender_domain, parsed.subject)
             if text:
