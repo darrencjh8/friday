@@ -72,6 +72,11 @@ class ComposeTest(unittest.TestCase):
         text = notify.review_text("dbs.com", "Your eDocument(s) are ready for viewing", "0123456789abcdef", body)
         self.assertIn('"Your eDocument(s) are ready for viewing" (Unit Trust/ETF: Redemption).', text)
 
+    def test_review_notice_says_what_jev_thinks_the_document_is(self):
+        text = notify.review_text("uob.com.sg", "eStatement ready", "0123456789abcdef", "",
+                                  "a credit card statement")
+        self.assertIn('"eStatement ready". It looks like a credit card statement. Book it with', text)
+
     def test_html_list_items_become_bullets(self):
         from intake import mail
         text = mail._html_to_text("<p>Ready:</p><ul><li><b>Unit Trust/ETF: Redemption</b></li></ul><p>Login</p>")

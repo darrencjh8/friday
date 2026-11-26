@@ -59,9 +59,10 @@ def _gist(text):
     return f" ({'; '.join(items)})" if items else ""
 
 
-def review_text(domain, subject, evidence_hash, text=""):
+def review_text(domain, subject, evidence_hash, text="", document=""):
     rid = replay_id(evidence_hash)
-    return (f'Needs review: email from {domain or "an unknown sender"}, "{_subject(subject)}"{_gist(text)}. '
+    looks = f" It looks like {document}." if document else ""
+    return (f'Needs review: email from {domain or "an unknown sender"}, "{_subject(subject)}"{_gist(text)}.{looks} '
             f"Book it with /replay_{rid}_tx (transaction), /replay_{rid}_stmt (statement) "
             f"or /replay_{rid}_pf (portfolio), or ignore it.")
 

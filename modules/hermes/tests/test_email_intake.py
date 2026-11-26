@@ -233,6 +233,23 @@ class JevTest(unittest.TestCase):
         self.assertEqual(decision.reason, "error")
         self.assertEqual(len(fake.calls), jev.MAX_ATTEMPTS)
 
+    def test_review_mail_is_labelled_with_the_document_kind(self):
+        answers = {**good_answer(conf=0.5), "document": {"choice": "fund_transaction"}}
+        decision, fake = self.ask(answers)
+        self.assertEqual(decision.destination, "uncertain")
+        self.assertIn("unit trust", decision.document)
+        self.assertIn("document", fake.calls[1]["questions"])
+        self.assertIn("other", fake.calls[1]["questions"]["document"]["criteria"])
+
+    def test_a_routed_email_is_not_asked_what_it_is(self):
+        decision, fake = self.ask(good_answer())
+        self.assertEqual((decision.document, len(fake.calls)), ("", 1))
+
+    def test_an_unknown_or_missing_document_answer_gives_no_label(self):
+        for document in ({"choice": "other"}, {"choice": "pizza"}, "x", None):
+            decision, _ = self.ask({**good_answer(conf=0.5), "document": document})
+            self.assertEqual(decision.document, "", document)
+
     def test_a_transient_error_then_success(self):
         decision, fake = self.ask(good_answer(), fail=1)
         self.assertEqual(decision.destination, "actual_budget")

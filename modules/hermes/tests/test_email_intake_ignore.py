@@ -141,7 +141,8 @@ class IgnoreRuleRunTest(unittest.TestCase):
         h.run()
         h.outbox.flush()
         self.assertEqual([s for _, s, _ in self.statuses(h)], ["shadow_uncertain"] * 4)
-        self.assertEqual(len(self.jev.calls), 4)
+        # Each goes to review, so Jev is also asked what the document is.
+        self.assertEqual(len(self.jev.calls), 8)
         self.assertEqual(len(self.sent), 4)
         self.assertTrue(all(t.startswith("Needs review") for t in self.sent))
 
